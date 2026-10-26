@@ -11,6 +11,7 @@
 ![Storage](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![Telegram](https://img.shields.io/badge/output-Telegram%20Bot-26A5E4?logo=telegram&logoColor=white)
 ![Memory](https://img.shields.io/badge/idle%20RSS-~19%20MB-success)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 </div>
 
@@ -203,3 +204,7 @@ deploy/               systemd 服务、配置模板、安装脚本
 ```
 
 </details>
+
+## 许可证
+
+[MIT](LICENSE)

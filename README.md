@@ -4,13 +4,14 @@
 
 **A small, self-hosted message gateway: collect notifications from your phone, servers and scripts, and deliver them to Telegram — reliably.**
 
-English · [简体中文](README.zh-CN.md)
+English · [Simplified Chinese](README.zh-CN.md)
 
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20systemd-FCC624?logo=linux&logoColor=black)
 ![Storage](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![Telegram](https://img.shields.io/badge/output-Telegram%20Bot-26A5E4?logo=telegram&logoColor=white)
 ![Memory](https://img.shields.io/badge/idle%20RSS-~19%20MB-success)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 </div>
 
@@ -46,11 +47,13 @@ flowchart LR
 
 ## How a message looks in Telegram
 
+The bot UI and button labels are in Chinese; they are translated here.
+
 ```
 ❗ China Merchants Bank
 Your verification code is 123456, valid for 5 minutes.
 
- [ 📱 iPhone ]  [ 💬 短信 · 验证码 ]      ← inline buttons; tap for details
+ [ 📱 iPhone ]  [ 💬 SMS · Verification code ]      ← inline buttons; tap for details
 ```
 
 ## Quick start
@@ -82,10 +85,10 @@ curl "https://your.domain/v1/messages?wait=8" \
 ```
 
 ```json
-{ "ok": true, "message": "已送达 Telegram", "status": "delivered", "delivered": true, "id": "m_01JB7Q..." }
+{ "ok": true, "status": "delivered", "delivered": true, "duplicate": false, "id": "m_01JB7Q..." }
 ```
 
-`ok: true` only means *accepted*. Check `delivered` to know whether Telegram actually received the message.
+The real response also carries `message` and `status_text`, short human-readable summaries in Chinese. `ok: true` only means *accepted*. Check `delivered` to know whether Telegram actually received the message.
 
 ## Sending messages
 
@@ -133,7 +136,7 @@ All settings live in `/etc/msggw/msggw.env` (see [`deploy/msggw.env.example`](de
 | `MSGGW_RETENTION_DAYS` | `30` | Metadata retention (bodies are deleted right after delivery) |
 | `MSGGW_DEEPSEEK_API_KEY` | — | Enables the SMS filter |
 
-Full list: [docs/deployment.md](docs/deployment.md#3-配置项).
+Full list: [docs/deployment.md](docs/deployment.md) (section 3).
 
 ## CLI
 
@@ -201,3 +204,7 @@ deploy/               systemd unit, config template, install script
 ```
 
 </details>
+
+## License
+
+[MIT](LICENSE)
