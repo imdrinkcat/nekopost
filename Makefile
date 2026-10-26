@@ -4,7 +4,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 .PHONY: build test race vet install logs
 
 build:
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/msggw ./cmd/msggw
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/nekopost ./cmd/nekopost
 
 test:
 	go test ./...
@@ -20,4 +20,4 @@ install:
 	./deploy/install.sh
 
 logs:
-	journalctl -u msggw -f
+	journalctl -u nekopost -f

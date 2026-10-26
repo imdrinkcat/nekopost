@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/model"
-	"msggw/internal/store"
+	"nekopost/internal/health"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
 )
 
 // DefaultBackoff is the delay before retry n (1-based); the last value

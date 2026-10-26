@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/render"
-	"msggw/internal/store"
-	"msggw/internal/telegram"
+	"nekopost/internal/health"
+	"nekopost/internal/render"
+	"nekopost/internal/store"
+	"nekopost/internal/telegram"
 )
 
 // TelegramChannel delivers to Telegram chats via sendMessage.

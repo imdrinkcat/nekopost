@@ -7,20 +7,20 @@ import (
 	"log/slog"
 	"time"
 
-	"msggw/internal/bot"
-	"msggw/internal/config"
-	"msggw/internal/delivery"
-	"msggw/internal/filter"
-	"msggw/internal/health"
-	"msggw/internal/httpapi"
-	"msggw/internal/model"
-	"msggw/internal/ratelimit"
-	"msggw/internal/router"
-	"msggw/internal/sdnotify"
-	"msggw/internal/status"
-	"msggw/internal/store"
-	"msggw/internal/sysinfo"
-	"msggw/internal/telegram"
+	"nekopost/internal/bot"
+	"nekopost/internal/config"
+	"nekopost/internal/delivery"
+	"nekopost/internal/filter"
+	"nekopost/internal/health"
+	"nekopost/internal/httpapi"
+	"nekopost/internal/model"
+	"nekopost/internal/ratelimit"
+	"nekopost/internal/router"
+	"nekopost/internal/sdnotify"
+	"nekopost/internal/status"
+	"nekopost/internal/store"
+	"nekopost/internal/sysinfo"
+	"nekopost/internal/telegram"
 )
 
 // Run starts the service and blocks until ctx is cancelled.
@@ -179,7 +179,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	go watchdog(runCtx, st, tracker, log)
 
 	_ = sdnotify.Ready()
-	log.Info("msggw started", "version", version, "tls", cfg.TLSMode, "domain", cfg.Domain,
+	log.Info("nekopost started", "version", version, "tls", cfg.TLSMode, "domain", cfg.Domain,
 		"start_count", startInfo.StartCount, "filter", cfg.FilterEnabled())
 
 	<-ctx.Done()

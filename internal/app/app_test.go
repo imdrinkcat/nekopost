@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"msggw/internal/auth"
-	"msggw/internal/config"
-	"msggw/internal/model"
-	"msggw/internal/store"
-	"msggw/internal/testutil/faketg"
+	"nekopost/internal/auth"
+	"nekopost/internal/config"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
+	"nekopost/internal/testutil/faketg"
 )
 
 func freeAddr(t *testing.T) string {
@@ -52,12 +52,12 @@ func TestServiceLifecycle(t *testing.T) {
 	addr := freeAddr(t)
 	cfg, err := config.Load(func(k string) string {
 		return map[string]string{
-			"MSGGW_TLS_MODE":           "off",
-			"MSGGW_HTTP_ADDR":          addr,
-			"MSGGW_DATA_DIR":           dir,
-			"MSGGW_TELEGRAM_BOT_TOKEN": faketg.Token,
-			"MSGGW_TELEGRAM_ADMIN_IDS": "1001",
-			"MSGGW_TELEGRAM_API_BASE":  tg.URL,
+			"NEKOPOST_TLS_MODE":           "off",
+			"NEKOPOST_HTTP_ADDR":          addr,
+			"NEKOPOST_DATA_DIR":           dir,
+			"NEKOPOST_TELEGRAM_BOT_TOKEN": faketg.Token,
+			"NEKOPOST_TELEGRAM_ADMIN_IDS": "1001",
+			"NEKOPOST_TELEGRAM_API_BASE":  tg.URL,
 		}[k]
 	})
 	if err != nil {
@@ -115,7 +115,7 @@ func TestServiceLifecycle(t *testing.T) {
 	// Restart: previous state survives.
 	cancel, done = start()
 	defer func() { cancel(); <-done }()
-	st2, _ := store.Open(filepath.Join(dir, "msggw.db"))
+	st2, _ := store.Open(filepath.Join(dir, "nekopost.db"))
 	defer st2.Close()
 	stats, _ := st2.Stats(context.Background(), time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 	if stats.Total.Delivered != 1 {
@@ -133,8 +133,8 @@ func TestRecoveryAfterCrash(t *testing.T) {
 	dir := t.TempDir()
 	addr := freeAddr(t)
 	cfg, _ := config.Load(func(k string) string {
-		return map[string]string{"MSGGW_TLS_MODE": "off", "MSGGW_HTTP_ADDR": addr, "MSGGW_DATA_DIR": dir,
-			"MSGGW_TELEGRAM_BOT_TOKEN": faketg.Token, "MSGGW_TELEGRAM_ADMIN_IDS": "1001", "MSGGW_TELEGRAM_API_BASE": tg.URL}[k]
+		return map[string]string{"NEKOPOST_TLS_MODE": "off", "NEKOPOST_HTTP_ADDR": addr, "NEKOPOST_DATA_DIR": dir,
+			"NEKOPOST_TELEGRAM_BOT_TOKEN": faketg.Token, "NEKOPOST_TELEGRAM_ADMIN_IDS": "1001", "NEKOPOST_TELEGRAM_API_BASE": tg.URL}[k]
 	})
 	st, _ := store.Open(cfg.DBPath())
 	now := time.Now()

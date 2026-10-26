@@ -1,4 +1,4 @@
-module msggw
+module nekopost
 
 go 1.27
 

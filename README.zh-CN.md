@@ -1,8 +1,8 @@
 <div align="center">
 
-# 📨 msggw · 个人消息网关
+# 🐈 Nekopost · 猫邮局
 
-**自托管的轻量消息网关：统一接收手机、服务器、脚本发来的消息，可靠地转发到 Telegram。**
+**你的私人猫邮差。** 自托管的轻量消息网关：统一接收手机、服务器、脚本发来的短信、告警和输出，可靠地转发到 Telegram。
 
 [English](README.md) · 简体中文
 
@@ -19,7 +19,7 @@
 
 ## 为什么做这个
 
-把短信、告警转发到 Telegram，随手写个脚本就能做到，但很难放心用。Telegram 一出故障，消息可能悄悄丢掉；没发出去，脚本也可能报告「已发送」。**msggw** 是一个认真对待投递的 Go 程序：
+把短信、告警转发到 Telegram，随手写个脚本就能做到，但很难放心用。Telegram 一出故障，消息可能悄悄丢掉；没发出去，脚本也可能报告「已发送」。**Nekopost**（neko 是日语的「猫」）是一个认真对待投递的 Go 程序：
 
 - 每条消息先存进数据库，再回应客户端。
 - 一直重试，直到 Telegram 确认收到。
@@ -30,7 +30,7 @@ flowchart LR
     A["📱 iPhone 快捷指令"] -->|HTTPS + 凭证| G
     B["🖥 Linux / cron"] -->|HTTPS + 凭证| G
     C["⚙️ 其他程序"] -->|HTTPS + 凭证| G
-    G["msggw<br/>认证 · 去重 · 持久化 · 过滤 · 重试"] --> T["✈️ Telegram"]
+    G["nekopost<br/>认证 · 去重 · 持久化 · 过滤 · 重试"] --> T["✈️ Telegram"]
     T <-->|管理菜单| G
 ```
 
@@ -63,18 +63,18 @@ flowchart LR
 **环境要求**：带 systemd 的 Linux；编译需要 Go 1.27 或更高版本；一个解析到本机的域名；开放 80 和 443 端口（申请 Let's Encrypt 证书需要 80）。
 
 ```bash
-# 1. 编译并安装（创建 msggw 用户、systemd 服务和 /etc/msggw/msggw.env）
+# 1. 编译并安装（创建 nekopost 用户、systemd 服务和 /etc/nekopost/nekopost.env）
 sudo ./deploy/install.sh
 
 # 2. 填写配置：域名、Telegram Bot Token（找 @BotFather 创建）、你的 Telegram 用户 ID
-sudo nano /etc/msggw/msggw.env
-sudo systemctl restart msggw
+sudo nano /etc/nekopost/nekopost.env
+sudo systemctl restart nekopost
 
 # 3. 自检并发送测试消息
-sudo msggw check --send-test
+sudo nekopost check --send-test
 
 # 4. 创建来源，记下凭证（只显示一次）
-sudo msggw source add iphone --name iPhone --icon 📱
+sudo nekopost source add iphone --name iPhone --icon 📱
 ```
 
 发送第一条消息：
@@ -114,7 +114,7 @@ curl "https://your.domain/v1/messages?wait=8" \
 在配置里加上 DeepSeek API Key 即可启用：
 
 ```bash
-MSGGW_DEEPSEEK_API_KEY=sk-...
+NEKOPOST_DEEPSEEK_API_KEY=sk-...
 ```
 
 | 类别 | 默认处理 |
@@ -126,28 +126,28 @@ MSGGW_DEEPSEEK_API_KEY=sk-...
 
 ## 配置
 
-所有配置都在 `/etc/msggw/msggw.env`（模板见 [`deploy/msggw.env.example`](deploy/msggw.env.example)）：
+所有配置都在 `/etc/nekopost/nekopost.env`（模板见 [`deploy/nekopost.env.example`](deploy/nekopost.env.example)）：
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `MSGGW_DOMAIN` | — | 申请 Let's Encrypt 证书的域名 |
-| `MSGGW_TELEGRAM_BOT_TOKEN` | — | @BotFather 给出的 Token |
-| `MSGGW_TELEGRAM_ADMIN_IDS` | — | 管理员的 Telegram 数字 ID，逗号分隔 |
-| `MSGGW_TIMEZONE` | `Asia/Tokyo` | 显示用的时区 |
-| `MSGGW_DELIVERY_MAX_AGE` | `24h` | 投递失败后最长重试多久 |
-| `MSGGW_RETENTION_DAYS` | `30` | 元数据保留天数（正文投递后立即删除） |
-| `MSGGW_DEEPSEEK_API_KEY` | — | 设置后启用短信过滤 |
+| `NEKOPOST_DOMAIN` | — | 申请 Let's Encrypt 证书的域名 |
+| `NEKOPOST_TELEGRAM_BOT_TOKEN` | — | @BotFather 给出的 Token |
+| `NEKOPOST_TELEGRAM_ADMIN_IDS` | — | 管理员的 Telegram 数字 ID，逗号分隔 |
+| `NEKOPOST_TIMEZONE` | `Asia/Tokyo` | 显示用的时区 |
+| `NEKOPOST_DELIVERY_MAX_AGE` | `24h` | 投递失败后最长重试多久 |
+| `NEKOPOST_RETENTION_DAYS` | `30` | 元数据保留天数（正文投递后立即删除） |
+| `NEKOPOST_DEEPSEEK_API_KEY` | — | 设置后启用短信过滤 |
 
 完整列表见 [docs/deployment.md](docs/deployment.md#3-配置项)。
 
 ## 命令行
 
 ```text
-msggw serve                         运行服务（systemd 使用）
-msggw check [--send-test]           检查配置、数据库、Telegram 和 DeepSeek
-msggw source list|add|show|set|enable|disable|rotate|remove
-msggw admin-key create|list|revoke  只读管理 API 密钥
-msggw version
+nekopost serve                         运行服务（systemd 使用）
+nekopost check [--send-test]           检查配置、数据库、Telegram 和 DeepSeek
+nekopost source list|add|show|set|enable|disable|rotate|remove
+nekopost admin-key create|list|revoke  只读管理 API 密钥
+nekopost version
 ```
 
 ## 文档
@@ -173,7 +173,7 @@ msggw version
 make test     # 单元测试 + 集成测试
 make race     # 带竞态检测运行全部测试
 make vet      # gofmt + go vet
-make build    # 编译到 bin/msggw
+make build    # 编译到 bin/nekopost
 ```
 
 测试使用进程内的模拟 Telegram Bot API（`internal/testutil/faketg`）和模拟 DeepSeek 接口，不访问外部网络。
@@ -182,7 +182,7 @@ make build    # 编译到 bin/msggw
 <summary>目录结构</summary>
 
 ```text
-cmd/msggw/            程序入口与命令行
+cmd/nekopost/            程序入口与命令行
 internal/config       配置加载与校验
 internal/model        统一消息模型与状态
 internal/auth         凭证、哈希、内容指纹

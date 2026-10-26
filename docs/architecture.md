@@ -1,6 +1,6 @@
 # 项目架构说明
 
-msggw（Personal Message Gateway）是一个单进程 Go 服务。它负责：接收各设备和程序提交的消息，统一格式后持久化，再可靠地转发到 Telegram；同时用一个 Telegram Bot 提供只读为主的管理入口。
+nekopost（Personal Message Gateway）是一个单进程 Go 服务。它负责：接收各设备和程序提交的消息，统一格式后持久化，再可靠地转发到 Telegram；同时用一个 Telegram Bot 提供只读为主的管理入口。
 
 ## 1. 组件总览
 
@@ -12,7 +12,7 @@ flowchart LR
         A3[其他程序]
     end
 
-    subgraph msggw[msggw 单进程]
+    subgraph nekopost[nekopost 单进程]
         H[httpapi<br/>/v1/messages<br/>/v1/admin/*<br/>/healthz]
         AU[auth + ratelimit<br/>凭证校验 / 限流]
         R[router<br/>路由规则]
@@ -52,7 +52,7 @@ flowchart LR
 
 | 包 | 职责 |
 |---|---|
-| `config` | 从环境变量和 `/etc/msggw/msggw.env` 读取配置，提供默认值并做格式校验；`ValidateServe` 检查运行服务所必需的项 |
+| `config` | 从环境变量和 `/etc/nekopost/nekopost.env` 读取配置，提供默认值并做格式校验；`ValidateServe` 检查运行服务所必需的项 |
 | `model` | 统一数据模型：`Source`、`Message`、`Delivery`；消息状态与投递状态词汇；`AggregateStatus`；消息 ID 生成 |
 | `auth` | 生成凭证（`mgs_` 来源凭证 / `mga_` 管理密钥，各含 256 位随机数），计算 SHA-256 摘要，解析 Bearer 头，计算带密钥的内容哈希（HMAC-SHA256，用于去重） |
 | `store` | SQLite 持久化：迁移、来源与凭证、消息与投递、统计查询、数据保留清理 |
@@ -69,11 +69,11 @@ flowchart LR
 | `bot` | 管理 Bot：长轮询、仅限管理员、仅限私聊、按钮菜单、需二次确认的启用/停用来源 |
 | `sdnotify` | systemd 通知协议：`READY=1`、`STOPPING=1`、`WATCHDOG=1` |
 | `app` | 组装所有组件；启动 HTTP、Worker、Bot、每小时维护任务和 watchdog；处理优雅关闭 |
-| `cmd/msggw` | 命令行：`serve`、`check`、`source …`、`admin-key …`、`version` |
+| `cmd/nekopost` | 命令行：`serve`、`check`、`source …`、`admin-key …`、`version` |
 
 ## 3. 持久化
 
-数据库：`$MSGGW_DATA_DIR/msggw.db`（默认 `/var/lib/msggw/msggw.db`，文件权限 600）。
+数据库：`$NEKOPOST_DATA_DIR/nekopost.db`（默认 `/var/lib/nekopost/nekopost.db`，文件权限 600）。
 
 连接参数（`store.Open`）：
 
@@ -97,7 +97,7 @@ flowchart LR
 数据保留：
 
 - 正文：投递结束（送达 / 失败 / 不确定）即删除。另有每小时执行的兜底清理 `PurgeFinishedPayloads`。
-- 元数据：保留 `MSGGW_RETENTION_DAYS`（默认 30 天）后删除，只删已完成的消息。维护任务在启动 1 分钟后首次运行，之后每小时一次。
+- 元数据：保留 `NEKOPOST_RETENTION_DAYS`（默认 30 天）后删除，只删已完成的消息。维护任务在启动 1 分钟后首次运行，之后每小时一次。
 
 ## 4. 投递语义与状态机
 
@@ -133,7 +133,7 @@ stateDiagram-v2
 - HTML 解析失败（400 `can't parse entities`）时，会用纯文本立即重发一次，不算一次失败。
 - **崩溃恢复**：启动时，凡是仍处于 `sending` 的 delivery 都改为 `retrying` 并标记 `uncertain`，然后立即重试。这条消息可能会重复发出。
 - **重试间隔**（`delivery.DefaultBackoff`）：5s、15s、30s、1m、2m、5m、10m、15m、30m，之后一直保持 30m，每次带 ±10% 随机抖动。如果 Telegram 返回 `retry_after` 且它更长，则使用 `retry_after + 1s`。
-- **最长重试时间**：`MSGGW_DELIVERY_MAX_AGE`（默认 24h），从 delivery 创建时开始计算。如果下一次尝试会超过期限，或到期时还没投递成功，就进入终态（`failed` 或 `uncertain`）。
+- **最长重试时间**：`NEKOPOST_DELIVERY_MAX_AGE`（默认 24h），从 delivery 创建时开始计算。如果下一次尝试会超过期限，或到期时还没投递成功，就进入终态（`failed` 或 `uncertain`）。
 - **分段续传**：长消息会被拆成多段。每确认一段，就写入 `parts_sent`；重试时从下一段继续，已确认的分段不会重发。如果两次尝试之间渲染出的段数不同（例如升级了版本），则从头重发。
 - **超时**：每次 `sendMessage` 30 秒，一次尝试（所有分段）最多 3 分钟。
 - **节流**：同一个 Telegram 通道两次发送之间至少间隔 1.1 秒（`app.go` 中的 `MinInterval`），以遵守 Telegram 对单个聊天约每秒 1 条的限制。
@@ -180,6 +180,6 @@ stateDiagram-v2
 
 - 目标服务器只有 1 vCPU、约 1 GB 内存。Docker 守护进程（dockerd + containerd）常驻就要占用几十 MB 到上百 MB，比网关本身还多。
 - 不需要额外处理容器网络、IPv6、镜像拉取，以及从容器内读取宿主机指标等问题。
-- Docker 能提供的自动重启、开机自启、日志、资源限制和沙箱，systemd 都能提供：`Restart=always`、journald、`MemoryMax`、`ProtectSystem=strict`、`NoNewPrivileges`、`SystemCallFilter` 等，见 `deploy/msggw.service`。
+- Docker 能提供的自动重启、开机自启、日志、资源限制和沙箱，systemd 都能提供：`Restart=always`、journald、`MemoryMax`、`ProtectSystem=strict`、`NoNewPrivileges`、`SystemCallFilter` 等，见 `deploy/nekopost.service`。
 - 部署和升级只需替换一个二进制文件再重启，见 `deploy/install.sh`。
-- 服务以专用的 `msggw` 用户运行，只通过 `CAP_NET_BIND_SERVICE` 绑定 80/443 端口，不挂载任何 Docker socket，也不需要 root。
+- 服务以专用的 `nekopost` 用户运行，只通过 `CAP_NET_BIND_SERVICE` 绑定 80/443 端口，不挂载任何 Docker socket，也不需要 root。

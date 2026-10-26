@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"msggw/internal/model"
+	"nekopost/internal/model"
 )
 
 // Classifier assigns a category to (already masked) message text.

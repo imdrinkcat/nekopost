@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/store"
+	"nekopost/internal/health"
+	"nekopost/internal/store"
 )
 
 // Outcome classifies one delivery attempt.

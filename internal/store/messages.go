@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"msggw/internal/model"
+	"nekopost/internal/model"
 )
 
 // NewDelivery describes one routing target for a new message.

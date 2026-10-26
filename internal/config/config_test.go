@@ -15,7 +15,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.TLSMode != "autocert" || c.HTTPSAddr != ":443" || c.DataDir != "/var/lib/msggw" ||
+	if c.TLSMode != "autocert" || c.HTTPSAddr != ":443" || c.DataDir != "/var/lib/nekopost" ||
 		c.TimezoneName != "Asia/Tokyo" || c.RetentionDays != 30 || c.DeliveryMaxAge != 24*time.Hour ||
 		c.DedupeWindow != time.Minute || c.SourceRatePerMin != 60 {
 		t.Errorf("unexpected defaults: %+v", c)
@@ -27,11 +27,11 @@ func TestDefaults(t *testing.T) {
 
 func TestLoadValid(t *testing.T) {
 	c, err := Load(env(map[string]string{
-		"MSGGW_DOMAIN":             "Example.COM",
-		"MSGGW_TELEGRAM_BOT_TOKEN": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef_-1",
-		"MSGGW_TELEGRAM_ADMIN_IDS": " 111, 222 ",
-		"MSGGW_DELIVERY_MAX_AGE":   "6h",
-		"MSGGW_DEDUPE_WINDOW":      "0s",
+		"NEKOPOST_DOMAIN":             "Example.COM",
+		"NEKOPOST_TELEGRAM_BOT_TOKEN": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef_-1",
+		"NEKOPOST_TELEGRAM_ADMIN_IDS": " 111, 222 ",
+		"NEKOPOST_DELIVERY_MAX_AGE":   "6h",
+		"NEKOPOST_DEDUPE_WINDOW":      "0s",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -49,22 +49,22 @@ func TestLoadValid(t *testing.T) {
 
 func TestLoadInvalid(t *testing.T) {
 	_, err := Load(env(map[string]string{
-		"MSGGW_TLS_MODE":           "maybe",
-		"MSGGW_TELEGRAM_ADMIN_IDS": "abc",
-		"MSGGW_TIMEZONE":           "Mars/Base",
-		"MSGGW_RETENTION_DAYS":     "0",
-		"MSGGW_DELIVERY_MAX_AGE":   "forever",
-		"MSGGW_LOG_LEVEL":          "loud",
+		"NEKOPOST_TLS_MODE":           "maybe",
+		"NEKOPOST_TELEGRAM_ADMIN_IDS": "abc",
+		"NEKOPOST_TIMEZONE":           "Mars/Base",
+		"NEKOPOST_RETENTION_DAYS":     "0",
+		"NEKOPOST_DELIVERY_MAX_AGE":   "forever",
+		"NEKOPOST_LOG_LEVEL":          "loud",
 	}))
 	if err == nil {
 		t.Fatal("expected errors")
 	}
-	for _, want := range []string{"MSGGW_TLS_MODE", "MSGGW_TELEGRAM_ADMIN_IDS", "MSGGW_TIMEZONE", "MSGGW_RETENTION_DAYS", "MSGGW_DELIVERY_MAX_AGE", "MSGGW_LOG_LEVEL"} {
+	for _, want := range []string{"NEKOPOST_TLS_MODE", "NEKOPOST_TELEGRAM_ADMIN_IDS", "NEKOPOST_TIMEZONE", "NEKOPOST_RETENTION_DAYS", "NEKOPOST_DELIVERY_MAX_AGE", "NEKOPOST_LOG_LEVEL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should mention %s: %v", want, err)
 		}
 	}
-	c, _ := Load(env(map[string]string{"MSGGW_TELEGRAM_BOT_TOKEN": "not-a-token", "MSGGW_TELEGRAM_ADMIN_IDS": "1", "MSGGW_DOMAIN": "x"}))
+	c, _ := Load(env(map[string]string{"NEKOPOST_TELEGRAM_BOT_TOKEN": "not-a-token", "NEKOPOST_TELEGRAM_ADMIN_IDS": "1", "NEKOPOST_DOMAIN": "x"}))
 	if err := c.ValidateServe(); err == nil || !strings.Contains(err.Error(), "格式") {
 		t.Errorf("malformed token should be rejected: %v", err)
 	}
@@ -72,20 +72,20 @@ func TestLoadInvalid(t *testing.T) {
 
 func TestReadEnvFile(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "x.env")
-	os.WriteFile(p, []byte("# comment\n\nMSGGW_DOMAIN=a.example\nexport MSGGW_TIMEZONE=\"UTC\"\nMSGGW_ACME_EMAIL='me@x'\n"), 0o600)
+	os.WriteFile(p, []byte("# comment\n\nNEKOPOST_DOMAIN=a.example\nexport NEKOPOST_TIMEZONE=\"UTC\"\nNEKOPOST_ACME_EMAIL='me@x'\n"), 0o600)
 	m, err := ReadEnvFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m["MSGGW_DOMAIN"] != "a.example" || m["MSGGW_TIMEZONE"] != "UTC" || m["MSGGW_ACME_EMAIL"] != "me@x" {
+	if m["NEKOPOST_DOMAIN"] != "a.example" || m["NEKOPOST_TIMEZONE"] != "UTC" || m["NEKOPOST_ACME_EMAIL"] != "me@x" {
 		t.Errorf("parsed %v", m)
 	}
 	os.WriteFile(p, []byte("garbage line\n"), 0o600)
 	if _, err := ReadEnvFile(p); err == nil {
 		t.Error("expected parse error")
 	}
-	t.Setenv("MSGGW_DOMAIN", "from-env")
-	if EnvWithFile(map[string]string{"MSGGW_DOMAIN": "from-file"})("MSGGW_DOMAIN") != "from-env" {
+	t.Setenv("NEKOPOST_DOMAIN", "from-env")
+	if EnvWithFile(map[string]string{"NEKOPOST_DOMAIN": "from-file"})("NEKOPOST_DOMAIN") != "from-env" {
 		t.Error("process env must take precedence")
 	}
 }
@@ -96,13 +96,13 @@ func TestFilterConfig(t *testing.T) {
 		strings.Join(c.FilterTypes, ",") != "sms" || len(c.FilterDrop) != 3 || c.FilterKeepDays != 7 {
 		t.Fatalf("defaults: %+v %v", c, err)
 	}
-	c, err = Load(env(map[string]string{"MSGGW_DEEPSEEK_API_KEY": "sk-abc", "MSGGW_FILTER_TYPES": "SMS, notification",
-		"MSGGW_FILTER_DROP": "spam"}))
+	c, err = Load(env(map[string]string{"NEKOPOST_DEEPSEEK_API_KEY": "sk-abc", "NEKOPOST_FILTER_TYPES": "SMS, notification",
+		"NEKOPOST_FILTER_DROP": "spam"}))
 	if err != nil || !c.FilterEnabled() || len(c.FilterTypes) != 2 || c.FilterTypes[0] != "sms" || len(c.FilterDrop) != 1 {
 		t.Fatalf("custom: %+v %v", c, err)
 	}
-	_, err = Load(env(map[string]string{"MSGGW_FILTER_DROP": "code,ads", "MSGGW_FILTER_KEEP_DAYS": "99"}))
-	if err == nil || !strings.Contains(err.Error(), `"code"`) || !strings.Contains(err.Error(), `"ads"`) || !strings.Contains(err.Error(), "MSGGW_FILTER_KEEP_DAYS") {
+	_, err = Load(env(map[string]string{"NEKOPOST_FILTER_DROP": "code,ads", "NEKOPOST_FILTER_KEEP_DAYS": "99"}))
+	if err == nil || !strings.Contains(err.Error(), `"code"`) || !strings.Contains(err.Error(), `"ads"`) || !strings.Contains(err.Error(), "NEKOPOST_FILTER_KEEP_DAYS") {
 		t.Fatalf("invalid filter config should be rejected: %v", err)
 	}
 }

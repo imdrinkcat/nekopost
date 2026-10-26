@@ -11,7 +11,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"msggw/internal/model"
+	"nekopost/internal/model"
 )
 
 // MaxTextLen is Telegram's limit for message text after entity parsing,

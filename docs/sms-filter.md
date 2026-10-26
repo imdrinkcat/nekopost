@@ -21,7 +21,7 @@ iPhone ──▶ 服务器接收并保存（status = classifying，iPhone 立即
  可在 Bot「🗑 已过滤」中找回
 ```
 
-- 只处理 `type` 为 `sms` 的消息（`MSGGW_FILTER_TYPES`），其他类型照常转发。
+- 只处理 `type` 为 `sms` 的消息（`NEKOPOST_FILTER_TYPES`），其他类型照常转发。
 - 分类在后台进行，不会让 iPhone 端的请求变慢。快捷指令使用 `?wait=8` 时，等待期间可能先看到「已接收，正在识别是否为广告」，然后才是最终结果。
 - **DeepSeek 出任何问题都直接转发**，包括超时（15 秒）、网络错误、Key 无效、余额不足、返回内容无法识别。如果连续失败 3 次，接下来 5 分钟内不再调用 DeepSeek，短信直接转发，避免每条都等到超时。
 - 服务在分类过程中重启时，这条短信保持「待分类」状态，重启后重新分类，不会丢失。
@@ -49,25 +49,25 @@ iPhone ──▶ 服务器接收并保存（status = classifying，iPhone 立即
 - 发给 DeepSeek 的内容包括：发送方（标题，同样遮盖）和正文前 1500 字。不会发送来源、时间、meta 等其他信息。
 - DeepSeek 的服务器在中国，数据处理遵循 DeepSeek 的隐私政策。遮盖能降低风险，但无法完全消除：人名、地址、文字内容仍会被发送。
 - 日志只记录消息 ID、类别、是否被过滤和耗时，不记录正文。
-- 被过滤短信的正文在数据库中保留 `MSGGW_FILTER_KEEP_DAYS` 天（默认 7 天），之后由每小时运行的清理任务删除。正常转发的短信与以前一样，投递结束后立即删除。
+- 被过滤短信的正文在数据库中保留 `NEKOPOST_FILTER_KEEP_DAYS` 天（默认 7 天），之后由每小时运行的清理任务删除。正常转发的短信与以前一样，投递结束后立即删除。
 
 ## 4. 配置
 
-在 `/etc/msggw/msggw.env` 中设置，然后 `sudo systemctl restart msggw`：
+在 `/etc/nekopost/nekopost.env` 中设置，然后 `sudo systemctl restart nekopost`：
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `MSGGW_DEEPSEEK_API_KEY` | 空 | 设置后启用短信过滤；留空即关闭 |
-| `MSGGW_DEEPSEEK_MODEL` | `deepseek-flash` | 使用的模型 |
-| `MSGGW_DEEPSEEK_API_BASE` | `https://api.deepseek.com` | API 地址 |
-| `MSGGW_FILTER_TYPES` | `sms` | 需要分类的消息类型，逗号分隔 |
-| `MSGGW_FILTER_DROP` | `roaming,marketing,spam` | 不推送的类别，逗号分隔；不能包含 `code` |
-| `MSGGW_FILTER_KEEP_DAYS` | `7` | 被过滤短信可以找回的天数（1–30） |
+| `NEKOPOST_DEEPSEEK_API_KEY` | 空 | 设置后启用短信过滤；留空即关闭 |
+| `NEKOPOST_DEEPSEEK_MODEL` | `deepseek-flash` | 使用的模型 |
+| `NEKOPOST_DEEPSEEK_API_BASE` | `https://api.deepseek.com` | API 地址 |
+| `NEKOPOST_FILTER_TYPES` | `sms` | 需要分类的消息类型，逗号分隔 |
+| `NEKOPOST_FILTER_DROP` | `roaming,marketing,spam` | 不推送的类别，逗号分隔；不能包含 `code` |
+| `NEKOPOST_FILTER_KEEP_DAYS` | `7` | 被过滤短信可以找回的天数（1–30） |
 
 API Key 在 DeepSeek 开放平台（platform.deepseek.com）创建，需要账户里有余额。配置好后执行：
 
 ```bash
-sudo msggw check
+sudo nekopost check
 ```
 
 会用一条虚构的广告短信测试 DeepSeek，例如：
@@ -76,7 +76,7 @@ sudo msggw check
 ✓ DeepSeek 模型 deepseek-flash，测试广告短信分类为「广告营销」，用时 1.2 秒
 ```
 
-关闭过滤：删除或注释 `MSGGW_DEEPSEEK_API_KEY` 后重启。重启时如果还有待分类的短信，会直接转发。
+关闭过滤：删除或注释 `NEKOPOST_DEEPSEEK_API_KEY` 后重启。重启时如果还有待分类的短信，会直接转发。
 
 ## 5. 在 Telegram 中查看和找回
 
@@ -95,6 +95,6 @@ sudo msggw check
 ## 7. 费用与限制
 
 - 每条短信大约消耗几百个 token。按个人的短信量，费用很低，具体以 DeepSeek 官网价格为准。
-- AI 分类会出错：重要短信可能被判为广告，广告也可能漏网。建议启用后的头几天多看看「🗑 已过滤」页面。如果误判较多，可以只过滤 `spam`（`MSGGW_FILTER_DROP=spam`）。
+- AI 分类会出错：重要短信可能被判为广告，广告也可能漏网。建议启用后的头几天多看看「🗑 已过滤」页面。如果误判较多，可以只过滤 `spam`（`NEKOPOST_FILTER_DROP=spam`）。
 - 短信内容可能夹带「忽略以上指令」之类的提示词注入。最坏的后果是一条广告被放行，或一条短信被误过滤（仍可找回），不会影响网关的其他功能。
-- 只有 `MSGGW_FILTER_TYPES` 中列出的类型会被分类。快捷指令发送短信时需要设置 `"type":"sms"`（[iphone-shortcuts.md](iphone-shortcuts.md) 中的模板已经设置）。
+- 只有 `NEKOPOST_FILTER_TYPES` 中列出的类型会被分类。快捷指令发送短信时需要设置 `"type":"sms"`（[iphone-shortcuts.md](iphone-shortcuts.md) 中的模板已经设置）。

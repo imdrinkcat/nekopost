@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/model"
-	"msggw/internal/status"
-	"msggw/internal/telegram"
+	"nekopost/internal/health"
+	"nekopost/internal/model"
+	"nekopost/internal/status"
+	"nekopost/internal/telegram"
 )
 
 type view struct {
@@ -347,7 +347,7 @@ func (b *Bot) viewSources(ctx context.Context) view {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "<b>📨 消息来源</b>（%d 个）\n", len(list))
 	if len(list) == 0 {
-		sb.WriteString("\n尚未配置任何来源。请在服务器上执行：\n<code>msggw source add iphone --name iPhone --icon 📱</code>\n")
+		sb.WriteString("\n尚未配置任何来源。请在服务器上执行：\n<code>nekopost source add iphone --name iPhone --icon 📱</code>\n")
 	}
 	var rows [][]telegram.InlineKeyboardButton
 	var row []telegram.InlineKeyboardButton
@@ -533,14 +533,14 @@ func (b *Bot) viewSettings(ctx context.Context) view {
 		sb.WriteString("验证码类短信在本地识别，不发送给 DeepSeek；其余短信遮盖数字和链接后发送\n")
 		sb.WriteString("DeepSeek 不可用时短信直接转发，不会丢失\n")
 	} else {
-		sb.WriteString("未启用（设置 <code>MSGGW_DEEPSEEK_API_KEY</code> 后启用）\n")
+		sb.WriteString("未启用（设置 <code>NEKOPOST_DEEPSEEK_API_KEY</code> 后启用）\n")
 	}
 	sb.WriteString("\n<b>可执行的操作</b>\n")
 	sb.WriteString("• 在「消息来源」中停用 / 启用某个来源（需二次确认）\n")
 	if cfg.Filter.Enabled {
 		sb.WriteString("• 在「已过滤」中把误判的短信转发出来\n")
 	}
-	sb.WriteString("• 新增来源、轮换凭证、修改配置：在服务器上使用 <code>msggw</code> 命令行（见文档）\n")
+	sb.WriteString("• 新增来源、轮换凭证、修改配置：在服务器上使用 <code>nekopost</code> 命令行（见文档）\n")
 	return view{text: sb.String() + b.footer(), rows: [][]telegram.InlineKeyboardButton{
 		{btn("📨 管理来源", "src")},
 		navRow("set"),

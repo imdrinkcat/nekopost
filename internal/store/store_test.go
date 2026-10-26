@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"msggw/internal/model"
+	"nekopost/internal/model"
 )
 
 func openTest(t *testing.T) *Store {

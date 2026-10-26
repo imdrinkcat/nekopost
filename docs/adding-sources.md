@@ -4,10 +4,10 @@
 
 ## 1. 创建来源
 
-在服务器上用 root 执行（CLI 会自动切换到 `msggw` 用户操作数据库）：
+在服务器上用 root 执行（CLI 会自动切换到 `nekopost` 用户操作数据库）：
 
 ```bash
-msggw source add linux-web --name "Web 服务器" --icon 🖥
+nekopost source add linux-web --name "Web 服务器" --icon 🖥
 ```
 
 输出示例：
@@ -30,13 +30,13 @@ msggw source add linux-web --name "Web 服务器" --icon 🖥
 常用的管理命令：
 
 ```bash
-msggw source list                       # 列出来源、状态、最近请求时间
-msggw source show linux-web             # 详情与凭证记录（只显示前缀）
-msggw source set linux-web --name "Web-1" --icon 🌐
-msggw source disable linux-web          # 暂停：新消息返回 403，已在队列中的消息仍会投递
-msggw source enable linux-web
-msggw source rotate linux-web           # 生成新凭证，旧凭证立即失效
-msggw source remove linux-web --yes     # 永久删除来源和凭证（历史统计保留到过期）
+nekopost source list                       # 列出来源、状态、最近请求时间
+nekopost source show linux-web             # 详情与凭证记录（只显示前缀）
+nekopost source set linux-web --name "Web-1" --icon 🌐
+nekopost source disable linux-web          # 暂停：新消息返回 403，已在队列中的消息仍会投递
+nekopost source enable linux-web
+nekopost source rotate linux-web           # 生成新凭证，旧凭证立即失效
+nekopost source remove linux-web --yes     # 永久删除来源和凭证（历史统计保留到过期）
 ```
 
 在 Telegram Bot 的「📨 消息来源」中也可以停用或启用来源，操作需要二次确认。
@@ -71,7 +71,7 @@ msggw source remove linux-web --yes     # 永久删除来源和凭证（历史�
 #!/bin/sh
 # notify.sh "标题" "正文" [type] [priority]
 URL=https://osaka.drinkcat.com/v1/messages
-TOKEN=$(cat ~/.config/msggw/token)        # 文件权限设为 600
+TOKEN=$(cat ~/.config/nekopost/token)        # 文件权限设为 600
 python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1],"body":sys.argv[2],"type":sys.argv[3],"priority":sys.argv[4]}))' \
     "$1" "$2" "${3:-notification}" "${4:-normal}" |
 curl -sS --max-time 30 -X POST "$URL?wait=8" \
@@ -96,7 +96,7 @@ if [ $RC -eq 0 ]; then PRIO=low; T="✅ $NAME 成功"; else PRIO=high; T="❌ $N
 KEY="$NAME-$(date +%Y%m%d%H%M)"
 printf '%s\n' "$OUT" | tail -n 30 | curl -sS --max-time 30 -X POST \
   "https://osaka.drinkcat.com/v1/messages?type=task&priority=$PRIO&title=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$T")" \
-  -H "Authorization: Bearer $(cat /etc/msggw-client/token)" -H "Content-Type: text/plain" \
+  -H "Authorization: Bearer $(cat /etc/nekopost-client/token)" -H "Content-Type: text/plain" \
   -H "Idempotency-Key: $KEY" --data-binary @- >/dev/null
 exit $RC
 ```
@@ -125,7 +125,7 @@ def notify(body, title="", type_="notification", priority="normal", key=None, to
 ### Windows：PowerShell
 
 ```powershell
-$token = Get-Content "$env:USERPROFILE\.msggw-token"
+$token = Get-Content "$env:USERPROFILE\.nekopost-token"
 $body  = @{ title = "Windows 任务"; body = "导出完成`n共 120 个文件"; type = "task" } | ConvertTo-Json
 Invoke-RestMethod -Method Post -Uri "https://osaka.drinkcat.com/v1/messages?wait=8" `
   -Headers @{ Authorization = "Bearer $token" } `

@@ -46,7 +46,7 @@ func writeError(w http.ResponseWriter, r *http.Request, e *apiError) {
 		w.Header().Set("Retry-After", strconv.Itoa(secs))
 	}
 	if e.Status == http.StatusUnauthorized {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="msggw"`)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="nekopost"`)
 	}
 	body := map[string]any{
 		"code":       e.Code,

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"msggw/internal/model"
+	"nekopost/internal/model"
 )
 
 // Counts are message counts by outcome. Each accepted message is counted

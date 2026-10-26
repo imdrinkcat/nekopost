@@ -15,11 +15,11 @@ import (
 	"time"
 	_ "time/tzdata" // timezone data even on minimal hosts
 
-	"msggw/internal/model"
+	"nekopost/internal/model"
 )
 
 // DefaultEnvFile is where the installed service keeps its configuration.
-const DefaultEnvFile = "/etc/msggw/msggw.env"
+const DefaultEnvFile = "/etc/nekopost/nekopost.env"
 
 // Config holds all runtime settings.
 type Config struct {
@@ -58,7 +58,7 @@ type Config struct {
 func (c *Config) FilterEnabled() bool { return c.DeepSeekAPIKey != "" }
 
 // DBPath is the SQLite database location.
-func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "msggw.db") }
+func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "nekopost.db") }
 
 // ACMECacheDir stores Let's Encrypt account keys and certificates.
 func (c *Config) ACMECacheDir() string { return filepath.Join(c.DataDir, "acme") }
@@ -86,20 +86,20 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	var errs []error
 	c := &Config{
-		Domain:          strings.ToLower(get("MSGGW_DOMAIN", "")),
-		TLSMode:         get("MSGGW_TLS_MODE", "autocert"),
-		HTTPSAddr:       get("MSGGW_HTTPS_ADDR", ":443"),
-		HTTPAddr:        get("MSGGW_HTTP_ADDR", ":80"),
-		ACMEEmail:       get("MSGGW_ACME_EMAIL", ""),
-		DataDir:         get("MSGGW_DATA_DIR", "/var/lib/msggw"),
-		BotToken:        get("MSGGW_TELEGRAM_BOT_TOKEN", ""),
-		TelegramAPIBase: strings.TrimRight(get("MSGGW_TELEGRAM_API_BASE", "https://api.telegram.org"), "/"),
-		TimezoneName:    get("MSGGW_TIMEZONE", "Asia/Tokyo"),
+		Domain:          strings.ToLower(get("NEKOPOST_DOMAIN", "")),
+		TLSMode:         get("NEKOPOST_TLS_MODE", "autocert"),
+		HTTPSAddr:       get("NEKOPOST_HTTPS_ADDR", ":443"),
+		HTTPAddr:        get("NEKOPOST_HTTP_ADDR", ":80"),
+		ACMEEmail:       get("NEKOPOST_ACME_EMAIL", ""),
+		DataDir:         get("NEKOPOST_DATA_DIR", "/var/lib/nekopost"),
+		BotToken:        get("NEKOPOST_TELEGRAM_BOT_TOKEN", ""),
+		TelegramAPIBase: strings.TrimRight(get("NEKOPOST_TELEGRAM_API_BASE", "https://api.telegram.org"), "/"),
+		TimezoneName:    get("NEKOPOST_TIMEZONE", "Asia/Tokyo"),
 	}
 	if c.TLSMode != "autocert" && c.TLSMode != "off" {
-		errs = append(errs, fmt.Errorf("MSGGW_TLS_MODE 必须是 autocert 或 off"))
+		errs = append(errs, fmt.Errorf("NEKOPOST_TLS_MODE 必须是 autocert 或 off"))
 	}
-	if ids := get("MSGGW_TELEGRAM_ADMIN_IDS", ""); ids != "" {
+	if ids := get("NEKOPOST_TELEGRAM_ADMIN_IDS", ""); ids != "" {
 		for _, p := range strings.Split(ids, ",") {
 			p = strings.TrimSpace(p)
 			if p == "" {
@@ -107,16 +107,16 @@ func Load(getenv func(string) string) (*Config, error) {
 			}
 			id, err := strconv.ParseInt(p, 10, 64)
 			if err != nil || id <= 0 {
-				errs = append(errs, fmt.Errorf("MSGGW_TELEGRAM_ADMIN_IDS 包含无效的用户 ID %q", p))
+				errs = append(errs, fmt.Errorf("NEKOPOST_TELEGRAM_ADMIN_IDS 包含无效的用户 ID %q", p))
 				continue
 			}
 			c.AdminIDs = append(c.AdminIDs, id)
 		}
 	}
-	if v := get("MSGGW_TELEGRAM_CHAT_ID", ""); v != "" {
+	if v := get("NEKOPOST_TELEGRAM_CHAT_ID", ""); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id == 0 {
-			errs = append(errs, fmt.Errorf("MSGGW_TELEGRAM_CHAT_ID 无效"))
+			errs = append(errs, fmt.Errorf("NEKOPOST_TELEGRAM_CHAT_ID 无效"))
 		}
 		c.ChatID = id
 	} else if len(c.AdminIDs) > 0 {
@@ -124,7 +124,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	loc, err := time.LoadLocation(c.TimezoneName)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("MSGGW_TIMEZONE 无效: %v", err))
+		errs = append(errs, fmt.Errorf("NEKOPOST_TIMEZONE 无效: %v", err))
 		loc = time.UTC
 	}
 	c.Location = loc
@@ -153,36 +153,36 @@ func Load(getenv func(string) string) (*Config, error) {
 		}
 		return d
 	}
-	c.RetentionDays = intVar("MSGGW_RETENTION_DAYS", 30, 1, 365)
-	c.DeliveryMaxAge = durVar("MSGGW_DELIVERY_MAX_AGE", 24*time.Hour, time.Minute, 7*24*time.Hour)
-	c.DedupeWindow = durVar("MSGGW_DEDUPE_WINDOW", 60*time.Second, 0, 24*time.Hour)
-	c.MaxBodyChars = intVar("MSGGW_MAX_BODY_CHARS", 12000, 100, 50000)
-	c.SourceRatePerMin = intVar("MSGGW_SOURCE_RATE_PER_MIN", 60, 1, 6000)
+	c.RetentionDays = intVar("NEKOPOST_RETENTION_DAYS", 30, 1, 365)
+	c.DeliveryMaxAge = durVar("NEKOPOST_DELIVERY_MAX_AGE", 24*time.Hour, time.Minute, 7*24*time.Hour)
+	c.DedupeWindow = durVar("NEKOPOST_DEDUPE_WINDOW", 60*time.Second, 0, 24*time.Hour)
+	c.MaxBodyChars = intVar("NEKOPOST_MAX_BODY_CHARS", 12000, 100, 50000)
+	c.SourceRatePerMin = intVar("NEKOPOST_SOURCE_RATE_PER_MIN", 60, 1, 6000)
 
-	c.DeepSeekAPIKey = get("MSGGW_DEEPSEEK_API_KEY", "")
-	c.DeepSeekModel = get("MSGGW_DEEPSEEK_MODEL", "deepseek-flash")
-	c.DeepSeekAPIBase = strings.TrimRight(get("MSGGW_DEEPSEEK_API_BASE", "https://api.deepseek.com"), "/")
+	c.DeepSeekAPIKey = get("NEKOPOST_DEEPSEEK_API_KEY", "")
+	c.DeepSeekModel = get("NEKOPOST_DEEPSEEK_MODEL", "deepseek-flash")
+	c.DeepSeekAPIBase = strings.TrimRight(get("NEKOPOST_DEEPSEEK_API_BASE", "https://api.deepseek.com"), "/")
 	if strings.ContainsAny(c.DeepSeekAPIKey, " \t") {
-		errs = append(errs, errors.New("MSGGW_DEEPSEEK_API_KEY 格式不正确（不能包含空格）"))
+		errs = append(errs, errors.New("NEKOPOST_DEEPSEEK_API_KEY 格式不正确（不能包含空格）"))
 	}
-	for _, t := range splitList(get("MSGGW_FILTER_TYPES", "sms")) {
+	for _, t := range splitList(get("NEKOPOST_FILTER_TYPES", "sms")) {
 		if !model.ValidKind(t) {
-			errs = append(errs, fmt.Errorf("MSGGW_FILTER_TYPES 包含无效的类型 %q", t))
+			errs = append(errs, fmt.Errorf("NEKOPOST_FILTER_TYPES 包含无效的类型 %q", t))
 			continue
 		}
 		c.FilterTypes = append(c.FilterTypes, t)
 	}
-	for _, v := range splitList(get("MSGGW_FILTER_DROP", "roaming,marketing,spam")) {
+	for _, v := range splitList(get("NEKOPOST_FILTER_DROP", "roaming,marketing,spam")) {
 		cat, ok := model.ParseCategory(v)
 		if !ok || cat == model.CatCode {
-			errs = append(errs, fmt.Errorf("MSGGW_FILTER_DROP 包含无效的类别 %q（可选 finance/logistics/personal/service/roaming/marketing/spam）", v))
+			errs = append(errs, fmt.Errorf("NEKOPOST_FILTER_DROP 包含无效的类别 %q（可选 finance/logistics/personal/service/roaming/marketing/spam）", v))
 			continue
 		}
 		c.FilterDrop = append(c.FilterDrop, cat)
 	}
-	c.FilterKeepDays = intVar("MSGGW_FILTER_KEEP_DAYS", 7, 1, 30)
+	c.FilterKeepDays = intVar("NEKOPOST_FILTER_KEEP_DAYS", 7, 1, 30)
 
-	switch strings.ToLower(get("MSGGW_LOG_LEVEL", "info")) {
+	switch strings.ToLower(get("NEKOPOST_LOG_LEVEL", "info")) {
 	case "debug":
 		c.LogLevel = slog.LevelDebug
 	case "info":
@@ -192,7 +192,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	case "error":
 		c.LogLevel = slog.LevelError
 	default:
-		errs = append(errs, fmt.Errorf("MSGGW_LOG_LEVEL 必须是 debug/info/warn/error"))
+		errs = append(errs, fmt.Errorf("NEKOPOST_LOG_LEVEL 必须是 debug/info/warn/error"))
 	}
 	return c, errors.Join(errs...)
 }
@@ -211,18 +211,18 @@ func splitList(v string) []string {
 func (c *Config) ValidateServe() error {
 	var errs []error
 	if c.BotToken == "" {
-		errs = append(errs, errors.New("未设置 MSGGW_TELEGRAM_BOT_TOKEN"))
+		errs = append(errs, errors.New("未设置 NEKOPOST_TELEGRAM_BOT_TOKEN"))
 	} else if !botTokenRe.MatchString(c.BotToken) {
-		errs = append(errs, errors.New("MSGGW_TELEGRAM_BOT_TOKEN 格式不正确（应形如 123456:ABC...）"))
+		errs = append(errs, errors.New("NEKOPOST_TELEGRAM_BOT_TOKEN 格式不正确（应形如 123456:ABC...）"))
 	}
 	if len(c.AdminIDs) == 0 {
-		errs = append(errs, errors.New("未设置 MSGGW_TELEGRAM_ADMIN_IDS（至少一个管理员的数字 ID）"))
+		errs = append(errs, errors.New("未设置 NEKOPOST_TELEGRAM_ADMIN_IDS（至少一个管理员的数字 ID）"))
 	}
 	if c.ChatID == 0 {
-		errs = append(errs, errors.New("无法确定投递目标：请设置 MSGGW_TELEGRAM_CHAT_ID 或管理员 ID"))
+		errs = append(errs, errors.New("无法确定投递目标：请设置 NEKOPOST_TELEGRAM_CHAT_ID 或管理员 ID"))
 	}
 	if c.TLSMode == "autocert" && c.Domain == "" {
-		errs = append(errs, errors.New("TLS 模式为 autocert 时必须设置 MSGGW_DOMAIN"))
+		errs = append(errs, errors.New("TLS 模式为 autocert 时必须设置 NEKOPOST_DOMAIN"))
 	}
 	return errors.Join(errs...)
 }

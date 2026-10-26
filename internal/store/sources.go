@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"msggw/internal/model"
+	"nekopost/internal/model"
 )
 
 const sourceCols = `id, name, icon, enabled, created_at, last_seen_at, auth_fail_count, last_auth_fail_at`

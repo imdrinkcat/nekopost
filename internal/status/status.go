@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/model"
-	"msggw/internal/store"
-	"msggw/internal/sysinfo"
+	"nekopost/internal/health"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
+	"nekopost/internal/sysinfo"
 )
 
 // Service gathers status information on demand. Nothing is collected in the

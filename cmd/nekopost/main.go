@@ -1,5 +1,5 @@
-// Command msggw is the Personal Message Gateway: the service itself
-// ("msggw serve") and its administration CLI.
+// Command nekopost is the Personal Message Gateway: the service itself
+// ("nekopost serve") and its administration CLI.
 package main
 
 import (
@@ -15,22 +15,22 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"msggw/internal/app"
-	"msggw/internal/auth"
-	"msggw/internal/config"
-	"msggw/internal/filter"
-	"msggw/internal/model"
-	"msggw/internal/store"
-	"msggw/internal/telegram"
+	"nekopost/internal/app"
+	"nekopost/internal/auth"
+	"nekopost/internal/config"
+	"nekopost/internal/filter"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
+	"nekopost/internal/telegram"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = `msggw — 个人消息网关
+const usage = `nekopost — 个人消息网关
 
 用法:
-  msggw [--env-file 路径] <命令> [参数]
+  nekopost [--env-file 路径] <命令> [参数]
 
 服务:
   serve                               运行网关服务（通常由 systemd 启动）
@@ -62,8 +62,8 @@ func main() {
 }
 
 func run(args []string) int {
-	global := flag.NewFlagSet("msggw", flag.ContinueOnError)
-	envFile := global.String("env-file", envOr("MSGGW_ENV_FILE", config.DefaultEnvFile), "配置文件路径")
+	global := flag.NewFlagSet("nekopost", flag.ContinueOnError)
+	envFile := global.String("env-file", envOr("NEKOPOST_ENV_FILE", config.DefaultEnvFile), "配置文件路径")
 	global.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	if err := global.Parse(args); err != nil {
 		return 2
@@ -89,7 +89,7 @@ func run(args []string) int {
 	cmd, rest := args[0], args[1:]
 	switch cmd {
 	case "version", "--version", "-v":
-		fmt.Println("msggw", version)
+		fmt.Println("nekopost", version)
 		return 0
 	case "help", "-h", "--help":
 		fmt.Print(usage)
@@ -239,7 +239,7 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 	}
 	needID := func() (string, bool) {
 		if len(pos) != 1 {
-			fmt.Fprintf(os.Stderr, "用法: msggw source %s <id>\n", sub)
+			fmt.Fprintf(os.Stderr, "用法: nekopost source %s <id>\n", sub)
 			return "", false
 		}
 		return pos[0], true
@@ -257,7 +257,7 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 			return 1
 		}
 		if len(srcs) == 0 {
-			fmt.Println("尚未配置任何来源。使用 msggw source add <id> 新增。")
+			fmt.Println("尚未配置任何来源。使用 nekopost source add <id> 新增。")
 			return 0
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -288,7 +288,7 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 		tok := auth.NewToken(auth.SourcePrefix)
 		err := st.CreateSource(ctx, model.Source{ID: id, Name: n, Icon: *icon, Enabled: true}, auth.Hash(tok), auth.DisplayPrefix(tok), now)
 		if errors.Is(err, store.ErrExists) {
-			fmt.Fprintf(os.Stderr, "来源 %q 已存在。如需新凭证请使用 msggw source rotate %s\n", id, id)
+			fmt.Fprintf(os.Stderr, "来源 %q 已存在。如需新凭证请使用 nekopost source rotate %s\n", id, id)
 			return 1
 		}
 		if err != nil {
@@ -391,7 +391,7 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 			return 2
 		}
 		if !*yes {
-			fmt.Fprintf(os.Stderr, "删除来源会使其凭证永久失效。确认请执行: msggw source remove %s --yes\n（如只想暂时禁止，请用 msggw source disable %s）\n", id, id)
+			fmt.Fprintf(os.Stderr, "删除来源会使其凭证永久失效。确认请执行: nekopost source remove %s --yes\n（如只想暂时禁止，请用 nekopost source disable %s）\n", id, id)
 			return 2
 		}
 		err := st.DeleteSource(ctx, id)
@@ -426,7 +426,7 @@ func cmdAdminKey(st *store.Store, args []string) int {
 	switch args[0] {
 	case "create":
 		if len(args) != 2 {
-			fmt.Fprintln(os.Stderr, "用法: msggw admin-key create <名称>")
+			fmt.Fprintln(os.Stderr, "用法: nekopost admin-key create <名称>")
 			return 2
 		}
 		tok := auth.NewToken(auth.AdminPrefix)
@@ -463,7 +463,7 @@ func cmdAdminKey(st *store.Store, args []string) int {
 		return 0
 	case "revoke":
 		if len(args) != 2 {
-			fmt.Fprintln(os.Stderr, "用法: msggw admin-key revoke <前缀>")
+			fmt.Fprintln(os.Stderr, "用法: nekopost admin-key revoke <前缀>")
 			return 2
 		}
 		if err := st.RevokeAdminKey(ctx, args[1], time.Now()); errors.Is(err, store.ErrNotFound) {
@@ -516,7 +516,7 @@ func cmdCheck(cfg *config.Config, args []string) int {
 		}
 		report(true, "数据库", fmt.Sprintf("%s（来源 %d 个，启用 %d 个）", cfg.DBPath(), len(srcs), enabled))
 		if len(srcs) == 0 {
-			fmt.Println("  提示：尚未配置来源，使用 msggw source add <id> 新增")
+			fmt.Println("  提示：尚未配置来源，使用 nekopost source add <id> 新增")
 		}
 		st.Close()
 	}
@@ -533,7 +533,7 @@ func cmdCheck(cfg *config.Config, args []string) int {
 			if *sendTest {
 				_, err := tg.SendMessage(ctx, telegram.SendMessageParams{
 					ChatID: cfg.ChatID,
-					Text:   "🧪 msggw 测试消息\n如果你看到这条消息，说明 Bot Token 和投递目标配置正确。\n" + time.Now().In(cfg.Location).Format("2006-01-02 15:04:05"),
+					Text:   "🧪 nekopost 测试消息\n如果你看到这条消息，说明 Bot Token 和投递目标配置正确。\n" + time.Now().In(cfg.Location).Format("2006-01-02 15:04:05"),
 				})
 				if err != nil {
 					report(false, "测试消息", err.Error()+"（请确认已在 Telegram 中对 Bot 点击 Start）")
@@ -556,7 +556,7 @@ func cmdCheck(cfg *config.Config, args []string) int {
 			report(true, "DeepSeek", fmt.Sprintf("模型 %s，测试广告短信分类为「%s」，用时 %.1f 秒", cfg.DeepSeekModel, cat.Label(), time.Since(start).Seconds()))
 		}
 	} else {
-		fmt.Println("- 短信过滤 未启用（未设置 MSGGW_DEEPSEEK_API_KEY）")
+		fmt.Println("- 短信过滤 未启用（未设置 NEKOPOST_DEEPSEEK_API_KEY）")
 	}
 	if !ok {
 		return 1

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"msggw/internal/auth"
-	"msggw/internal/status"
-	"msggw/internal/store"
+	"nekopost/internal/auth"
+	"nekopost/internal/status"
+	"nekopost/internal/store"
 )
 
 // admin wraps a handler with admin-credential authentication. Admin keys are

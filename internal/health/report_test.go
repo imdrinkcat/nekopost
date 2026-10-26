@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"msggw/internal/model"
-	"msggw/internal/store"
-	"msggw/internal/sysinfo"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
+	"nekopost/internal/sysinfo"
 )
 
 var now = time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)

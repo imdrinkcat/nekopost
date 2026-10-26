@@ -1,5 +1,5 @@
 [Unit]
-Description=Personal Message Gateway (msggw)
+Description=Nekopost personal message gateway
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300
@@ -8,19 +8,19 @@ StartLimitBurst=10
 [Service]
 Type=notify
 NotifyAccess=main
-User=msggw
-Group=msggw
-EnvironmentFile=/etc/msggw/msggw.env
+User=nekopost
+Group=nekopost
+EnvironmentFile=/etc/nekopost/nekopost.env
 # Keep the Go heap small on low-memory hosts.
 Environment=GOMEMLIMIT=64MiB
-ExecStart=/usr/local/bin/msggw serve
+ExecStart=/usr/local/bin/nekopost serve
 Restart=always
 RestartSec=5
 # The service withholds keep-alives if its database or delivery loop wedges.
 WatchdogSec=5min
 TimeoutStopSec=30
 
-StateDirectory=msggw
+StateDirectory=nekopost
 StateDirectoryMode=0700
 UMask=0077
 

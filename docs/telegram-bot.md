@@ -12,7 +12,7 @@ Telegram Bot 在本项目中有两个角色：
 ### 1. 创建 Bot
 
 1. 在 Telegram 中搜索 **@BotFather**（认准蓝色认证标记），发送 `/newbot`。
-2. 按提示输入 Bot 的显示名称（例如 `我的消息网关`）和用户名（必须以 `bot` 结尾，例如 `my_msggw_bot`）。
+2. 按提示输入 Bot 的显示名称（例如 `我的消息网关`）和用户名（必须以 `bot` 结尾，例如 `my_nekopost_bot`）。
 3. BotFather 返回一串 Token，形如 `1234567890:AAH...`。**这串 Token 等同于 Bot 的密码，不要发给任何人。**
 
 建议同时在 BotFather 中设置：
@@ -32,17 +32,17 @@ Telegram Bot 在本项目中有两个角色：
 ### 3. 写入服务器配置
 
 ```bash
-sudo nano /etc/msggw/msggw.env
+sudo nano /etc/nekopost/nekopost.env
 ```
 
 填写：
 
 ```ini
-MSGGW_TELEGRAM_BOT_TOKEN=1234567890:AAH...
-MSGGW_TELEGRAM_ADMIN_IDS=你的数字ID
+NEKOPOST_TELEGRAM_BOT_TOKEN=1234567890:AAH...
+NEKOPOST_TELEGRAM_ADMIN_IDS=你的数字ID
 ```
 
-多个管理员用逗号分隔：`MSGGW_TELEGRAM_ADMIN_IDS=111111,222222`。消息默认投递到第一个管理员的私聊；如需投递到其他聊天，设置 `MSGGW_TELEGRAM_CHAT_ID`。
+多个管理员用逗号分隔：`NEKOPOST_TELEGRAM_ADMIN_IDS=111111,222222`。消息默认投递到第一个管理员的私聊；如需投递到其他聊天，设置 `NEKOPOST_TELEGRAM_CHAT_ID`。
 
 ### 4. 对 Bot 点击「开始」
 
@@ -51,8 +51,8 @@ Telegram 规定：**Bot 不能主动给从未与它对话过的用户发消息**
 ### 5. 重启并检查
 
 ```bash
-sudo systemctl restart msggw
-sudo msggw check --send-test
+sudo systemctl restart nekopost
+sudo nekopost check --send-test
 ```
 
 `check` 会检查配置、数据库和 Telegram 连接；`--send-test` 会向投递目标发一条测试消息。全部显示 `✓` 即配置成功。
@@ -176,7 +176,7 @@ Bot 内可执行的管理操作只有「停用 / 启用来源」和「转发被�
 
 ## 三、权限与安全
 
-- 只有 `MSGGW_TELEGRAM_ADMIN_IDS` 中的**数字用户 ID** 能使用菜单，用户名、昵称不参与判断。
+- 只有 `NEKOPOST_TELEGRAM_ADMIN_IDS` 中的**数字用户 ID** 能使用菜单，用户名、昵称不参与判断。
 - 只在**私聊**中响应。Bot 在群组、超级群组、频道中完全不响应（不会泄露任何信息）。
 - 未授权用户发消息：Bot 回复「没有使用权限」及其用户 ID（每人每 10 分钟最多回复一次，防止被利用刷消息），不返回任何系统信息；该次访问会被计数并记录日志。
 - 未授权用户点击按钮（例如转发来的旧菜单消息）：只弹出「无权限」，不执行任何操作。
@@ -184,4 +184,4 @@ Bot 内可执行的管理操作只有「停用 / 启用来源」和「转发被�
 - 除「🗑 已过滤」页面外，管理菜单中不显示消息正文。
 - 消息投递使用的 Telegram 连接与管理菜单相同，但两者状态分别统计。
 
-增加管理员：在 `MSGGW_TELEGRAM_ADMIN_IDS` 中追加 ID 后重启服务；新管理员需先对 Bot 点击「开始」。
+增加管理员：在 `NEKOPOST_TELEGRAM_ADMIN_IDS` 中追加 ID 后重启服务；新管理员需先对 Bot 点击「开始」。

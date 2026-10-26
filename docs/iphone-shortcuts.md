@@ -13,7 +13,7 @@
 在服务器上为 iPhone 创建一个消息来源（只需一次）：
 
 ```bash
-sudo msggw source add iphone --name iPhone --icon 📱
+sudo nekopost source add iphone --name iPhone --icon 📱
 ```
 
 输出类似：
@@ -38,7 +38,7 @@ sudo msggw source add iphone --name iPhone --icon 📱
 
 `?wait=8` 表示服务器最多等 8 秒，拿到 Telegram 的投递结果后再回复，这样手机上显示的是「已送达 Telegram」而不只是「已接收」。
 
-> 凭证丢了也没关系：执行 `sudo msggw source rotate iphone` 生成新凭证，旧凭证立即失效。
+> 凭证丢了也没关系：执行 `sudo nekopost source rotate iphone` 生成新凭证，旧凭证立即失效。
 
 ---
 
@@ -202,7 +202,7 @@ curl -sS https://osaka.drinkcat.com/v1/messages?wait=8 \
 | `提交失败：凭证缺失、无效或已吊销` | 头部名称必须是 `Authorization`，值必须以 `Bearer ` 开头（含空格）；凭证需完整复制。若曾执行过 `rotate`，旧凭证已失效 |
 | `提交失败：Content-Type 必须是…` | 「请求体」需选择 **JSON**，不要选「表单」 |
 | `提交失败：请求字段校验失败（body …）` | `body` 和 `title` 都是空的：检查变量是否选对 |
-| `提交失败：该消息来源已被停用` | 在 Bot 的「📨 消息来源」中重新启用，或执行 `sudo msggw source enable iphone` |
+| `提交失败：该消息来源已被停用` | 在 Bot 的「📨 消息来源」中重新启用，或执行 `sudo nekopost source enable iphone` |
 | `提交失败：认证失败次数过多` | 同一网络 10 分钟内认证失败 20 次，被暂时封禁 15 分钟。修正凭证后等待即可 |
 | 显示「投递暂未成功，正在重试」 | 服务器已收下，Telegram 暂时不可用；服务器会自动重试，无需重发 |
 | 自动化没有触发 | 检查关键词 / 发件人条件；确认选了「立即运行」；检查专注模式和低电量模式；被过滤的短信可能不触发 |

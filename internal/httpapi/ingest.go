@@ -15,9 +15,9 @@ import (
 	"time"
 	"unicode"
 
-	"msggw/internal/auth"
-	"msggw/internal/model"
-	"msggw/internal/store"
+	"nekopost/internal/auth"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
 )
 
 // maxRequestBytes bounds the raw request body (JSON escaping can expand text).

@@ -11,7 +11,7 @@
 | 服务器日志 | **否** | — |
 | Telegram 服务器与你的聊天记录 | 是 | 由 Telegram 保存，直到你删除。Bot 聊天**不是**端到端加密的 |
 | DeepSeek（仅启用短信过滤时） | 是，**遮盖数字和链接后**的短信；验证码类短信不发送 | 遵循 DeepSeek 的隐私政策，服务器在中国。详见 [sms-filter.md](sms-filter.md#3-隐私) |
-| 服务器数据库中被过滤的短信 | 是 | 默认 7 天（`MSGGW_FILTER_KEEP_DAYS`），便于找回误判 |
+| 服务器数据库中被过滤的短信 | 是 | 默认 7 天（`NEKOPOST_FILTER_KEEP_DAYS`），便于找回误判 |
 
 因此：
 
@@ -30,11 +30,11 @@
 |---|---|---|---|
 | 来源凭证 | `mgs_` + 43 字符 | 来源提交消息、查询自己消息的状态 | 数据库只存 SHA-256 哈希 |
 | 管理密钥 | `mga_` + 43 字符 | 只读管理 API `/v1/admin/*` | 数据库只存 SHA-256 哈希 |
-| Telegram Bot Token | `123456:AA...` | 与 Telegram 通信 | `/etc/msggw/msggw.env`（root 600） |
+| Telegram Bot Token | `123456:AA...` | 与 Telegram 通信 | `/etc/nekopost/nekopost.env`（root 600） |
 
 设计要点：
 
-- **来源隔离**：每个来源有自己的凭证。一个来源的凭证泄露，只影响该来源——执行 `sudo msggw source rotate <id>` 即可让旧凭证立即失效，其他来源不受影响。
+- **来源隔离**：每个来源有自己的凭证。一个来源的凭证泄露，只影响该来源——执行 `sudo nekopost source rotate <id>` 即可让旧凭证立即失效，其他来源不受影响。
 - **权限分离**：来源凭证只能提交消息和查询**自己**的消息；无法访问管理接口，无法读取其他来源的任何信息，也无法修改任何配置。管理密钥只能读取状态，不能提交消息。所有写操作（增删来源、改配置）只能在服务器上用命令行完成，或在 Telegram 中由管理员停用 / 启用来源。
 - **来源身份不可伪造**：消息的来源由凭证决定。请求体中的 `source` 等字段会被忽略并给出警告。
 - 凭证是 256 位随机数，只在创建时显示一次，服务器无法找回原文。
@@ -44,9 +44,9 @@
 
 | 泄露的内容 | 处理 |
 |---|---|
-| 某个来源凭证 | `sudo msggw source rotate <id>`，然后更新该设备的配置 |
-| 管理密钥 | `sudo msggw admin-key revoke <前缀>` |
-| Bot Token | 在 @BotFather 中对该 Bot 执行 `/revoke` 获取新 Token，写入 `msggw.env` 后重启 |
+| 某个来源凭证 | `sudo nekopost source rotate <id>`，然后更新该设备的配置 |
+| 管理密钥 | `sudo nekopost admin-key revoke <前缀>` |
+| Bot Token | 在 @BotFather 中对该 Bot 执行 `/revoke` 获取新 Token，写入 `nekopost.env` 后重启 |
 
 ---
 
@@ -83,9 +83,9 @@
 
 已经默认完成的：
 
-- 服务以无登录 shell 的系统用户 `msggw` 运行，只拥有绑定 80/443 端口的能力。
+- 服务以无登录 shell 的系统用户 `nekopost` 运行，只拥有绑定 80/443 端口的能力。
 - systemd 沙箱：根文件系统只读、无法访问 `/home` 和 `/root`、私有 `/tmp`、禁止提权、禁止加载内核模块、限制可用的系统调用。
-- 配置文件 `root:root 600`；数据目录 `msggw 700`；数据库文件 `600`。
+- 配置文件 `root:root 600`；数据目录 `nekopost 700`；数据库文件 `600`。
 - 网关**不**需要、也**没有**访问 Docker、systemd 或其他进程的权限；服务器指标只读取 `/proc` 中的公开信息。
 - ufw 只放行 22、80、443。
 
@@ -101,7 +101,7 @@
 
 | 数据 | 保留 |
 |---|---|
-| 消息正文、标题、meta | 被短信过滤拦下的消息保留 `MSGGW_FILTER_KEEP_DAYS`（默认 7 天）；其余在投递结束（成功、失败或放弃）后立即删除。数据库开启了 `secure_delete`，被删除的内容会被覆盖；WAL 日志每小时截断一次 |
-| 消息元数据（ID、来源、类型、时间、状态、长度） | 默认 30 天（`MSGGW_RETENTION_DAYS`） |
+| 消息正文、标题、meta | 被短信过滤拦下的消息保留 `NEKOPOST_FILTER_KEEP_DAYS`（默认 7 天）；其余在投递结束（成功、失败或放弃）后立即删除。数据库开启了 `secure_delete`，被删除的内容会被覆盖；WAL 日志每小时截断一次 |
+| 消息元数据（ID、来源、类型、时间、状态、长度） | 默认 30 天（`NEKOPOST_RETENTION_DAYS`） |
 | 内容去重指纹 | 用服务器随机密钥计算的 HMAC，无法反推验证码等短内容；随元数据一起删除 |
 | 访问日志 | 只记录方法、路径、状态码、耗时、IP、来源 ID、请求 ID；保留期由 journald 配置决定 |

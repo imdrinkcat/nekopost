@@ -13,12 +13,12 @@ import (
 	"runtime/debug"
 	"time"
 
-	"msggw/internal/delivery"
-	"msggw/internal/health"
-	"msggw/internal/ratelimit"
-	"msggw/internal/router"
-	"msggw/internal/status"
-	"msggw/internal/store"
+	"nekopost/internal/delivery"
+	"nekopost/internal/health"
+	"nekopost/internal/ratelimit"
+	"nekopost/internal/router"
+	"nekopost/internal/status"
+	"nekopost/internal/store"
 )
 
 // Waker is implemented by the delivery worker.

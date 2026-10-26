@@ -2,7 +2,7 @@
 // place where per-source, per-type or per-priority rules belong.
 package router
 
-import "msggw/internal/model"
+import "nekopost/internal/model"
 
 // Target is one destination for a message.
 type Target struct {

@@ -15,8 +15,8 @@
 
 | 凭证 | 前缀 | 用途 | 生成方式 |
 |---|---|---|---|
-| 来源凭证 | `mgs_` | 提交消息、查询**本来源**的消息状态 | `msggw source add <id>` / `msggw source rotate <id>` |
-| 管理密钥 | `mga_` | 只读管理接口 `/v1/admin/*` | `msggw admin-key create <名称>` |
+| 来源凭证 | `mgs_` | 提交消息、查询**本来源**的消息状态 | `nekopost source add <id>` / `nekopost source rotate <id>` |
+| 管理密钥 | `mga_` | 只读管理接口 `/v1/admin/*` | `nekopost admin-key create <名称>` |
 
 - 两种凭证都放在请求头里：`Authorization: Bearer <凭证>`。凭证不能放在 URL 中。
 - 两类凭证互不通用：来源凭证访问管理接口会得到 401，管理密钥提交消息也会得到 401。
@@ -28,7 +28,7 @@
 
 | 机制 | 规则 | 响应 |
 |---|---|---|
-| 按来源限流 | 令牌桶，平均 `MSGGW_SOURCE_RATE_PER_MIN` 条/分钟（默认 60），突发容量为 max(10, 速率/3)（默认 20）。超出的请求也计入，包括校验失败的请求 | `429 rate_limited` + `Retry-After` |
+| 按来源限流 | 令牌桶，平均 `NEKOPOST_SOURCE_RATE_PER_MIN` 条/分钟（默认 60），突发容量为 max(10, 速率/3)（默认 20）。超出的请求也计入，包括校验失败的请求 | `429 rate_limited` + `Retry-After` |
 | 认证失败封禁 | 同一 IP 在 10 分钟内认证失败 20 次，封禁 15 分钟（来源接口和管理接口共用） | `429 too_many_auth_failures` + `Retry-After` |
 | 并发上限 | 同时处理的请求最多 32 个 | `503 busy` + `Retry-After: 5` |
 | 请求体大小 | 原始请求体最大 256 KB | `413 payload_too_large` |
@@ -56,7 +56,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `title` | string | 二选一 | 单行文本，最多 256 字符 |
-| `body` | string | 二选一 | 正文，支持多行，最多 `MSGGW_MAX_BODY_CHARS` 字符（默认 12000） |
+| `body` | string | 二选一 | 正文，支持多行，最多 `NEKOPOST_MAX_BODY_CHARS` 字符（默认 12000） |
 | `type` | string | 否 | 消息类型，默认 `text`。会先转小写，再匹配 `^[a-z][a-z0-9_.-]{0,31}$` |
 | `priority` | string | 否 | `low` / `normal`（默认）/ `high` |
 | `occurred_at` | string 或 number | 否 | 设备上的事件时间，仅作参考，见[消息模型](message-model.md) |
@@ -73,7 +73,7 @@
 
 ```bash
 echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?title=Backup&type=task" \
-  -H "Authorization: Bearer $MSGGW_TOKEN" -H "Content-Type: text/plain" --data-binary @-
+  -H "Authorization: Bearer $NEKOPOST_TOKEN" -H "Content-Type: text/plain" --data-binary @-
 ```
 
 其他 `Content-Type` 返回 `415 unsupported_media_type`。
@@ -85,7 +85,7 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 ### 3.4 幂等与去重
 
 - 提供了幂等键时：同一来源下，相同的幂等键在元数据保留期内（默认 30 天）只转发一次。如果请求头和请求体中都提供了幂等键且两者不同，返回 422。
-- 没有幂等键时：同一来源在 `MSGGW_DEDUPE_WINDOW`（默认 60 秒，设为 `0s` 可关闭）内提交了相同内容，视为重复。内容由类型、标题、正文共同决定。
+- 没有幂等键时：同一来源在 `NEKOPOST_DEDUPE_WINDOW`（默认 60 秒，设为 `0s` 可关闭）内提交了相同内容，视为重复。内容由类型、标题、正文共同决定。
 - 重复提交返回 **HTTP 200**，`duplicate: true`，以及原消息的 `id` 和当前状态，不会再次转发。
 
 ### 3.5 成功响应
@@ -198,7 +198,7 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 
 - `level` 的取值：`ok`、`unknown`、`degraded`、`config_error`、`down`。
 - `server` 中读取失败的指标会直接省略，而不是填 0。
-- 所有时间字段都使用配置的时区（`MSGGW_TIMEZONE`）。
+- 所有时间字段都使用配置的时区（`NEKOPOST_TIMEZONE`）。
 
 ### `GET /v1/admin/sources`
 
@@ -270,7 +270,7 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 
 - 顶层的 `message` 是给人看的一句话（如果有 `details`，会附上第一条）。`POST /v1/messages` 的错误以「提交失败：」开头，其他接口以「请求失败：」开头。程序判断请使用 `error.code`。
 - `details` 只在字段校验失败时出现。
-- 401 响应会附带 `WWW-Authenticate: Bearer realm="msggw"`；429 和 503 响应会附带 `Retry-After`。
+- 401 响应会附带 `WWW-Authenticate: Bearer realm="nekopost"`；429 和 503 响应会附带 `Retry-After`。
 
 | HTTP | `code` | 含义 |
 |---|---|---|

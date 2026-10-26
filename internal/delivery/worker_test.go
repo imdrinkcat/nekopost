@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/model"
-	"msggw/internal/store"
-	"msggw/internal/telegram"
-	"msggw/internal/testutil/faketg"
+	"nekopost/internal/health"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
+	"nekopost/internal/telegram"
+	"nekopost/internal/testutil/faketg"
 )
 
 type env struct {

@@ -1,8 +1,8 @@
 <div align="center">
 
-# 📨 msggw
+# 🐈 Nekopost
 
-**A small, self-hosted message gateway: collect notifications from your phone, servers and scripts, and deliver them to Telegram — reliably.**
+**Your personal cat courier.** A tiny self-hosted gateway that collects SMS, alerts and script output from your phone and servers, and delivers them to Telegram — reliably.
 
 English · [Simplified Chinese](README.zh-CN.md)
 
@@ -19,20 +19,20 @@ English · [Simplified Chinese](README.zh-CN.md)
 
 ## Why
 
-Forwarding SMS and alerts to Telegram is easy to hack together, but hard to trust. A quick script can silently drop a message when Telegram is down, or report "sent" when it wasn't. **msggw** is a single Go binary that takes delivery seriously. It stores every message before acknowledging it and retries until Telegram confirms receipt. It is honest about every state in between: *accepted*, *delivered*, *failed* or *uncertain*.
+Forwarding SMS and alerts to Telegram is easy to hack together, but hard to trust. A quick script can silently drop a message when Telegram is down, or report "sent" when it wasn't. **Nekopost** (*neko* is Japanese for "cat") is a single Go binary that takes delivery seriously. It stores every message before acknowledging it and retries until Telegram confirms receipt. It is honest about every state in between: *accepted*, *delivered*, *failed* or *uncertain*.
 
 ```mermaid
 flowchart LR
     A["📱 iPhone Shortcuts"] -->|HTTPS + token| G
     B["🖥 Linux / cron"] -->|HTTPS + token| G
     C["⚙️ Any program"] -->|HTTPS + token| G
-    G["msggw<br/>auth · dedupe · persist · filter · retry"] --> T["✈️ Telegram"]
+    G["nekopost<br/>auth · dedupe · persist · filter · retry"] --> T["✈️ Telegram"]
     T <-->|admin menu| G
 ```
 
 ## Features
 
-- **Reliable delivery**: messages are committed to SQLite (`synchronous=FULL`) before the client gets a response. A persistent outbox retries with backoff for up to 24 h. Delivery is at-least-once: when an attempt's outcome is unknown, msggw resends rather than risk losing the message, and marks it *uncertain*.
+- **Reliable delivery**: messages are committed to SQLite (`synchronous=FULL`) before the client gets a response. A persistent outbox retries with backoff for up to 24 h. Delivery is at-least-once: when an attempt's outcome is unknown, Nekopost resends rather than risk losing the message, and marks it *uncertain*.
 - **Per-source credentials**: each device or script gets its own token, which can be disabled, rotated or revoked independently. The source identity comes from the token and cannot be spoofed in the payload.
 - **Dedupe and idempotency**: `Idempotency-Key` support, plus content-based dedupe within a configurable window.
 - **Clean notifications**: the message text contains only the content, so lock-screen previews show what matters. Source and type appear as inline buttons; tapping one shows the message details.
@@ -61,18 +61,18 @@ Your verification code is 123456, valid for 5 minutes.
 **Requirements:** a Linux host with systemd, Go ≥ 1.27 to build, a domain pointing at the host, and ports 80/443 open (80 is needed for Let's Encrypt).
 
 ```bash
-# 1. Build and install (creates the msggw user, systemd unit and /etc/msggw/msggw.env)
+# 1. Build and install (creates the nekopost user, systemd unit and /etc/nekopost/nekopost.env)
 sudo ./deploy/install.sh
 
 # 2. Configure: domain, Telegram bot token (from @BotFather), your Telegram user ID
-sudo nano /etc/msggw/msggw.env
-sudo systemctl restart msggw
+sudo nano /etc/nekopost/nekopost.env
+sudo systemctl restart nekopost
 
 # 3. Self-check and send a test message
-sudo msggw check --send-test
+sudo nekopost check --send-test
 
 # 4. Create a source and note its token (shown once)
-sudo msggw source add iphone --name iPhone --icon 📱
+sudo nekopost source add iphone --name iPhone --icon 📱
 ```
 
 Send your first message:
@@ -112,7 +112,7 @@ See the [API reference](docs/api.md) for status queries, error format and the ad
 Add a DeepSeek API key to enable it:
 
 ```bash
-MSGGW_DEEPSEEK_API_KEY=sk-...
+NEKOPOST_DEEPSEEK_API_KEY=sk-...
 ```
 
 | Category | Default |
@@ -124,28 +124,28 @@ Details, privacy notes and tuning: [docs/sms-filter.md](docs/sms-filter.md).
 
 ## Configuration
 
-All settings live in `/etc/msggw/msggw.env` (see [`deploy/msggw.env.example`](deploy/msggw.env.example)):
+All settings live in `/etc/nekopost/nekopost.env` (see [`deploy/nekopost.env.example`](deploy/nekopost.env.example)):
 
 | Variable | Default | |
 |---|---|---|
-| `MSGGW_DOMAIN` | — | Domain for the Let's Encrypt certificate |
-| `MSGGW_TELEGRAM_BOT_TOKEN` | — | Bot token from @BotFather |
-| `MSGGW_TELEGRAM_ADMIN_IDS` | — | Comma-separated numeric Telegram user IDs |
-| `MSGGW_TIMEZONE` | `Asia/Tokyo` | Display timezone |
-| `MSGGW_DELIVERY_MAX_AGE` | `24h` | How long to keep retrying |
-| `MSGGW_RETENTION_DAYS` | `30` | Metadata retention (bodies are deleted right after delivery) |
-| `MSGGW_DEEPSEEK_API_KEY` | — | Enables the SMS filter |
+| `NEKOPOST_DOMAIN` | — | Domain for the Let's Encrypt certificate |
+| `NEKOPOST_TELEGRAM_BOT_TOKEN` | — | Bot token from @BotFather |
+| `NEKOPOST_TELEGRAM_ADMIN_IDS` | — | Comma-separated numeric Telegram user IDs |
+| `NEKOPOST_TIMEZONE` | `Asia/Tokyo` | Display timezone |
+| `NEKOPOST_DELIVERY_MAX_AGE` | `24h` | How long to keep retrying |
+| `NEKOPOST_RETENTION_DAYS` | `30` | Metadata retention (bodies are deleted right after delivery) |
+| `NEKOPOST_DEEPSEEK_API_KEY` | — | Enables the SMS filter |
 
 Full list: [docs/deployment.md](docs/deployment.md) (section 3).
 
 ## CLI
 
 ```text
-msggw serve                         run the service (used by systemd)
-msggw check [--send-test]           validate config, database, Telegram and DeepSeek
-msggw source list|add|show|set|enable|disable|rotate|remove
-msggw admin-key create|list|revoke  read-only admin API keys
-msggw version
+nekopost serve                         run the service (used by systemd)
+nekopost check [--send-test]           validate config, database, Telegram and DeepSeek
+nekopost source list|add|show|set|enable|disable|rotate|remove
+nekopost admin-key create|list|revoke  read-only admin API keys
+nekopost version
 ```
 
 ## Documentation
@@ -173,7 +173,7 @@ The detailed documentation is written in Chinese.
 make test     # unit + integration tests
 make race     # all tests with the race detector
 make vet      # gofmt + go vet
-make build    # build bin/msggw
+make build    # build bin/nekopost
 ```
 
 The tests use an in-process fake Telegram Bot API (`internal/testutil/faketg`) and a fake DeepSeek endpoint, so they never touch the network.
@@ -182,7 +182,7 @@ The tests use an in-process fake Telegram Bot API (`internal/testutil/faketg`) a
 <summary>Project layout</summary>
 
 ```text
-cmd/msggw/            entry point and CLI
+cmd/nekopost/            entry point and CLI
 internal/config       configuration loading and validation
 internal/model        unified message model and states
 internal/auth         tokens, hashing, content fingerprints

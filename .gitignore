@@ -12,7 +12,7 @@ coverage.*
 *.db-shm
 *.db-journal
 
-# Secrets and local configuration (deploy/msggw.env.example is tracked)
+# Secrets and local configuration (deploy/nekopost.env.example is tracked)
 *.env
 .env
 .env.*

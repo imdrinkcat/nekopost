@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"msggw/internal/model"
+	"nekopost/internal/model"
 )
 
 var tokyo, _ = time.LoadLocation("Asia/Tokyo")

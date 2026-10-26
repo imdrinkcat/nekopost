@@ -18,12 +18,12 @@ import (
 	"sync"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/model"
-	"msggw/internal/render"
-	"msggw/internal/status"
-	"msggw/internal/store"
-	"msggw/internal/telegram"
+	"nekopost/internal/health"
+	"nekopost/internal/model"
+	"nekopost/internal/render"
+	"nekopost/internal/status"
+	"nekopost/internal/store"
+	"nekopost/internal/telegram"
 )
 
 // Settings is the configuration overview shown in the settings view.
@@ -302,7 +302,7 @@ func (b *Bot) replyUnauthorized(ctx context.Context, m *telegram.Message) {
 		return
 	}
 	text := "⛔ 这是一个私人机器人，你没有使用权限。\n\n" +
-		"如果你是这台网关的管理员，请将下面的用户 ID 加入服务器配置 <code>MSGGW_TELEGRAM_ADMIN_IDS</code>：\n" +
+		"如果你是这台网关的管理员，请将下面的用户 ID 加入服务器配置 <code>NEKOPOST_TELEGRAM_ADMIN_IDS</code>：\n" +
 		"<code>" + itoa(m.From.ID) + "</code>"
 	_, _ = b.Client.SendMessage(ctx, telegram.SendMessageParams{ChatID: m.Chat.ID, Text: text, ParseMode: "HTML"})
 }

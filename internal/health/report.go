@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"msggw/internal/model"
-	"msggw/internal/store"
-	"msggw/internal/sysinfo"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
+	"nekopost/internal/sysinfo"
 )
 
 // Level is a component state, ordered by severity (except Unknown, which is

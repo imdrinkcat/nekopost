@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/model"
-	"msggw/internal/store"
+	"nekopost/internal/health"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
 )
 
 var bg = context.Background()

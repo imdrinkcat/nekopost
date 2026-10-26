@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/model"
-	"msggw/internal/status"
-	"msggw/internal/store"
-	"msggw/internal/sysinfo"
-	"msggw/internal/telegram"
-	"msggw/internal/testutil/faketg"
+	"nekopost/internal/health"
+	"nekopost/internal/model"
+	"nekopost/internal/status"
+	"nekopost/internal/store"
+	"nekopost/internal/sysinfo"
+	"nekopost/internal/telegram"
+	"nekopost/internal/testutil/faketg"
 )
 
 const admin = 1001

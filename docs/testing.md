@@ -2,7 +2,7 @@
 
 本文记录**实际运行**的测试和验证结果。未验证的项目在第 4 节单独列出。
 
-测试时间：2026-10-25（东京时间）　版本：0.3.1（新增短信过滤；来源与类型改为按钮）　环境：Ubuntu 24.04，1 vCPU，955 MB 内存，Go 1.27.3
+测试时间：2026-10-25（东京时间）　版本：0.4.0（项目由 msggw 更名为 Nekopost）　环境：Ubuntu 24.04，1 vCPU，955 MB 内存，Go 1.27.3
 
 ---
 
@@ -40,7 +40,7 @@ make race     # go test -race -count=1 ./...
 | Let's Encrypt 证书 | ✅ 启动后数秒内自动签发（签发者 Let's Encrypt YE2，有效期至 2027-01-23） |
 | HTTP → HTTPS 跳转 | ✅ `http://…/healthz` 返回 302 跳转到 https |
 | `/healthz` | ✅ `{"status":"ok"}` |
-| Bot 身份 | ✅ `msggw check` 识别 @DrinkCatBot |
+| Bot 身份 | ✅ `nekopost check` 识别 @DrinkCatBot |
 | 公网 HTTPS 提交 → Telegram 送达 | ✅ 中文、日文、Emoji、多行、HTML 特殊字符；`wait=8` 下 0.5 秒返回 `已送达 Telegram` |
 | 幂等键重复提交 | ✅ 第二次返回 200、`duplicate:true`，未再次转发 |
 | 错误凭证 | ✅ 401，`提交失败：凭证缺失、无效或已吊销` |
@@ -60,9 +60,14 @@ make race     # go test -race -count=1 ./...
 
 ### 短信过滤（0.2.0）上线情况
 
-- 已部署：数据库从 v1 迁移到 v2（新增 `category` 列），迁移前备份到 `/var/lib/msggw/backup-before-filter.db`；服务启动正常，`/healthz` 正常。
-- 自动化测试使用模拟的 DeepSeek 接口。**真实 DeepSeek 调用尚未验证**：需要你在配置中填写 API Key 后运行 `sudo msggw check`。
+- 已部署：数据库从 v1 迁移到 v2（新增 `category` 列），迁移前备份到 `/var/lib/nekopost/backup-before-filter.db`；服务启动正常，`/healthz` 正常。
+- 自动化测试使用模拟的 DeepSeek 接口。**真实 DeepSeek 调用尚未验证**：需要你在配置中填写 API Key 后运行 `sudo nekopost check`。
 - 默认模型 `deepseek-flash` 依据 2026-10 的 DeepSeek API 文档（旧名 `deepseek-chat` 已于 2026-07-24 停用）。
+
+### 更名为 Nekopost（0.4.0）
+
+- 程序、Go 模块、systemd 服务、系统用户、配置与数据目录、环境变量前缀（`MSGGW_` → `NEKOPOST_`）全部更名；来源凭证前缀 `mgs_` / `mga_` 保持不变，已有凭证继续有效。
+- 线上迁移：停止旧服务 → 迁移数据目录与数据库文件 → 启动新服务，中断约 2 秒。迁移后 `nekopost check` 全部通过，Let's Encrypt 证书（acme 缓存随数据目录迁移）、iPhone 来源与凭证、DeepSeek 过滤均正常。迁移前数据与配置备份在 `/root/msggw-migration-backup-20261026061418`。
 
 ## 3. 需要你本人验证的项目
 

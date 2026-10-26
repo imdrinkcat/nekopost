@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
-	"msggw/internal/health"
+	"nekopost/internal/health"
 )
 
 // ListenConfig selects how the API is exposed.

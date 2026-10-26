@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"msggw/internal/model"
+	"nekopost/internal/model"
 )
 
 // HeldMessage is a message waiting for the content filter.

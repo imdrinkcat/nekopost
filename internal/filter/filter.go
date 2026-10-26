@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"msggw/internal/health"
-	"msggw/internal/model"
-	"msggw/internal/store"
+	"nekopost/internal/health"
+	"nekopost/internal/model"
+	"nekopost/internal/store"
 )
 
 // Waker is implemented by the delivery worker.
