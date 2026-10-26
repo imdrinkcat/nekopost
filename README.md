@@ -1,88 +1,203 @@
-# msggw · 个人消息网关
+<div align="center">
 
-一个轻量的个人消息网关：统一接收来自 iPhone、服务器、脚本等来源的消息，转发到 Telegram；同时可以在 Telegram Bot 中查看网关、Bot 和服务器的运行状态。
+# 📨 msggw
+
+**A small, self-hosted message gateway: collect notifications from your phone, servers and scripts, and deliver them to Telegram — reliably.**
+
+English · [简体中文](README.zh-CN.md)
+
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20systemd-FCC624?logo=linux&logoColor=black)
+![Storage](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
+![Telegram](https://img.shields.io/badge/output-Telegram%20Bot-26A5E4?logo=telegram&logoColor=white)
+![Memory](https://img.shields.io/badge/idle%20RSS-~19%20MB-success)
+
+</div>
+
+---
+
+## Why
+
+Forwarding SMS and alerts to Telegram is easy to hack together, but hard to trust. A quick script can silently drop a message when Telegram is down, or report "sent" when it wasn't. **msggw** is a single Go binary that takes delivery seriously. It stores every message before acknowledging it and retries until Telegram confirms receipt. It is honest about every state in between: *accepted*, *delivered*, *failed* or *uncertain*.
+
+```mermaid
+flowchart LR
+    A["📱 iPhone Shortcuts"] -->|HTTPS + token| G
+    B["🖥 Linux / cron"] -->|HTTPS + token| G
+    C["⚙️ Any program"] -->|HTTPS + token| G
+    G["msggw<br/>auth · dedupe · persist · filter · retry"] --> T["✈️ Telegram"]
+    T <-->|admin menu| G
+```
+
+## Features
+
+- **Reliable delivery**: messages are committed to SQLite (`synchronous=FULL`) before the client gets a response. A persistent outbox retries with backoff for up to 24 h. Delivery is at-least-once: when an attempt's outcome is unknown, msggw resends rather than risk losing the message, and marks it *uncertain*.
+- **Per-source credentials**: each device or script gets its own token, which can be disabled, rotated or revoked independently. The source identity comes from the token and cannot be spoofed in the payload.
+- **Dedupe and idempotency**: `Idempotency-Key` support, plus content-based dedupe within a configurable window.
+- **Clean notifications**: the message text contains only the content, so lock-screen previews show what matters. Source and type appear as inline buttons; tapping one shows the message details.
+- **Admin bot**: a menu-driven Telegram bot (Chinese UI) for system overview, bot and server health, sources, statistics and settings. It is admin-only, private chats only, and silent in groups.
+- **Optional AI SMS filter**: [DeepSeek](https://www.deepseek.com/) classifies SMS. Ads, spam and roaming / customs reminders are held back but can be rescued from the bot for 7 days.
+  - Verification codes are detected locally and **never** sent to the AI.
+  - Other messages have digits and links masked before classification.
+  - Any AI failure means the message is forwarded as usual.
+- **Privacy by default**: message bodies are deleted as soon as delivery finishes, with `secure_delete` and hourly WAL truncation. Logs never contain message content or credentials.
+- **Batteries included**: built-in Let's Encrypt (autocert), a hardened systemd unit with watchdog, honest health reporting ("unknown" is never shown as "healthy"), and a read-only admin API.
+- **Tiny footprint**: about 19 MB RSS and 0.01% CPU when idle, on a 1 vCPU / 1 GB VPS. No Docker, no external services.
+
+## How a message looks in Telegram
 
 ```
-iPhone 快捷指令 ─┐
-Linux / cron  ───┼─HTTPS─▶  msggw  ──▶ Telegram
-其他程序 / 设备 ──┘        （认证·去重·持久化·重试）
-                               ▲
-              Telegram Bot 管理菜单（状态 / 来源 / 统计）
+❗ China Merchants Bank
+Your verification code is 123456, valid for 5 minutes.
+
+ [ 📱 iPhone ]  [ 💬 短信 · 验证码 ]      ← inline buttons; tap for details
 ```
 
-- **单个 Go 程序 + SQLite + systemd**，无外部依赖；空闲时进程内存约 19 MB、CPU 约 0.01%（实测见 [docs/testing.md](docs/testing.md)）。
-- 每个来源独立凭证，可单独停用 / 轮换；来源身份由凭证决定，无法伪造。
-- 消息先持久化再确认，Telegram 故障时自动重试（至少一次，最长 24 小时）；明确区分「已接收」「已送达」「失败」「结果不确定」。
-- 正文在投递结束后立即删除，日志中不记录正文和凭证。
-- 自动申请和续期 Let's Encrypt 证书。
-- 中文 Telegram 管理菜单：系统总览、机器人状态、服务器状态、消息来源、消息统计、系统设置。
-- 可选的短信过滤：用 DeepSeek 识别广告和垃圾短信，不推送但可在 Bot 里找回；验证码不发给 AI，AI 故障时直接转发。
+## Quick start
 
-## 快速开始
+**Requirements:** a Linux host with systemd, Go ≥ 1.27 to build, a domain pointing at the host, and ports 80/443 open (80 is needed for Let's Encrypt).
 
 ```bash
-sudo ./deploy/install.sh                 # 编译并安装 systemd 服务
-sudo nano /etc/msggw/msggw.env           # 填写 Bot Token 与管理员 ID
+# 1. Build and install (creates the msggw user, systemd unit and /etc/msggw/msggw.env)
+sudo ./deploy/install.sh
+
+# 2. Configure: domain, Telegram bot token (from @BotFather), your Telegram user ID
+sudo nano /etc/msggw/msggw.env
 sudo systemctl restart msggw
-sudo msggw check --send-test             # 自检并发送测试消息
-sudo msggw source add iphone --name iPhone --icon 📱   # 创建来源，记下凭证
+
+# 3. Self-check and send a test message
+sudo msggw check --send-test
+
+# 4. Create a source and note its token (shown once)
+sudo msggw source add iphone --name iPhone --icon 📱
 ```
 
-发送一条消息：
+Send your first message:
 
 ```bash
-curl https://osaka.drinkcat.com/v1/messages?wait=8 \
-  -H "Authorization: Bearer mgs_..." -H "Content-Type: application/json" \
-  -d '{"title":"你好","body":"第一条消息 👋"}'
+curl "https://your.domain/v1/messages?wait=8" \
+  -H "Authorization: Bearer mgs_..." \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Hello", "body": "First message 👋", "type": "sms"}'
 ```
 
-## 文档
+```json
+{ "ok": true, "message": "已送达 Telegram", "status": "delivered", "delivered": true, "id": "m_01JB7Q..." }
+```
 
-| 文档 | 内容 |
+`ok: true` only means *accepted*. Check `delivered` to know whether Telegram actually received the message.
+
+## Sending messages
+
+`POST /v1/messages` accepts JSON or `text/plain`:
+
+| Field | Description |
 |---|---|
-| [docs/deployment.md](docs/deployment.md) | Linux 部署指南（安装、配置项、更新、备份、卸载） |
-| [docs/telegram-bot.md](docs/telegram-bot.md) | Telegram Bot 配置教程、菜单及交互说明 |
-| [docs/iphone-shortcuts.md](docs/iphone-shortcuts.md) | iPhone 快捷指令配置教程（手动发送、短信自动化、iOS 限制） |
-| [docs/api.md](docs/api.md) | 对外接口说明 |
-| [docs/message-model.md](docs/message-model.md) | 统一消息模型说明 |
-| [docs/sms-filter.md](docs/sms-filter.md) | 短信过滤（DeepSeek）：流程、隐私、配置、找回 |
-| [docs/adding-sources.md](docs/adding-sources.md) | 消息来源扩展指南（含其他系统示例、新增输出通道） |
-| [docs/architecture.md](docs/architecture.md) | 项目架构说明 |
-| [docs/operations.md](docs/operations.md) | 服务监控与故障排查 |
-| [docs/security.md](docs/security.md) | 安全配置指南与隐私风险 |
-| [docs/limitations.md](docs/limitations.md) | 已知限制与未来扩展建议 |
-| [docs/testing.md](docs/testing.md) | 自动化测试与部署验证结果 |
+| `title` | Optional, single line (e.g. the SMS sender) |
+| `body` | Message text; Chinese, Japanese and emoji are fully supported; long messages are split automatically |
+| `type` | `sms`, `notification`, `alert`, `task`, `log`, … (free-form, shown as a label) |
+| `priority` | `low` (silent), `normal`, `high` (❗) |
+| `occurred_at` | Device-side timestamp (informational only) |
+| `meta` | Up to 16 extra key/value pairs |
 
-## 开发
+Add `?wait=N` (≤ 25 s) to wait for the real delivery result. This is handy for iPhone Shortcuts, which can simply display the `message` field.
+
+See the [API reference](docs/api.md) for status queries, error format and the admin API.
+
+## SMS filter (optional)
+
+Add a DeepSeek API key to enable it:
 
 ```bash
-make test        # 单元测试 + 集成测试
-make race        # 带竞态检测运行全部测试
-make vet         # gofmt + go vet
-make build       # 编译到 bin/msggw
-sudo make install
+MSGGW_DEEPSEEK_API_KEY=sk-...
 ```
 
-目录结构：
+| Category | Default |
+|---|---|
+| Verification code · Bank/payment · Parcel/travel · Personal · Service notice | ✅ forwarded, with the category shown on the button |
+| Roaming / customs reminders · Marketing · Spam | 🗑 held back, can be forwarded from the bot (`/filtered`) for 7 days |
 
+Details, privacy notes and tuning: [docs/sms-filter.md](docs/sms-filter.md).
+
+## Configuration
+
+All settings live in `/etc/msggw/msggw.env` (see [`deploy/msggw.env.example`](deploy/msggw.env.example)):
+
+| Variable | Default | |
+|---|---|---|
+| `MSGGW_DOMAIN` | — | Domain for the Let's Encrypt certificate |
+| `MSGGW_TELEGRAM_BOT_TOKEN` | — | Bot token from @BotFather |
+| `MSGGW_TELEGRAM_ADMIN_IDS` | — | Comma-separated numeric Telegram user IDs |
+| `MSGGW_TIMEZONE` | `Asia/Tokyo` | Display timezone |
+| `MSGGW_DELIVERY_MAX_AGE` | `24h` | How long to keep retrying |
+| `MSGGW_RETENTION_DAYS` | `30` | Metadata retention (bodies are deleted right after delivery) |
+| `MSGGW_DEEPSEEK_API_KEY` | — | Enables the SMS filter |
+
+Full list: [docs/deployment.md](docs/deployment.md#3-配置项).
+
+## CLI
+
+```text
+msggw serve                         run the service (used by systemd)
+msggw check [--send-test]           validate config, database, Telegram and DeepSeek
+msggw source list|add|show|set|enable|disable|rotate|remove
+msggw admin-key create|list|revoke  read-only admin API keys
+msggw version
 ```
-cmd/msggw/            程序入口与命令行（serve / check / source / admin-key）
-internal/config       配置加载与校验
-internal/model        统一消息模型与状态
-internal/auth         凭证生成、哈希、内容指纹
-internal/store        SQLite 持久化（来源、消息、投递、统计）
-internal/httpapi      HTTP 接口、认证、限流、HTTPS 证书
-internal/router       路由：消息 → 投递目标
-internal/filter       短信过滤：验证码识别、遮盖、DeepSeek 分类
-internal/delivery     持久化发件箱、重试、Telegram 输出通道
-internal/render       消息 → Telegram 文本（转义、拆分）
-internal/telegram     精简的 Telegram Bot API 客户端
-internal/bot          管理 Bot（菜单、权限、视图）
-internal/health       运行状态采集与组件状态评估
-internal/status       状态 / 统计查询服务
-internal/sysinfo      服务器指标（/proc、statfs）
-internal/ratelimit    限流与认证失败封禁
-internal/sdnotify     systemd 就绪通知与看门狗
-internal/app          组件装配与生命周期
-deploy/               systemd 服务、配置模板、安装脚本
+
+## Documentation
+
+The detailed documentation is written in Chinese.
+
+| | |
+|---|---|
+| [Deployment](docs/deployment.md) | Install, configuration, upgrade, backup, uninstall |
+| [Telegram bot](docs/telegram-bot.md) | Bot setup, menus, permissions |
+| [iPhone Shortcuts](docs/iphone-shortcuts.md) | Manual sending and SMS automation; iOS limitations |
+| [API reference](docs/api.md) | Endpoints, status values, error format |
+| [Message model](docs/message-model.md) | Unified message format, states, rendering |
+| [SMS filter](docs/sms-filter.md) | DeepSeek classification, privacy, rescue |
+| [Adding sources](docs/adding-sources.md) | Linux, Windows, macOS, Android examples; new output channels |
+| [Architecture](docs/architecture.md) | Modules, persistence, delivery state machine, health model |
+| [Operations](docs/operations.md) | Monitoring and troubleshooting |
+| [Security](docs/security.md) | Credentials, hardening, privacy risks |
+| [Limitations](docs/limitations.md) | Known limitations and roadmap ideas |
+| [Testing](docs/testing.md) | Automated tests and production verification results |
+
+## Development
+
+```bash
+make test     # unit + integration tests
+make race     # all tests with the race detector
+make vet      # gofmt + go vet
+make build    # build bin/msggw
 ```
+
+The tests use an in-process fake Telegram Bot API (`internal/testutil/faketg`) and a fake DeepSeek endpoint, so they never touch the network.
+
+<details>
+<summary>Project layout</summary>
+
+```text
+cmd/msggw/            entry point and CLI
+internal/config       configuration loading and validation
+internal/model        unified message model and states
+internal/auth         tokens, hashing, content fingerprints
+internal/store        SQLite persistence (sources, messages, deliveries, stats)
+internal/httpapi      HTTP API, auth, rate limiting, HTTPS/autocert
+internal/router       message → delivery targets
+internal/filter       SMS filter: code detection, masking, DeepSeek client
+internal/delivery     persistent outbox, retries, Telegram channel
+internal/render       message → Telegram text and buttons (escaping, splitting)
+internal/telegram     minimal Telegram Bot API client
+internal/bot          admin bot (menus, permissions, views)
+internal/health       health tracking and component evaluation
+internal/status       status and statistics queries
+internal/sysinfo      server metrics from /proc and statfs
+internal/ratelimit    rate limiting and auth-failure blocking
+internal/sdnotify     systemd readiness and watchdog
+internal/app          wiring and lifecycle
+deploy/               systemd unit, config template, install script
+```
+
+</details>
