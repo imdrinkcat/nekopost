@@ -1,7 +1,7 @@
 VERSION := $(shell cat VERSION)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build test race vet install logs
+.PHONY: build test race vet install logs docker
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/nekopost ./cmd/nekopost
@@ -21,3 +21,7 @@ install:
 
 logs:
 	journalctl -u nekopost -f
+
+# Build the container image locally (CI publishes it to ghcr.io).
+docker:
+	docker build -t nekopost:$(VERSION) -t nekopost:latest .

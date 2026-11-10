@@ -8,6 +8,8 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -35,6 +37,7 @@ const usage = `nekopost — 个人消息网关
 服务:
   serve                               运行网关服务（通常由 systemd 启动）
   check [--send-test]                 检查配置、数据库和 Telegram 连接
+  healthcheck                         检查本机服务是否存活（供 Docker 健康检查使用）
   version                             显示版本
 
 消息来源:
@@ -104,6 +107,8 @@ func run(args []string) int {
 		return cmdServe(cfg)
 	case "check":
 		return cmdCheck(cfg, rest)
+	case "healthcheck":
+		return cmdHealthcheck(cfg)
 	case "source":
 		return withStore(cfg, func(st *store.Store) int { return cmdSource(cfg, st, rest) })
 	case "admin-key":
@@ -132,6 +137,37 @@ func newLogger(level slog.Level) *slog.Logger {
 		}
 	}
 	return slog.New(slog.NewTextHandler(os.Stderr, opts))
+}
+
+// cmdHealthcheck asks the running service's /healthz over the local HTTP
+// port. The probe is on plain HTTP in both TLS modes, so it needs neither a
+// certificate nor DNS. Exit status 0 means healthy.
+func cmdHealthcheck(cfg *config.Config) int {
+	host, port, err := net.SplitHostPort(cfg.HTTPAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "NEKOPOST_HTTP_ADDR 无效: %v\n", err)
+		return 1
+	}
+	if ip := net.ParseIP(host); host == "" || ip != nil && ip.IsUnspecified() {
+		host = "127.0.0.1"
+	}
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		// A redirect means the probe is not served here; do not follow it.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/healthz")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "不健康: %v\n", err)
+		return 1
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "不健康: HTTP %d\n", resp.StatusCode)
+		return 1
+	}
+	fmt.Println("ok")
+	return 0
 }
 
 func cmdServe(cfg *config.Config) int {

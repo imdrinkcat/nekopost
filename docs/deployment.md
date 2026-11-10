@@ -1,8 +1,8 @@
 # Linux 部署指南
 
-本项目以 **单个 Go 程序 + systemd** 的方式部署，不使用 Docker。
+本文介绍 **单个 Go 程序 + systemd** 的部署方式，这也是当前生产环境使用的方式。已经在用 Docker 的服务器可以改用容器镜像，见 [docker.md](docker.md)。
 
-> **为什么不用 Docker？** 原需求写的是 Docker 部署。评估时发现：目标服务器只有 1 vCPU、约 1 GB 内存，Docker 守护进程（dockerd + containerd）常驻就要占用几十到上百 MB，比网关本身还多；容器中读取宿主机指标、处理 IPv6 网络也会增加复杂度。而 systemd 已经提供了自动重启、开机自启、日志、资源限制和沙箱隔离。经确认，改为 systemd 部署。
+> **为什么主环境不用 Docker？** 原需求写的是 Docker 部署。评估时发现：目标服务器只有 1 vCPU、约 1 GB 内存，Docker 守护进程（dockerd + containerd）常驻就要占用几十到上百 MB，比网关本身还多；容器中读取宿主机指标、处理 IPv6 网络也会增加复杂度。而 systemd 已经提供了自动重启、开机自启、日志、资源限制和沙箱隔离。经确认，主环境改为 systemd 部署。后来为了部署到其他服务器，又增加了 Docker 镜像。
 
 当前环境：Ubuntu 24.04，域名 `osaka.drinkcat.com`（A 记录指向本机），Go 1.27。
 
@@ -79,6 +79,7 @@ sudo nekopost source add iphone --name iPhone --icon 📱
 | `NEKOPOST_TELEGRAM_ADMIN_IDS` | — | 必填。管理员数字 ID，逗号分隔 |
 | `NEKOPOST_TELEGRAM_CHAT_ID` | 第一个管理员 | 消息投递到的聊天 |
 | `NEKOPOST_TLS_MODE` | `autocert` | `autocert`：自动 HTTPS；`off`：纯 HTTP（仅在反向代理之后或测试时使用） |
+| `NEKOPOST_TRUSTED_PROXIES` | 空 | 反向代理的 IP 或 CIDR，逗号分隔。只有来自这些地址的连接，才读取 `X-Forwarded-For` 作为客户端 IP。直接面向公网时留空 |
 | `NEKOPOST_HTTPS_ADDR` / `NEKOPOST_HTTP_ADDR` | `:443` / `:80` | 监听地址。`off` 模式只用 `HTTP_ADDR` |
 | `NEKOPOST_ACME_EMAIL` | 空 | Let's Encrypt 联系邮箱（可选） |
 | `NEKOPOST_DATA_DIR` | `/var/lib/nekopost` | 数据目录 |
@@ -162,7 +163,7 @@ sudo tar czf nekopost-backup.tgz /etc/nekopost /var/lib/nekopost
 sudo systemctl start nekopost
 ```
 
-数据库中只有来源配置（凭证以哈希保存）、元数据和尚未投递完成的消息。迁移到新服务器：安装程序 → 恢复这两个目录 → `chown -R nekopost:nekopost /var/lib/nekopost` → 修改 DNS → 启动。
+数据库中只有来源配置（凭证以哈希保存）、元数据和尚未投递完成的消息。迁移到新服务器：安装程序 → 恢复这两个目录 → `chown -R nekopost:nekopost /var/lib/nekopost` → 修改 DNS → 启动。迁移到 Docker 见 [docker.md](docker.md#5-从-systemd-实例迁移)。
 
 ---
 

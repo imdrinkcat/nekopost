@@ -106,3 +106,21 @@ func TestFilterConfig(t *testing.T) {
 		t.Fatalf("invalid filter config should be rejected: %v", err)
 	}
 }
+
+func TestTrustedProxies(t *testing.T) {
+	c, err := Load(env(map[string]string{"NEKOPOST_TRUSTED_PROXIES": "172.16.0.0/12, 127.0.0.1, ::1, 10.1.2.3/8"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range c.TrustedProxies {
+		got = append(got, p.String())
+	}
+	if strings.Join(got, " ") != "172.16.0.0/12 127.0.0.1/32 ::1/128 10.0.0.0/8" {
+		t.Errorf("got %v", got)
+	}
+	if _, err := Load(env(map[string]string{"NEKOPOST_TRUSTED_PROXIES": "proxy.local"})); err == nil ||
+		!strings.Contains(err.Error(), "NEKOPOST_TRUSTED_PROXIES") {
+		t.Errorf("hostname should be rejected: %v", err)
+	}
+}

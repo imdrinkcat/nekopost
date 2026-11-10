@@ -1,0 +1,38 @@
+# Nekopost with built-in HTTPS (Let's Encrypt). Ports 80 and 443 of the host
+# must be free and the domain must point at this host.
+#
+#   install -d -o 65532 -g 65532 -m 700 data   # data directory, once
+#   cp ../nekopost.env.example nekopost.env     # then fill it in
+#   docker compose up -d
+#
+# See docs/docker.md.
+services:
+  nekopost:
+    image: ghcr.io/imdrinkcat/nekopost:latest
+    container_name: nekopost
+    restart: unless-stopped
+    env_file: nekopost.env
+    environment:
+      # Fixed by the image layout; these override the env file.
+      NEKOPOST_DATA_DIR: /data
+      NEKOPOST_HTTP_ADDR: ":8080"
+      NEKOPOST_HTTPS_ADDR: ":8443"
+    ports:
+      - "80:8080"
+      - "443:8443"
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 160m
+    pids_limit: 64
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

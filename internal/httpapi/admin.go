@@ -13,7 +13,7 @@ import (
 // separate from source tokens: a source token can never access these routes.
 func (s *Server) admin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
+		ip := s.clientIP(r)
 		if blocked, ra := s.FailGuard.Blocked(ip); blocked {
 			writeError(w, r, &apiError{Status: http.StatusTooManyRequests, Code: "too_many_auth_failures",
 				Message: "认证失败次数过多，请稍后再试", RetryAfter: ra})

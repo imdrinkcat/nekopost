@@ -7,7 +7,7 @@
 [English](README.md) · 简体中文
 
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
-![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20systemd-FCC624?logo=linux&logoColor=black)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20systemd%20%7C%20Docker-FCC624?logo=linux&logoColor=black)
 ![Storage](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![Telegram](https://img.shields.io/badge/output-Telegram%20Bot-26A5E4?logo=telegram&logoColor=white)
 ![Memory](https://img.shields.io/badge/idle%20RSS-~19%20MB-success)
@@ -46,8 +46,8 @@ flowchart LR
   - 其余短信先遮盖数字和链接，再交给 AI 分类。
   - AI 出任何故障，短信都照常转发。
 - **默认保护隐私**：正文在投递结束后立即删除，数据库开启 `secure_delete`，WAL 每小时截断。日志不记录正文和凭证。
-- **开箱即用**：内置 Let's Encrypt 自动证书；systemd 服务带安全加固和看门狗；状态报告如实，无法确认的状态显示为「无法确认」，不会当作正常；另有只读管理 API。
-- **占用极低**：在 1 vCPU / 1 GB 内存的 VPS 上，空闲时内存约 19 MB，CPU 约 0.01%。不需要 Docker，也不依赖外部服务。
+- **开箱即用**：内置 Let's Encrypt 自动证书；systemd 服务带安全加固和看门狗；提供多架构 Docker 镜像；状态报告如实，无法确认的状态显示为「无法确认」，不会当作正常；另有只读管理 API。
+- **占用极低**：在 1 vCPU / 1 GB 内存的 VPS 上，空闲时内存约 19 MB，CPU 约 0.01%。Docker 可选，不依赖外部服务。
 
 ## 在 Telegram 中的样子
 
@@ -76,6 +76,24 @@ sudo nekopost check --send-test
 # 4. 创建来源，记下凭证（只显示一次）
 sudo nekopost source add iphone --name iPhone --icon 📱
 ```
+
+<details>
+<summary><b>也可以用 Docker 运行</b></summary>
+
+CI 会把多架构镜像（`linux/amd64`、`linux/arm64`，约 10 MB，distroless，非 root 运行）发布到 GHCR。端口 80/443 空闲时用 [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml)（内置 HTTPS），已有反向代理时用 [`compose.proxy.yaml`](deploy/docker/compose.proxy.yaml)。
+
+```bash
+mkdir nekopost && cd nekopost          # 把 compose.yaml 和 nekopost.env.example 放在这里
+sudo install -d -o 65532 -g 65532 -m 700 data
+cp nekopost.env.example nekopost.env && nano nekopost.env
+docker compose up -d
+docker compose exec nekopost nekopost check --send-test
+docker compose exec nekopost nekopost source add iphone --name iPhone --icon 📱
+```
+
+镜像仓库登录、反向代理示例、更新方法、从 systemd 迁移，见 [docs/docker.md](docs/docker.md)。
+
+</details>
 
 发送第一条消息：
 
@@ -137,6 +155,7 @@ NEKOPOST_DEEPSEEK_API_KEY=sk-...
 | `NEKOPOST_DELIVERY_MAX_AGE` | `24h` | 投递失败后最长重试多久 |
 | `NEKOPOST_RETENTION_DAYS` | `30` | 元数据保留天数（正文投递后立即删除） |
 | `NEKOPOST_DEEPSEEK_API_KEY` | — | 设置后启用短信过滤 |
+| `NEKOPOST_TRUSTED_PROXIES` | — | 反向代理的 IP 或网段，只信任它们发来的 `X-Forwarded-For` |
 
 完整列表见 [docs/deployment.md](docs/deployment.md#3-配置项)。
 
@@ -145,6 +164,7 @@ NEKOPOST_DEEPSEEK_API_KEY=sk-...
 ```text
 nekopost serve                         运行服务（systemd 使用）
 nekopost check [--send-test]           检查配置、数据库、Telegram 和 DeepSeek
+nekopost healthcheck                   检查本机服务是否存活（Docker 健康检查）
 nekopost source list|add|show|set|enable|disable|rotate|remove
 nekopost admin-key create|list|revoke  只读管理 API 密钥
 nekopost version
@@ -155,6 +175,7 @@ nekopost version
 | 文档 | 内容 |
 |---|---|
 | [部署指南](docs/deployment.md) | 安装、配置项、更新、备份、卸载 |
+| [Docker 部署](docs/docker.md) | 容器镜像、compose、反向代理、从 systemd 迁移 |
 | [Telegram Bot](docs/telegram-bot.md) | Bot 配置、菜单与权限 |
 | [iPhone 快捷指令](docs/iphone-shortcuts.md) | 手动发送、短信自动化、iOS 限制 |
 | [接口说明](docs/api.md) | 接口、状态取值、错误格式 |
@@ -201,6 +222,9 @@ internal/ratelimit    限流与认证失败封禁
 internal/sdnotify     systemd 就绪通知与看门狗
 internal/app          组件装配与生命周期
 deploy/               systemd 服务、配置模板、安装脚本
+deploy/docker/        compose 文件（内置 HTTPS / 反向代理之后）
+Dockerfile            多阶段构建，基于 distroless，非 root 运行
+.github/workflows/    CI：测试、容器冒烟测试、发布到 GHCR
 ```
 
 </details>

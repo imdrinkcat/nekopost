@@ -1,0 +1,13 @@
+# Only the Go sources, go.mod/go.sum and VERSION are needed to build.
+.git
+.github
+bin
+dist
+docs
+deploy
+*.md
+*.db*
+*.env
+.env*
+.idea
+.vscode

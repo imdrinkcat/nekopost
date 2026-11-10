@@ -31,8 +31,8 @@
 - 新增来源、轮换凭证需要在服务器上使用命令行；Bot 中只能停用 / 启用来源。
 - 管理员只有一个级别，没有细分权限；增加管理员需要修改配置并重启。
 - HTTP 管理接口只读。
-- 服务直接暴露在公网，不读取 `X-Forwarded-For`。若放到 Cloudflare / nginx 之后，IP 限流会把所有请求视为同一 IP，需要改造。
-- 部署方式为 systemd（按约定未使用 Docker）；仓库中没有 Dockerfile。
+- 放在反向代理之后时，需要设置 `NEKOPOST_TRUSTED_PROXIES`，否则 IP 限流会把所有请求视为同一个 IP。使用 Cloudflare 时还要把 Cloudflare 的 IP 段加进去。
+- Docker 部署时，IPv6 客户端默认经过 Docker 的用户态代理，看到的是同一个网关地址（见 [docker.md](docker.md#6-与-systemd-部署的区别)）。
 
 ### 短信过滤
 

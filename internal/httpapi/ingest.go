@@ -35,7 +35,7 @@ var metaKeyRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,32}$`)
 // authSource authenticates a source credential. On failure it writes the
 // response and returns false.
 func (s *Server) authSource(w http.ResponseWriter, r *http.Request) (model.Source, bool) {
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if blocked, ra := s.FailGuard.Blocked(ip); blocked {
 		writeError(w, r, &apiError{Status: http.StatusTooManyRequests, Code: "too_many_auth_failures",
 			Message: "认证失败次数过多，请稍后再试", RetryAfter: ra})

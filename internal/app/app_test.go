@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -167,4 +169,30 @@ func TestRecoveryAfterCrash(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("not delivered after recovery")
+}
+
+func TestSelfWatchdog(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	failing := errors.New("db gone")
+
+	// A transient failure that recovers does not stop the service.
+	var n atomic.Int32
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := selfWatchdog(ctx, func() error {
+		if n.Add(1) <= 2 {
+			return failing
+		}
+		return nil
+	}, 5*time.Millisecond, 50*time.Millisecond, log)
+	if err != nil {
+		t.Fatalf("recovered check should not be fatal: %v", err)
+	}
+
+	// A persistent failure is fatal once it lasted long enough.
+	start := time.Now()
+	err = selfWatchdog(context.Background(), func() error { return failing }, 5*time.Millisecond, 50*time.Millisecond, log)
+	if !errors.Is(err, failing) || time.Since(start) < 50*time.Millisecond {
+		t.Fatalf("persistent failure: err=%v after %s", err, time.Since(start))
+	}
 }

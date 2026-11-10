@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,6 +30,9 @@ type Config struct {
 	HTTPAddr  string
 	ACMEEmail string
 	DataDir   string
+	// TrustedProxies are reverse proxies whose X-Forwarded-For header is
+	// believed when determining the client address.
+	TrustedProxies []netip.Prefix
 
 	BotToken        string
 	AdminIDs        []int64
@@ -153,6 +157,19 @@ func Load(getenv func(string) string) (*Config, error) {
 		}
 		return d
 	}
+	for _, v := range splitList(get("NEKOPOST_TRUSTED_PROXIES", "")) {
+		p, err := netip.ParsePrefix(v)
+		if err != nil {
+			a, aerr := netip.ParseAddr(v)
+			if aerr != nil {
+				errs = append(errs, fmt.Errorf("NEKOPOST_TRUSTED_PROXIES 包含无效的地址 %q（应为 IP 或 CIDR，例如 172.16.0.0/12）", v))
+				continue
+			}
+			p = netip.PrefixFrom(a, a.BitLen())
+		}
+		c.TrustedProxies = append(c.TrustedProxies, p.Masked())
+	}
+
 	c.RetentionDays = intVar("NEKOPOST_RETENTION_DAYS", 30, 1, 365)
 	c.DeliveryMaxAge = durVar("NEKOPOST_DELIVERY_MAX_AGE", 24*time.Hour, time.Minute, 7*24*time.Hour)
 	c.DedupeWindow = durVar("NEKOPOST_DEDUPE_WINDOW", 60*time.Second, 0, 24*time.Hour)

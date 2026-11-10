@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -510,4 +511,38 @@ func buttons(p map[string]any) string {
 		}
 	}
 	return strings.Join(out, " ")
+}
+
+func TestClientIP(t *testing.T) {
+	s := &Server{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12"), netip.MustParsePrefix("127.0.0.1/32")}}
+	cases := []struct {
+		remote, xff, want string
+	}{
+		{"203.0.113.9:5000", "", "203.0.113.9"},
+		{"203.0.113.9:5000", "198.51.100.1", "203.0.113.9"},            // untrusted peer: header ignored
+		{"172.18.0.2:5000", "198.51.100.1", "198.51.100.1"},            // via proxy
+		{"172.18.0.2:5000", "6.6.6.6, 198.51.100.1", "198.51.100.1"},   // client-supplied prefix ignored
+		{"172.18.0.2:5000", "198.51.100.1, 127.0.0.1", "198.51.100.1"}, // proxy chain
+		{"172.18.0.2:5000", "", "172.18.0.2"},                          // no header
+		{"172.18.0.2:5000", "garbage", "172.18.0.2"},                   // malformed
+		{"[::ffff:172.18.0.2]:5000", "198.51.100.1", "198.51.100.1"},   // IPv4-mapped peer
+		{"127.0.0.1:5000", "172.20.0.1, 127.0.0.1", "172.20.0.1"},      // all trusted: leftmost hop
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = c.remote
+		if c.xff != "" {
+			r.Header.Set("X-Forwarded-For", c.xff)
+		}
+		if got := s.clientIP(r); got != c.want {
+			t.Errorf("%s / %q: got %s, want %s", c.remote, c.xff, got, c.want)
+		}
+	}
+	plain := &Server{}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "172.18.0.2:5000"
+	r.Header.Set("X-Forwarded-For", "198.51.100.1")
+	if got := plain.clientIP(r); got != "172.18.0.2" {
+		t.Errorf("without trusted proxies the header must be ignored: %s", got)
+	}
 }

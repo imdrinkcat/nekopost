@@ -98,8 +98,7 @@ func (l *Listener) Start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		// Port 80 only answers ACME challenges and redirects to HTTPS.
-		httpSrv := newServer(l.Cfg.HTTPAddr, l.mgr.HTTPHandler(nil))
+		httpSrv := newServer(l.Cfg.HTTPAddr, plainHandler(l.Handler, l.mgr.HTTPHandler(nil)))
 		httpSrv.WriteTimeout = 10 * time.Second
 		tlsSrv := newServer(l.Cfg.HTTPSAddr, l.Handler)
 		tlsCfg := l.mgr.TLSConfig()
@@ -112,6 +111,16 @@ func (l *Listener) Start(ctx context.Context) error {
 	}
 	l.Health.SetListening(true, "")
 	return nil
+}
+
+// plainHandler serves port 80 in autocert mode: ACME challenges and HTTPS
+// redirects (acme), plus the liveness probe, so a container health check
+// needs neither a certificate nor the public domain.
+func plainHandler(api, acme http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/healthz", api)
+	mux.Handle("/", acme)
+	return mux
 }
 
 func (l *Listener) serve(srv *http.Server, ln net.Listener, useTLS bool) {

@@ -24,3 +24,6 @@ coverage.*
 *.swp
 *~
 .DS_Store
+
+# Docker deployment data (deploy/docker/data or a copied compose directory)
+/deploy/docker/data/

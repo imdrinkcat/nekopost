@@ -1,0 +1,101 @@
+name: docker
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (amd64) for the smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: nekopost:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          mkdir data && sudo chown 65532:65532 data && sudo chmod 700 data
+          # Telegram points at a closed port: the service must still start
+          # and report healthy, since Telegram outages do not affect liveness.
+          docker run -d --name np --read-only --tmpfs /tmp --cap-drop ALL \
+            --health-interval 2s --health-start-period 5s \
+            -v "$PWD/data:/data" \
+            -e NEKOPOST_TLS_MODE=off \
+            -e NEKOPOST_TELEGRAM_BOT_TOKEN=123456:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
+            -e NEKOPOST_TELEGRAM_ADMIN_IDS=1 \
+            -e NEKOPOST_TELEGRAM_API_BASE=http://127.0.0.1:1 \
+            nekopost:ci
+          for i in $(seq 30); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' np)
+            [ "$s" = healthy ] && break
+            sleep 2
+          done
+          docker logs np
+          [ "$s" = healthy ] || { echo "container is $s"; exit 1; }
+          docker exec np nekopost version
+          docker exec np nekopost source list
+          docker stop np
+          [ "$(docker inspect -f '{{.State.ExitCode}}' np)" = 0 ]
+          sudo test -f data/nekopost.db
+
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (amd64, arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -10,6 +10,7 @@
 | `sudo nekopost check` | 在服务器上自检配置、数据库、Telegram | 否 |
 | `systemctl status nekopost` / `journalctl -u nekopost` | 进程状态与日志 | 否 |
 | systemd watchdog | 进程卡死时自动重启 | 否 |
+| Docker 健康检查 / 自检退出 | Docker 部署时：`docker compose ps` 显示 healthy；卡死 5 分钟后进程退出并被重启（见 [docker.md](docker.md)） | 否 |
 
 > **注意**：当 Telegram 本身不可达时，Bot 无法回复你，也就看不到「Telegram 不可达」这个状态。因此建议额外配置一个不依赖 Telegram 的外部探测（例如免费的 UptimeRobot 监控 `/healthz`），或在需要时 SSH 登录查看。
 

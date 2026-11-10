@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"nekopost/internal/delivery"
@@ -43,6 +45,8 @@ type Server struct {
 	Location     *time.Location
 	Version      string
 	HSTS         bool
+	// TrustedProxies are reverse proxies allowed to set X-Forwarded-For.
+	TrustedProxies []netip.Prefix
 
 	SourceLimiter *ratelimit.Limiter
 	FailGuard     *ratelimit.FailureGuard
@@ -147,7 +151,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			// Never log query strings, headers or bodies: they may contain
 			// credentials or private message content.
 			s.Log.Info("http", "method", r.Method, "path", r.URL.Path, "status", rec.status,
-				"ms", time.Since(start).Milliseconds(), "ip", clientIP(r), "source", ri.Source, "request_id", ri.ID)
+				"ms", time.Since(start).Milliseconds(), "ip", s.clientIP(r), "source", ri.Source, "request_id", ri.ID)
 		}()
 
 		select {
@@ -161,14 +165,47 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 	})
 }
 
-// clientIP returns the address of the directly connected peer. Forwarding
-// headers are ignored on purpose: the service is exposed directly.
-func clientIP(r *http.Request) string {
+// clientIP returns the address of the client. Forwarding headers are only
+// believed when the directly connected peer is a trusted proxy; then the
+// rightmost X-Forwarded-For entry that is not itself a trusted proxy is the
+// client, since a client can prepend anything it likes.
+func (s *Server) clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if len(s.TrustedProxies) == 0 || !s.trusted(host) {
+		return host
+	}
+	hops := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
+	for i := len(hops) - 1; i >= 0; i-- {
+		hop := strings.TrimSpace(hops[i])
+		if hop == "" {
+			continue
+		}
+		if !s.trusted(hop) {
+			if _, err := netip.ParseAddr(hop); err != nil {
+				return host // malformed header: fall back to the proxy itself
+			}
+			return hop
+		}
+		host = hop
 	}
 	return host
+}
+
+func (s *Server) trusted(ip string) bool {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+	a = a.Unmap()
+	for _, p := range s.TrustedProxies {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {

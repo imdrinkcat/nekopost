@@ -115,21 +115,22 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 
 	burst := max(10, cfg.SourceRatePerMin/3)
 	api := &httpapi.Server{
-		Store:         st,
-		Router:        router.Default{Channel: "telegram", Target: "default"},
-		Worker:        worker,
-		Notifier:      notifier,
-		Health:        tracker,
-		Status:        statusSvc,
-		Log:           log.With("component", "http"),
-		DedupeKey:     dedupeKey,
-		DedupeWindow:  cfg.DedupeWindow,
-		MaxBodyChars:  cfg.MaxBodyChars,
-		Location:      cfg.Location,
-		Version:       version,
-		HSTS:          cfg.TLSMode == "autocert",
-		SourceLimiter: ratelimit.NewLimiter(cfg.SourceRatePerMin, burst),
-		FailGuard:     ratelimit.NewFailureGuard(20, 10*time.Minute, 15*time.Minute),
+		Store:          st,
+		Router:         router.Default{Channel: "telegram", Target: "default"},
+		Worker:         worker,
+		Notifier:       notifier,
+		Health:         tracker,
+		Status:         statusSvc,
+		Log:            log.With("component", "http"),
+		DedupeKey:      dedupeKey,
+		DedupeWindow:   cfg.DedupeWindow,
+		MaxBodyChars:   cfg.MaxBodyChars,
+		Location:       cfg.Location,
+		Version:        version,
+		HSTS:           cfg.TLSMode == "autocert",
+		TrustedProxies: cfg.TrustedProxies,
+		SourceLimiter:  ratelimit.NewLimiter(cfg.SourceRatePerMin, burst),
+		FailGuard:      ratelimit.NewFailureGuard(20, 10*time.Minute, 15*time.Minute),
 	}
 	if fl != nil {
 		api.Filter = fl
@@ -176,14 +177,20 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	}
 	go func() { b.Run(runCtx); done <- struct{}{} }()
 	go func() { maintenance(runCtx, st, api, cfg, log); done <- struct{}{} }()
-	go watchdog(runCtx, st, tracker, log)
+	fatal := make(chan error, 1)
+	go watchdog(runCtx, st, tracker, log, fatal)
 
 	_ = sdnotify.Ready()
 	log.Info("nekopost started", "version", version, "tls", cfg.TLSMode, "domain", cfg.Domain,
 		"start_count", startInfo.StartCount, "filter", cfg.FilterEnabled())
 
-	<-ctx.Done()
-	log.Info("shutting down")
+	var runErr error
+	select {
+	case <-ctx.Done():
+		log.Info("shutting down")
+	case runErr = <-fatal:
+		log.Error("watchdog: shutting down", "err", runErr)
+	}
 	_ = sdnotify.Stopping()
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutCancel()
@@ -194,11 +201,11 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		case <-done:
 		case <-shutCtx.Done():
 			log.Warn("shutdown timed out")
-			return nil
+			return runErr
 		}
 	}
 	log.Info("stopped")
-	return nil
+	return runErr
 }
 
 // maintenance runs hourly housekeeping: retention, limiter cleanup and WAL
@@ -234,12 +241,38 @@ func maintenance(ctx context.Context, st *store.Store, api *httpapi.Server, cfg 
 	}
 }
 
-// watchdog pings systemd only while the database answers and the delivery
-// loop is alive, so a wedged process gets restarted. Telegram being
-// unreachable does not stop the pings: restarting would not help.
-func watchdog(ctx context.Context, st *store.Store, tracker *health.Tracker, log *slog.Logger) {
+// alive reports whether the database answers and the delivery loop is
+// running. Telegram being unreachable does not count: restarting would not
+// help.
+func alive(ctx context.Context, st *store.Store, tracker *health.Tracker) error {
+	pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := st.Ping(pctx); err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	if beat := tracker.Snapshot().WorkerBeat; time.Since(beat) >= health.WorkerStaleAfter {
+		return fmt.Errorf("delivery loop silent since %s", beat.Format(time.RFC3339))
+	}
+	return nil
+}
+
+// Self-watchdog timing, used when systemd's watchdog is not active.
+const (
+	selfWatchdogEvery = 30 * time.Second
+	selfWatchdogAfter = 5 * time.Minute
+)
+
+// watchdog pings systemd only while the process is alive, so a wedged
+// process gets restarted. Without systemd's watchdog (e.g. in a container)
+// it reports on fatal once the process has been wedged for a while, and the
+// service exits so the supervisor's restart policy takes over.
+func watchdog(ctx context.Context, st *store.Store, tracker *health.Tracker, log *slog.Logger, fatal chan<- error) {
+	check := func() error { return alive(ctx, st, tracker) }
 	interval := sdnotify.WatchdogInterval()
 	if interval == 0 {
+		if err := selfWatchdog(ctx, check, selfWatchdogEvery, selfWatchdogAfter, log); err != nil {
+			fatal <- err
+		}
 		return
 	}
 	t := time.NewTicker(interval / 3)
@@ -249,15 +282,41 @@ func watchdog(ctx context.Context, st *store.Store, tracker *health.Tracker, log
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := st.Ping(pctx)
-			cancel()
-			beat := tracker.Snapshot().WorkerBeat
-			if err == nil && time.Since(beat) < health.WorkerStaleAfter {
+			if err := check(); err == nil {
 				_ = sdnotify.Watchdog()
 			} else {
-				log.Error("watchdog check failed; withholding keep-alive", "db_err", err, "worker_beat", beat)
+				log.Error("watchdog check failed; withholding keep-alive", "err", err)
 			}
+		}
+	}
+}
+
+// selfWatchdog runs check every interval and returns an error once it has
+// failed continuously for at least after. It returns nil when ctx ends.
+func selfWatchdog(ctx context.Context, check func() error, every, after time.Duration, log *slog.Logger) error {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	var failingSince time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+		}
+		err := check()
+		if ctx.Err() != nil {
+			return nil
+		}
+		switch {
+		case err == nil:
+			failingSince = time.Time{}
+		case failingSince.IsZero():
+			failingSince = time.Now()
+			log.Error("watchdog check failed", "err", err)
+		case time.Since(failingSince) >= after:
+			return fmt.Errorf("服务已卡住 %s，退出以便自动重启: %w", time.Since(failingSince).Round(time.Second), err)
+		default:
+			log.Error("watchdog check failed", "err", err, "since", failingSince)
 		}
 	}
 }

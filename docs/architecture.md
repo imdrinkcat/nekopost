@@ -163,7 +163,7 @@ stateDiagram-v2
 - 转发正常，但 Bot 被另一个实例占用（409）：`bot` 为配置错误，`delivery` 正常。
 - 某个来源在用已吊销的凭证：只有 `sources` 降级。
 
-存活探针 `/healthz` 只反映进程本身（数据库可用、Worker 存活），**不包含 Telegram 的状态**。原因是 Telegram 故障时重启服务没有帮助。systemd watchdog 使用同样的判断条件。
+存活探针 `/healthz` 只反映进程本身（数据库可用、Worker 存活），**不包含 Telegram 的状态**。原因是 Telegram 故障时重启服务没有帮助。看门狗使用同样的判断条件：在 systemd 下，条件满足时才发送心跳；没有 systemd 看门狗时（例如在 Docker 中），条件连续 5 分钟不满足，程序就主动退出，由容器的重启策略重新启动。
 
 ## 6. 资源设计
 
@@ -174,12 +174,14 @@ stateDiagram-v2
 - **内存限制**：systemd 中设置 `GOMEMLIMIT=64MiB` 和 `MemoryMax=160M`。HTTP 并发处理上限为 32，超出时返回 `503 busy`。
 - **依赖**：只有 `modernc.org/sqlite`（纯 Go，无需 cgo）和 `golang.org/x/crypto/acme/autocert`。
 
-## 7. 为什么用 systemd 而不是 Docker
+## 7. 为什么主环境用 systemd 而不是 Docker
 
-需求文档原本写的是 Docker 部署。评估后，用户决定改用 Go 单文件 + systemd，原因如下：
+需求文档原本写的是 Docker 部署。评估后，用户决定主环境改用 Go 单文件 + systemd，原因如下：
 
 - 目标服务器只有 1 vCPU、约 1 GB 内存。Docker 守护进程（dockerd + containerd）常驻就要占用几十 MB 到上百 MB，比网关本身还多。
 - 不需要额外处理容器网络、IPv6、镜像拉取，以及从容器内读取宿主机指标等问题。
 - Docker 能提供的自动重启、开机自启、日志、资源限制和沙箱，systemd 都能提供：`Restart=always`、journald、`MemoryMax`、`ProtectSystem=strict`、`NoNewPrivileges`、`SystemCallFilter` 等，见 `deploy/nekopost.service`。
 - 部署和升级只需替换一个二进制文件再重启，见 `deploy/install.sh`。
 - 服务以专用的 `nekopost` 用户运行，只通过 `CAP_NET_BIND_SERVICE` 绑定 80/443 端口，不挂载任何 Docker socket，也不需要 root。
+
+后来为了部署到其他服务器，增加了 Docker 镜像（`Dockerfile`、`deploy/docker/`，见 [docker.md](docker.md)）。程序本身不区分两种环境，只有三处为容器做了适配：没有 systemd 看门狗时自行检测卡死并退出；增加 `nekopost healthcheck` 子命令，因为镜像里没有 curl；支持 `NEKOPOST_TRUSTED_PROXIES`，以便放在反向代理之后。

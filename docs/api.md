@@ -33,7 +33,7 @@
 | 并发上限 | 同时处理的请求最多 32 个 | `503 busy` + `Retry-After: 5` |
 | 请求体大小 | 原始请求体最大 256 KB | `413 payload_too_large` |
 
-客户端 IP 取自 TCP 连接本身，不信任 `X-Forwarded-For` 等转发头。
+客户端 IP 取自 TCP 连接本身。只有连接来自 `NEKOPOST_TRUSTED_PROXIES` 中的反向代理时，才使用 `X-Forwarded-For` 中最右侧的非代理地址。
 
 ## 3. 提交消息 `POST /v1/messages`
 

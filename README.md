@@ -7,7 +7,7 @@
 English · [Simplified Chinese](README.zh-CN.md)
 
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
-![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20systemd-FCC624?logo=linux&logoColor=black)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20systemd%20%7C%20Docker-FCC624?logo=linux&logoColor=black)
 ![Storage](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![Telegram](https://img.shields.io/badge/output-Telegram%20Bot-26A5E4?logo=telegram&logoColor=white)
 ![Memory](https://img.shields.io/badge/idle%20RSS-~19%20MB-success)
@@ -42,8 +42,8 @@ flowchart LR
   - Other messages have digits and links masked before classification.
   - Any AI failure means the message is forwarded as usual.
 - **Privacy by default**: message bodies are deleted as soon as delivery finishes, with `secure_delete` and hourly WAL truncation. Logs never contain message content or credentials.
-- **Batteries included**: built-in Let's Encrypt (autocert), a hardened systemd unit with watchdog, honest health reporting ("unknown" is never shown as "healthy"), and a read-only admin API.
-- **Tiny footprint**: about 19 MB RSS and 0.01% CPU when idle, on a 1 vCPU / 1 GB VPS. No Docker, no external services.
+- **Batteries included**: built-in Let's Encrypt (autocert), a hardened systemd unit with watchdog, a multi-arch Docker image, honest health reporting ("unknown" is never shown as "healthy"), and a read-only admin API.
+- **Tiny footprint**: about 19 MB RSS and 0.01% CPU when idle, on a 1 vCPU / 1 GB VPS. Docker is optional; no external services.
 
 ## How a message looks in Telegram
 
@@ -74,6 +74,24 @@ sudo nekopost check --send-test
 # 4. Create a source and note its token (shown once)
 sudo nekopost source add iphone --name iPhone --icon 📱
 ```
+
+<details>
+<summary><b>Or run it with Docker</b></summary>
+
+A multi-arch image (`linux/amd64`, `linux/arm64`, ~10 MB, distroless, non-root) is published to GHCR by CI. Use [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml) for built-in HTTPS, or [`compose.proxy.yaml`](deploy/docker/compose.proxy.yaml) behind an existing reverse proxy.
+
+```bash
+mkdir nekopost && cd nekopost          # put compose.yaml and nekopost.env.example here
+sudo install -d -o 65532 -g 65532 -m 700 data
+cp nekopost.env.example nekopost.env && nano nekopost.env
+docker compose up -d
+docker compose exec nekopost nekopost check --send-test
+docker compose exec nekopost nekopost source add iphone --name iPhone --icon 📱
+```
+
+See [docs/docker.md](docs/docker.md) for registry login, reverse proxy examples, upgrades and migrating from systemd.
+
+</details>
 
 Send your first message:
 
@@ -135,6 +153,7 @@ All settings live in `/etc/nekopost/nekopost.env` (see [`deploy/nekopost.env.exa
 | `NEKOPOST_DELIVERY_MAX_AGE` | `24h` | How long to keep retrying |
 | `NEKOPOST_RETENTION_DAYS` | `30` | Metadata retention (bodies are deleted right after delivery) |
 | `NEKOPOST_DEEPSEEK_API_KEY` | — | Enables the SMS filter |
+| `NEKOPOST_TRUSTED_PROXIES` | — | Reverse proxies (IPs/CIDRs) whose `X-Forwarded-For` is trusted |
 
 Full list: [docs/deployment.md](docs/deployment.md) (section 3).
 
@@ -143,6 +162,7 @@ Full list: [docs/deployment.md](docs/deployment.md) (section 3).
 ```text
 nekopost serve                         run the service (used by systemd)
 nekopost check [--send-test]           validate config, database, Telegram and DeepSeek
+nekopost healthcheck                   probe the local service (Docker HEALTHCHECK)
 nekopost source list|add|show|set|enable|disable|rotate|remove
 nekopost admin-key create|list|revoke  read-only admin API keys
 nekopost version
@@ -155,6 +175,7 @@ The detailed documentation is written in Chinese.
 | | |
 |---|---|
 | [Deployment](docs/deployment.md) | Install, configuration, upgrade, backup, uninstall |
+| [Docker](docs/docker.md) | Container image, compose, reverse proxy, migration from systemd |
 | [Telegram bot](docs/telegram-bot.md) | Bot setup, menus, permissions |
 | [iPhone Shortcuts](docs/iphone-shortcuts.md) | Manual sending and SMS automation; iOS limitations |
 | [API reference](docs/api.md) | Endpoints, status values, error format |
@@ -201,6 +222,9 @@ internal/ratelimit    rate limiting and auth-failure blocking
 internal/sdnotify     systemd readiness and watchdog
 internal/app          wiring and lifecycle
 deploy/               systemd unit, config template, install script
+deploy/docker/        compose files (built-in HTTPS / behind a reverse proxy)
+Dockerfile            multi-stage build onto distroless, non-root
+.github/workflows/    CI: tests, container smoke test, publish to GHCR
 ```
 
 </details>
