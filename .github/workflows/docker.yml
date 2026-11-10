@@ -19,8 +19,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: gofmt
@@ -32,7 +32,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
 
       - name: Build (amd64) for the smoke test
@@ -46,12 +46,14 @@ jobs:
 
       - name: Smoke test
         run: |
-          mkdir data && sudo chown 65532:65532 data && sudo chmod 700 data
+          # Outside the checkout, so it does not end up in the build context.
+          data="$RUNNER_TEMP/data"
+          mkdir "$data" && sudo chown 65532:65532 "$data" && sudo chmod 700 "$data"
           # Telegram points at a closed port: the service must still start
           # and report healthy, since Telegram outages do not affect liveness.
           docker run -d --name np --read-only --tmpfs /tmp --cap-drop ALL \
             --health-interval 2s --health-start-period 5s \
-            -v "$PWD/data:/data" \
+            -v "$data:/data" \
             -e NEKOPOST_TLS_MODE=off \
             -e NEKOPOST_TELEGRAM_BOT_TOKEN=123456:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
             -e NEKOPOST_TELEGRAM_ADMIN_IDS=1 \
@@ -68,7 +70,7 @@ jobs:
           docker exec np nekopost source list
           docker stop np
           [ "$(docker inspect -f '{{.State.ExitCode}}' np)" = 0 ]
-          sudo test -f data/nekopost.db
+          sudo test -f "$data/nekopost.db"
 
       - name: Tags
         id: meta
