@@ -69,6 +69,19 @@ make race     # go test -race -count=1 ./...
 - 程序、Go 模块、systemd 服务、系统用户、配置与数据目录、环境变量前缀（`MSGGW_` → `NEKOPOST_`）全部更名；来源凭证前缀 `mgs_` / `mga_` 保持不变，已有凭证继续有效。
 - 线上迁移：停止旧服务 → 迁移数据目录与数据库文件 → 启动新服务，中断约 2 秒。迁移后 `nekopost check` 全部通过，Let's Encrypt 证书（acme 缓存随数据目录迁移）、iPhone 来源与凭证、DeepSeek 过滤均正常。迁移前数据与配置备份在 `/root/msggw-migration-backup-20261026061418`。
 
+### Docker 镜像（0.5.0）
+
+本机没有安装 Docker，镜像的构建和验证都在 GitHub Actions 中完成（`.github/workflows/docker.yml`）：
+
+- 测试任务：`gofmt`、`go vet`、`go test -race` 全部通过（14 个测试包、92 个测试）。
+- 冒烟测试：以只读根文件系统、去掉所有 capabilities、非 root 用户启动容器，Telegram 指向一个关闭的端口。结果：
+  - 容器约 5 秒内变为 healthy，`nekopost healthcheck` 通过 `/healthz` 返回 200。
+  - 容器内的 `nekopost version` 和 `nekopost source list` 都正常执行。
+  - `docker stop` 后正常退出（退出码 0），数据库写在挂载的数据目录中。
+- 镜像 `ghcr.io/imdrinkcat/nekopost`（`linux/amd64` + `linux/arm64`）已发布，标签为 `latest`、`0.5.0`、`0.5` 和 `sha-*`。
+- 本机手动验证：在 `NEKOPOST_TLS_MODE=off` 下启动服务，`nekopost healthcheck` 返回 0；端口不通时返回 1。
+- 尚未验证：在真实的目标服务器上拉取镜像，以内置 HTTPS 或反向代理方式运行；自检退出没有用真实的卡死情况触发过，只有单元测试。
+
 ## 3. 需要你本人验证的项目
 
 | 项目 | 原因 |

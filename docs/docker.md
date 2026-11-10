@@ -7,7 +7,7 @@ Nekopost 也提供容器镜像，适合部署到已经在用 Docker 的服务器
 | 镜像 | `ghcr.io/imdrinkcat/nekopost` |
 | 标签 | `latest`（main 分支最新版）、`0.5.0` / `0.5`（版本号）、`sha-xxxxxxx`（某次提交） |
 | 架构 | `linux/amd64`、`linux/arm64` |
-| 基础镜像 | `distroless/static`：没有 shell，以 uid/gid `65532` 运行，镜像约 10 MB |
+| 基础镜像 | `distroless/static`：没有 shell，以 uid/gid `65532` 运行，镜像约 15 MB |
 | 数据 | 容器内的 `/data`：数据库 `nekopost.db` 和证书目录 `acme/` |
 | 端口 | 容器内 `8080`（HTTP）和 `8443`（HTTPS） |
 

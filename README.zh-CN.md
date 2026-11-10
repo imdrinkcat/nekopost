@@ -80,7 +80,7 @@ sudo nekopost source add iphone --name iPhone --icon 📱
 <details>
 <summary><b>也可以用 Docker 运行</b></summary>
 
-CI 会把多架构镜像（`linux/amd64`、`linux/arm64`，约 10 MB，distroless，非 root 运行）发布到 GHCR。端口 80/443 空闲时用 [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml)（内置 HTTPS），已有反向代理时用 [`compose.proxy.yaml`](deploy/docker/compose.proxy.yaml)。
+CI 会把多架构镜像（`linux/amd64`、`linux/arm64`，约 15 MB，distroless，非 root 运行）发布到 GHCR。端口 80/443 空闲时用 [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml)（内置 HTTPS），已有反向代理时用 [`compose.proxy.yaml`](deploy/docker/compose.proxy.yaml)。
 
 ```bash
 mkdir nekopost && cd nekopost          # 把 compose.yaml 和 nekopost.env.example 放在这里

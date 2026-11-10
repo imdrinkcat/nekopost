@@ -78,7 +78,7 @@ sudo nekopost source add iphone --name iPhone --icon 📱
 <details>
 <summary><b>Or run it with Docker</b></summary>
 
-A multi-arch image (`linux/amd64`, `linux/arm64`, ~10 MB, distroless, non-root) is published to GHCR by CI. Use [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml) for built-in HTTPS, or [`compose.proxy.yaml`](deploy/docker/compose.proxy.yaml) behind an existing reverse proxy.
+A multi-arch image (`linux/amd64`, `linux/arm64`, ~15 MB, distroless, non-root) is published to GHCR by CI. Use [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml) for built-in HTTPS, or [`compose.proxy.yaml`](deploy/docker/compose.proxy.yaml) behind an existing reverse proxy.
 
 ```bash
 mkdir nekopost && cd nekopost          # put compose.yaml and nekopost.env.example here
