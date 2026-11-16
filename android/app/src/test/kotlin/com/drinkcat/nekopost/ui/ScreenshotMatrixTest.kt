@@ -67,7 +67,8 @@ class ScreenshotMatrixTest(private val case: Case) {
         RuntimeEnvironment.setQualifiers(case.device.qualifiers)
         captureRoboImage(
             filePath = "src/test/screenshots/${case.fileName}.png",
-            roborazziOptions = Options,
+            // Built here, inside the Robolectric sandbox: its defaults read the Roborazzi context.
+            roborazziOptions = RoborazziOptions(recordOptions = RoborazziOptions.RecordOptions(resizeScale = 0.5)),
         ) {
             TestHarness(dark = case.dark) {
                 case.screen.content(case.device.fold)
@@ -76,8 +77,6 @@ class ScreenshotMatrixTest(private val case: Case) {
     }
 
     companion object {
-        private val Options = RoborazziOptions(recordOptions = RoborazziOptions.RecordOptions(resizeScale = 0.5))
-
         private val enrolled = ShellUiState(
             forwarder = FakeForwarderData.enrolledState,
             log = FakeForwarderData.log,
