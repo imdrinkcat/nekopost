@@ -109,7 +109,6 @@ dependencies {
     implementation(libs.compose.material3.adaptive.navigation.suite)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.play.services.code.scanner)
-    debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.junit)

@@ -153,6 +153,8 @@ private fun LogRow(item: ForwardLogItem, selected: Boolean, onClick: () -> Unit)
                     "${kindText(item.kind)} · ${formatDateTime(item.createdAt)}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Spacer(Modifier.width(NekoTokens.Spacing.s))

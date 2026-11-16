@@ -10,6 +10,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -33,7 +34,7 @@ enum class SplitAxis {
  * device is half open or the hinge is separating, the split follows the hinge:
  * the hinge area itself plus [NekoTokens.Hinge.keepOut] on each side stay
  * empty, so no text or touch target ever crosses or hugs the fold. Without
- * known bounds (injected postures) the hinge is assumed at the centre.
+ * known bounds (injected postures) the hinge is assumed at the window centre.
  *
  * Otherwise the panes are split at [fraction] with [gap] between them.
  * The layout fills the incoming bounded constraints.
@@ -49,6 +50,9 @@ fun HingeAwareSplit(
     second: @Composable () -> Unit,
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
+    // Without known bounds the hinge is assumed at the centre of the window
+    // (not of this layout, which may sit beside or above navigation).
+    val windowSize = LocalWindowInfo.current.containerSize
     val followsHinge = when (axis) {
         SplitAxis.Vertical -> fold.hingeOrientation == HingeOrientation.Horizontal
         SplitAxis.Horizontal -> fold.hingeOrientation == HingeOrientation.Vertical
@@ -73,7 +77,14 @@ fun HingeAwareSplit(
                     (hinge.left - origin.x) to (hinge.right - origin.x)
                 }
             } else {
-                (total / 2f) to (total / 2f)
+                val centre = if (axis == SplitAxis.Vertical) {
+                    windowSize.height / 2f - origin.y
+                } else {
+                    windowSize.width / 2f - origin.x
+                }
+                // Fall back to this layout's centre if the window size is unknown.
+                val c = if (windowSize.width > 0 && windowSize.height > 0) centre else total / 2f
+                c to c
             }
             val a = (hingeStart.roundToInt() - keepOut).coerceIn(0, total)
             val b = (hingeEnd.roundToInt() + keepOut).coerceIn(a, total)
