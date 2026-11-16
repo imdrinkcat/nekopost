@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -113,8 +114,15 @@ fun InboxListPane(
 ) {
     val rows = state.visibleRows
     Column(modifier.fillMaxSize().testTag("inbox_list")) {
-        InboxTopBar(state, menuOpen, onMenuOpen, actions)
-        SearchField(state, actions, searchFocus, onSearchFocused)
+        if (mode == PaneMode.TopBottom) {
+            // Tabletop: only the lower half is left for the list; title and search share one row.
+            InboxTopBar(state, menuOpen, onMenuOpen, actions) {
+                SearchField(state, actions, searchFocus, onSearchFocused, Modifier.weight(1f))
+            }
+        } else {
+            InboxTopBar(state, menuOpen, onMenuOpen, actions)
+            SearchField(state, actions, searchFocus, onSearchFocused)
+        }
         FilterRow(state, mode, actions)
         Banners(state, actions)
         PullToRefreshBox(
@@ -177,7 +185,13 @@ fun InboxListPane(
 }
 
 @Composable
-private fun InboxTopBar(state: InboxUiState, menuOpen: Boolean, onMenuOpen: (Boolean) -> Unit, actions: InboxActions) {
+private fun InboxTopBar(
+    state: InboxUiState,
+    menuOpen: Boolean,
+    onMenuOpen: (Boolean) -> Unit,
+    actions: InboxActions,
+    search: (@Composable RowScope.() -> Unit)? = null,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -185,19 +199,14 @@ private fun InboxTopBar(state: InboxUiState, menuOpen: Boolean, onMenuOpen: (Boo
             .heightIn(min = 64.dp)
             .padding(start = NekoTokens.Spacing.l, end = NekoTokens.Spacing.xs),
     ) {
-        Column(Modifier.weight(1f)) {
+        if (search != null) {
+            search()
+        } else {
             Text(
                 stringResource(R.string.inbox_title),
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.semantics { heading() },
+                modifier = Modifier.weight(1f).semantics { heading() },
             )
-            if (state.unreadCount > 0) {
-                Text(
-                    stringResource(R.string.inbox_unread_count, state.unreadCount),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
         }
         if (state.tools) Box {
             IconButton(onClick = { onMenuOpen(true) }, modifier = Modifier.testTag("inbox_overflow")) {
@@ -241,13 +250,17 @@ private fun MenuItem(text: String, icon: ImageVector, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SearchField(state: InboxUiState, actions: InboxActions, focus: FocusRequester, onFocused: (Boolean) -> Unit) {
+private fun SearchField(
+    state: InboxUiState,
+    actions: InboxActions,
+    focus: FocusRequester,
+    onFocused: (Boolean) -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth().padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.xs),
+) {
     TextField(
         value = state.query,
         onValueChange = { actions.onQueryChange(it.take(200)) },
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.xs)
+        modifier = modifier
             .focusRequester(focus)
             .onFocusChanged { onFocused(it.isFocused) }
             .testTag("inbox_search"),
@@ -599,7 +612,8 @@ private fun CodeChip(onCopy: () -> Unit) {
 fun SourceAvatar(message: InboxMessage, size: Dp) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val palette = if (dark) NekoTokens.Avatar.dark else NekoTokens.Avatar.light
-    val key = message.sourceId.ifBlank { message.sourceName }
+    // One colour per conversation (sender), like a messaging app's contact avatars.
+    val key = message.displaySender.ifBlank { message.sourceId }
     val (container, content) = palette[NekoTokens.Avatar.index(key)]
     val label = NotificationFormatter.avatarLabel(message.sourceIcon, message.displaySender)
     Box(Modifier.size(size)) {

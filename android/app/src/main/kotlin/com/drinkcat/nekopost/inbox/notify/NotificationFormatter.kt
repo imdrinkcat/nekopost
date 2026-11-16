@@ -120,7 +120,7 @@ object NotificationFormatter {
             copyAction = code != null || (item.hasCode && !item.expired),
             summaryLine = summary,
             avatarLabel = avatarLabel(item.sourceIcon, if (showContent) sender else source),
-            avatarKey = item.sourceId.ifBlank { source },
+            avatarKey = if (showContent && !item.expired) sender else item.sourceId.ifBlank { source },
         )
     }
 

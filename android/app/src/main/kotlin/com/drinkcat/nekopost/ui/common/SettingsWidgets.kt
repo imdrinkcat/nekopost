@@ -40,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.drinkcat.nekopost.R
@@ -285,6 +286,7 @@ fun InfoRow(label: String, value: String, mono: Boolean = false, modifier: Modif
         Text(
             value,
             style = if (mono) NekoTextStyles.mono else MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.End,
             modifier = Modifier.weight(0.58f),
             maxLines = 3,
             overflow = TextOverflow.Ellipsis,

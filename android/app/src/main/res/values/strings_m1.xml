@@ -91,7 +91,7 @@
     <string name="settings_sms_rules">短信发件人规则</string>
     <string name="settings_sms_rules_none">没有规则：转发全部短信</string>
     <string name="settings_sms_rules_count">%1$d 条规则</string>
-    <string name="settings_setup">设置向导</string>
+    <string name="settings_setup">权限与系统检查</string>
     <string name="settings_setup_done">所有检查都已通过</string>
     <string name="settings_server_note">来源凭证加密保存在本机，界面上不会显示。</string>
     <string name="settings_unenroll_summary">删除本机凭证、队列和记录</string>

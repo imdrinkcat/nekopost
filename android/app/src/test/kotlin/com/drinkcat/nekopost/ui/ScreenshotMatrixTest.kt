@@ -151,7 +151,9 @@ class ScreenshotMatrixTest(private val case: Case) {
                 onDestinationChange = {},
                 actions = ShellActions(),
                 memory = remember { memory() },
-                inboxContent = inbox?.let { ui -> @Composable { mode: PaneMode -> InboxScreen(ui, fold, mode, InboxActions()) } },
+                // A phone that can read always has 消息 (first), as in the app.
+                inboxContent = (inbox ?: FakeInboxData.list.takeIf { state.device?.canRead == true })
+                    ?.let { ui -> @Composable { mode: PaneMode -> InboxScreen(ui, fold, mode, InboxActions()) } },
             )
         }
 
@@ -171,7 +173,7 @@ class ScreenshotMatrixTest(private val case: Case) {
         }
 
         private val device = Samples.thisDevice
-        private val reader = enrolled.copy(device = device, inboxUnread = 3, lock = LockSettingsUi(foldable = true))
+        private val reader = enrolled.copy(device = device, inboxUnread = 4, lock = LockSettingsUi(foldable = true))
         private val admin = reader.copy(admin = Samples.admin)
 
         @Composable

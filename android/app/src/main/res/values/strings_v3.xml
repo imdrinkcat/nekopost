@@ -47,7 +47,6 @@
     <!-- Inbox -->
     <string name="inbox_title">消息</string>
     <string name="inbox_more">更多</string>
-    <string name="inbox_unread_count">%1$d 条未读</string>
     <string name="inbox_search_hint">搜索消息</string>
     <string name="inbox_search_clear">清除搜索</string>
     <string name="inbox_search_local">在已加载的消息中 · 按搜索键查找全部</string>

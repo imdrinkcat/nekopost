@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.drinkcat.nekopost.R
+import com.drinkcat.nekopost.core.ui.component.SleepingCat
 import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.core.ui.fold.HingeAwareSplit
 import com.drinkcat.nekopost.core.ui.fold.Posture
@@ -102,14 +103,21 @@ fun LockScreen(lock: LockState, fold: FoldState, issue: LockIssue?, onUnlock: ()
                 verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.m),
                 modifier = Modifier.fillMaxWidth().padding(NekoTokens.Spacing.xl),
             ) {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.size(72.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.Lock,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(32.dp),
-                        )
+                Box {
+                    SleepingCat(size = 96.dp)
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.size(36.dp).align(Alignment.BottomEnd),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Filled.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                 }
                 Text(

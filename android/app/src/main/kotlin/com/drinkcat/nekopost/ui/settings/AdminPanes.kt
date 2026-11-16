@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -144,7 +143,7 @@ private fun AdminHome(ui: AdminUi, onBack: (() -> Unit)?, onOpen: (AdminPage) ->
             NavRow(
                 stringResource(R.string.admin_devices),
                 summary = ui.devices?.let { list -> stringResource(R.string.admin_devices_count, list.count { !it.revoked }) },
-                icon = Icons.Filled.Phone,
+                icon = NekoIcons.CoverScreen,
                 onClick = { onOpen(AdminPage.Devices) },
                 modifier = Modifier.testTag("admin_Devices"),
             )
@@ -210,7 +209,7 @@ private fun DeviceRow(d: AdminDevice, self: Boolean, busy: Boolean, onTest: () -
             .padding(start = NekoTokens.Spacing.l, end = NekoTokens.Spacing.xs, top = NekoTokens.Spacing.s, bottom = NekoTokens.Spacing.s)
             .testTag("admin_device_${d.id}"),
     ) {
-        RowIcon(Icons.Filled.Phone)
+        RowIcon(NekoIcons.CoverScreen)
         Spacer(Modifier.width(NekoTokens.Spacing.l))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xxs)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.s)) {

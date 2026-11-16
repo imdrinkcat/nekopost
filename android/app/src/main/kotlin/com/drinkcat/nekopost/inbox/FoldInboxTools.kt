@@ -314,7 +314,7 @@ private fun WatchLine(row: InboxMessage) {
             if (row.hasCode) {
                 stringResource(R.string.watch_code_arrived, row.sourceName.ifBlank { row.displaySender })
             } else {
-                listOf(row.sourceName.ifBlank { row.displaySender }, row.category).filter(String::isNotBlank).joinToString(" · ")
+                listOf(row.displaySender, row.category).filter(String::isNotBlank).joinToString(" · ")
             },
             style = MaterialTheme.typography.titleMedium,
             maxLines = 1,
