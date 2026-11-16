@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shown in the system "通知使用权" list. -->
+    <string name="fwd_notification_listener_label">Nekopost 通知转发</string>
+</resources>

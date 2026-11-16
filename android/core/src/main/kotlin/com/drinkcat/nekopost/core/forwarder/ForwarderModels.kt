@@ -111,6 +111,13 @@ data class ForwarderState(
     val lastSuccess: DeliveryEvent? = null,
     val lastFailure: FailureEvent? = null,
     val paused: PauseReason? = null,
+    /** Per-package rules for [notificationApps]; a package without an entry uses [NotificationRule.Default]. */
+    val notificationRules: Map<String, NotificationRule> = emptyMap(),
+    /**
+     * The SMS reconciler found more than [SmsBacklog.Threshold] unsent SMS and
+     * waits for the user ([ForwarderController.resolveSmsBacklog]). null = nothing waiting.
+     */
+    val smsBacklog: SmsBacklog? = null,
 ) {
     val isEnrolled: Boolean get() = enrollment != null
 
@@ -147,8 +154,62 @@ fun ForwarderState.health(): ForwarderHealth = when {
     (smsEnabled && !permissions.smsReady) ||
         (notificationsEnabled && notificationApps.isNotEmpty() && !permissions.notificationListener) ->
         ForwarderHealth.NeedsPermission
-    queue.pending > 0 || queue.failed > 0 -> ForwarderHealth.Backlog
+    smsBacklog != null || queue.pending > 0 || queue.failed > 0 -> ForwarderHealth.Backlog
     else -> ForwarderHealth.Healthy
+}
+
+/**
+ * SMS found by the inbox scan that were never forwarded, held back because
+ * there are more than [Threshold] of them (design §8.4). Nothing is uploaded
+ * until the user picks "补交" or "全部跳过".
+ */
+data class SmsBacklog(
+    val count: Int,
+    /** Receive time of the oldest held SMS. */
+    val oldestAt: Instant?,
+    val detectedAt: Instant,
+) {
+    companion object {
+        /** More than this many SMS in one scan needs confirmation. */
+        const val Threshold: Int = 50
+    }
+}
+
+/** Message priority sent to the server (`priority` field). */
+enum class MessagePriority(val wire: String) { Low("low"), Normal("normal"), High("high") }
+
+/** Per-app notification rule (design §8.5). Never contains message content. */
+data class NotificationRule(
+    val mode: Mode = Mode.All,
+    /** Case-insensitive substrings matched against title and text. */
+    val keywords: List<String> = emptyList(),
+    /** false = send only "<应用名>" as the title, not the notification title. */
+    val includeTitle: Boolean = true,
+    val priority: MessagePriority = MessagePriority.Normal,
+) {
+    enum class Mode {
+        /** Forward everything. */
+        All,
+
+        /** Forward only notifications containing one of [keywords]. */
+        IncludeKeywords,
+
+        /** Forward everything except notifications containing one of [keywords]. */
+        ExcludeKeywords,
+    }
+
+    /** Whether a notification with this [title] and [text] passes the rule. */
+    fun accepts(title: String?, text: String?): Boolean {
+        val words = keywords.map { it.trim() }.filter { it.isNotEmpty() }
+        if (mode == Mode.All || words.isEmpty()) return true
+        val haystack = listOfNotNull(title, text).joinToString("\n")
+        val hit = words.any { haystack.contains(it, ignoreCase = true) }
+        return if (mode == Mode.IncludeKeywords) hit else !hit
+    }
+
+    companion object {
+        val Default = NotificationRule()
+    }
 }
 
 enum class ForwardKind { Sms, Notification, Test }

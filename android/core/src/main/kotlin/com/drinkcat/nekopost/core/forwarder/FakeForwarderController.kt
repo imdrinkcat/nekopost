@@ -44,6 +44,12 @@ class FakeForwarderController(
     override fun setNotificationApps(packages: Set<String>) =
         _state.update { it.copy(notificationApps = packages.filter(NotificationAppPolicy::isSelectable).toSet()) }
 
+    override fun setNotificationRule(packageName: String, rule: NotificationRule?) = _state.update {
+        it.copy(notificationRules = if (rule == null) it.notificationRules - packageName else it.notificationRules + (packageName to rule))
+    }
+
+    override fun resolveSmsBacklog(upload: Boolean) = _state.update { it.copy(smsBacklog = null) }
+
     override fun reportPermissions(status: PermissionStatus) = _state.update { it.copy(permissions = status) }
 
     override fun observeLog(): Flow<List<ForwardLogItem>> = _log.asStateFlow()

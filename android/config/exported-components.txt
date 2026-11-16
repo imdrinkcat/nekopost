@@ -11,3 +11,12 @@ androidx.work.impl.background.systemjob.SystemJobService android.permission.BIND
 androidx.work.impl.diagnostics.DiagnosticsReceiver android.permission.DUMP
 # Baseline profile installer (androidx.profileinstaller): requires DUMP.
 androidx.profileinstaller.ProfileInstallReceiver android.permission.DUMP
+
+# :forwarder SMS_RECEIVED: only the system holds BROADCAST_SMS (no spoofed SMS).
+com.drinkcat.nekopost.forwarder.sms.SmsReceiver android.permission.BROADCAST_SMS
+# :forwarder notification listener: only the system can bind it.
+com.drinkcat.nekopost.forwarder.notify.NekoNotificationListener android.permission.BIND_NOTIFICATION_LISTENER_SERVICE
+# :forwarder BOOT_COMPLETED / MY_PACKAGE_REPLACED: protected broadcasts (system
+# only); the receiver checks the action, reads no extras and only schedules an
+# inbox scan and an upload.
+com.drinkcat.nekopost.forwarder.BootReceiver -

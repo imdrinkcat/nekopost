@@ -43,6 +43,18 @@ interface ForwarderController {
      */
     fun setNotificationApps(packages: Set<String>)
 
+    /**
+     * Sets the rule for one package ([NotificationRule.Default] when [rule] is
+     * null). Rules for packages that are not selected are kept but unused.
+     */
+    fun setNotificationRule(packageName: String, rule: NotificationRule?)
+
+    /**
+     * Answers [ForwarderState.smsBacklog]: [upload] = true sends the held SMS
+     * ("补交 N 条短信"), false skips them for good ("全部跳过").
+     */
+    fun resolveSmsBacklog(upload: Boolean)
+
     /** Called by the UI whenever it (re)checks permissions, e.g. in onResume. */
     fun reportPermissions(status: PermissionStatus)
 
@@ -52,7 +64,11 @@ interface ForwarderController {
     /** Verification-code SMS delay statistics (Android 17 OTP protection check). */
     fun otpHealth(): Flow<OtpHealth>
 
-    /** Queues a `type:"notification"` test message and tries to send it right away. */
+    /**
+     * Queues a `type:"test"` message and tries to send it right away. Also
+     * works while paused, so it doubles as a credential check (success clears
+     * the pause).
+     */
     suspend fun sendTest(): SendTestResult
 
     /** Flushes the outbox now (user pressed "立即重试"); also resumes after a pause was fixed. */
