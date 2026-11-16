@@ -119,7 +119,6 @@ object DeviceAuth {
     fun outcomeFor(errorCode: Int, message: String): AuthOutcome = when (errorCode) {
         BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED,
         BiometricPrompt.BIOMETRIC_ERROR_CANCELED,
-        BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON,
         BiometricPrompt.BIOMETRIC_ERROR_TIMEOUT,
         -> AuthOutcome.Cancelled
         BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT,

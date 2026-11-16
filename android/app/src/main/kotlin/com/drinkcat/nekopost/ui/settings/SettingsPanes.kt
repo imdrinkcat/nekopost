@@ -185,7 +185,10 @@ private fun pushStateText(d: ThisDeviceUi): String = when (d.pushState) {
 private fun telegramText(types: List<String>?): String = when {
     types == null -> stringResource(R.string.notify_telegram_all)
     types.isEmpty() -> stringResource(R.string.notify_telegram_none)
-    else -> stringResource(R.string.notify_telegram_some, types.joinToString("、") { typeName(it) })
+    else -> {
+        val names = types.map { typeName(it) }
+        stringResource(R.string.notify_telegram_some, names.joinToString("、"))
+    }
 }
 
 @Composable
