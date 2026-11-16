@@ -179,8 +179,19 @@ private fun SettingsList(
         }
         if (header) {
             item(key = "identity") {
-                Column(Modifier.padding(top = if (title) 0.dp else NekoTokens.Spacing.l)) {
+                if (title) {
                     IdentityCard(state, selected = selected == SettingsItem.Account, onClick = { onSelect(SettingsItem.Account) })
+                } else {
+                    // Tabletop: the identity is already big on the upper half; here only the way in.
+                    SettingsGroup(Modifier.padding(top = NekoTokens.Spacing.l)) {
+                        NavRow(
+                            title = stringResource(SettingsItem.Account.title),
+                            summary = state.forwarder.enrollment?.serverHost ?: state.device?.serverHost,
+                            icon = SettingsItem.Account.icon,
+                            modifier = Modifier.testTag("settings_Account"),
+                            onClick = { onSelect(SettingsItem.Account) },
+                        )
+                    }
                 }
             }
         }
