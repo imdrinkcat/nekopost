@@ -90,7 +90,10 @@ class NotificationTest {
         for (category in listOf(Notification.CATEGORY_PROGRESS, Notification.CATEGORY_TRANSPORT, Notification.CATEGORY_CALL, Notification.CATEGORY_SERVICE)) {
             assertEquals(Extraction.Ignored("category"), extract(builder().setContentTitle("t").setCategory(category).build()))
         }
-        assertEquals(Extraction.Ignored("media"), extract(builder().setContentTitle("t").setStyle(Notification.MediaStyle()).build()))
+        // MediaStyle may also carry CATEGORY_TRANSPORT; either way it is dropped.
+        assertTrue(extract(builder().setContentTitle("t").setStyle(Notification.MediaStyle()).build()) is Extraction.Ignored)
+        val media = builder().setContentTitle("t").build().apply { extras.putString(Notification.EXTRA_TEMPLATE, "android.app.Notification\$MediaStyle") }
+        assertEquals(Extraction.Ignored("media"), extract(media))
         assertEquals(Extraction.Ignored("progress"), extract(builder().setContentTitle("下载中").setProgress(100, 30, false).build()))
     }
 

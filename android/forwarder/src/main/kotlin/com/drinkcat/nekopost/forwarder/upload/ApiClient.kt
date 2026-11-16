@@ -149,8 +149,18 @@ internal class ApiClient(
                 UploadOutcome.Retry(FailureReason.Network, null, null, e.javaClass.simpleName)
             }
 
-        private fun isPinningFailure(e: IOException): Boolean =
-            e is SSLPeerUnverifiedException && e.message?.contains("pinning", ignoreCase = true) == true
+        /**
+         * OkHttp tries every address of the host; when the pin check fails on
+         * one and another address then refuses the connection, the pinning
+         * error only survives as a suppressed exception, so search the chain.
+         */
+        private fun isPinningFailure(e: Throwable, depth: Int = 0): Boolean {
+            if (e is SSLPeerUnverifiedException && e.message?.contains("pinning", ignoreCase = true) == true) return true
+            if (depth >= 5) return false
+            val cause = e.cause
+            if (cause != null && cause !== e && isPinningFailure(cause, depth + 1)) return true
+            return e.suppressed.any { isPinningFailure(it, depth + 1) }
+        }
 
         private fun parse(body: String?): JsonObject? {
             if (body.isNullOrBlank()) return null

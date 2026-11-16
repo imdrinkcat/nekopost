@@ -61,11 +61,12 @@ internal class ForwarderGraph(
     suspend fun wipe() {
         scheduler.cancelAll()
         uploader.exclusive {
+            // Secrets first; the settings go last because they drive the visible "not enrolled" state.
+            secrets.clear()
+            keys.destroy()
             notifications.reset()
             db.clearAllTables()
             prefs.clear()
-            secrets.clear()
-            keys.destroy()
         }
     }
 
