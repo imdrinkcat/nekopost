@@ -4,6 +4,8 @@ import com.drinkcat.nekopost.core.forwarder.ForwardKind
 import com.drinkcat.nekopost.core.forwarder.MessagePriority
 import com.drinkcat.nekopost.core.forwarder.NotificationAppPolicy
 import com.drinkcat.nekopost.core.forwarder.NotificationRule
+import com.drinkcat.nekopost.core.rules.RuleAction
+import com.drinkcat.nekopost.core.rules.SmsSenderRules
 import com.drinkcat.nekopost.forwarder.crypto.Hashing
 import com.drinkcat.nekopost.forwarder.crypto.IdempotencyKeys
 import com.drinkcat.nekopost.forwarder.outbox.NewItem
@@ -40,6 +42,11 @@ internal sealed interface NotificationDecision {
  * (key, content hash) for 10 minutes; at most 30 per app per minute, the rest
  * merged into one "N 条通知" message; redacted content becomes a placeholder
  * message with meta.redacted = true.
+ *
+ * SMS apps: Android delivers an SMS to the default SMS app (which posts its
+ * notification) before it broadcasts SMS_RECEIVED to us, so their
+ * notifications wait [smsHold] for the SMS capture before they are compared
+ * with recently captured SMS bodies and the SMS sender rules.
  */
 internal class NotificationIngest(
     private val prefs: ForwarderPrefs,
@@ -49,6 +56,9 @@ internal class NotificationIngest(
     private val appLabeler: AppLabeler,
     private val smsIngest: SmsIngest,
     private val ownPackage: String,
+    private val appTraits: AppTraits,
+    /** Waits for the SMS broadcast that follows an SMS app's notification (a few seconds in production). */
+    private val smsHold: suspend () -> Unit,
 ) {
     private val mutex = Mutex()
     private val recent = HashMap<String, Long>()
@@ -59,7 +69,10 @@ internal class NotificationIngest(
         var suppressed = 0
     }
 
-    suspend fun onPosted(n: CapturedNotification): NotificationDecision = mutex.withLock { decide(n) }
+    suspend fun onPosted(n: CapturedNotification): NotificationDecision {
+        if (appTraits.isSmsApp(n.packageName) && isSelected(n.packageName)) smsHold()
+        return mutex.withLock { decide(n) }
+    }
 
     /** Sends the summaries of rate windows that have ended. Returns how many were queued. */
     suspend fun flushDue(): Int = mutex.withLock {
@@ -75,17 +88,29 @@ internal class NotificationIngest(
         queued
     }
 
-    /** Forget in-memory dedupe and rate state (unenroll). */
-    suspend fun reset() = mutex.withLock {
+    /**
+     * Unenroll: runs [block] while no notification is being queued, then
+     * forgets the in-memory dedupe and rate state.
+     */
+    suspend fun <T> resetAfter(block: suspend () -> T): T = mutex.withLock {
+        val result = block()
         recent.clear()
         windows.clear()
+        result
+    }
+
+    private suspend fun isSelected(pkg: String): Boolean {
+        val settings = prefs.current()
+        return settings.enrollment != null && settings.notificationsEnabled && pkg in settings.notificationApps
     }
 
     private suspend fun decide(n: CapturedNotification): NotificationDecision {
         val settings = prefs.current()
         val pkg = n.packageName
         if (settings.enrollment == null || !settings.notificationsEnabled) return NotificationDecision.NotSelected
-        if (pkg == ownPackage || !NotificationAppPolicy.isSelectable(pkg) || pkg !in settings.notificationApps) {
+        if (pkg == ownPackage || !NotificationAppPolicy.isSelectable(pkg) || pkg !in settings.notificationApps ||
+            appTraits.isTelegramClient(pkg)
+        ) {
             return NotificationDecision.NotSelected
         }
         val now = clock.millis()
@@ -100,6 +125,14 @@ internal class NotificationIngest(
         if (n.text != null && smsIngest.recentlyCapturedBody(n.text, Instant.ofEpochMilli(now))) {
             outbox.logSkipped(ForwardKind.Notification, label, pkg, "sms_duplicate")
             return NotificationDecision.Skipped("sms_duplicate")
+        }
+        // An SMS app's notification is titled with the sender: honour the SMS
+        // sender rules even when the SMS itself was not captured (yet).
+        if (appTraits.isSmsApp(pkg) && n.title != null &&
+            SmsSenderRules.decide(settings.smsSenderRules, n.title) == RuleAction.Skip
+        ) {
+            outbox.logSkipped(ForwardKind.Notification, label, pkg, "sms_rule")
+            return NotificationDecision.Skipped("sms_rule")
         }
 
         recent.entries.removeAll { now - it.value >= DEDUPE_WINDOW.toMillis() }
@@ -158,5 +191,8 @@ internal class NotificationIngest(
         val RATE_WINDOW: Duration = Duration.ofMinutes(1)
         val DEDUPE_WINDOW: Duration = Duration.ofMinutes(10)
         const val REDACTED_BODY = "系统隐藏了验证码内容"
+
+        /** How long an SMS app's notification waits for the SMS_RECEIVED capture. */
+        val SMS_HOLD: Duration = Duration.ofSeconds(5)
     }
 }

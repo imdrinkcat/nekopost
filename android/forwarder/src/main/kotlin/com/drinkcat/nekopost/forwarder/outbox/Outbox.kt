@@ -5,6 +5,8 @@ import com.drinkcat.nekopost.core.forwarder.ForwardLogItem
 import com.drinkcat.nekopost.core.forwarder.ForwardStatus
 import com.drinkcat.nekopost.forwarder.crypto.Hashing
 import com.drinkcat.nekopost.forwarder.crypto.KeyManager
+import com.drinkcat.nekopost.forwarder.crypto.KeystoreUnavailableException
+import java.security.GeneralSecurityException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -27,8 +29,11 @@ internal class Outbox(
 ) {
     private val dao = db.dao()
 
-    /** Queues [item]; returns the outbox id, or null if its idempotency key is already queued or sent. */
-    suspend fun enqueue(item: NewItem): Long? {
+    /**
+     * Queues [item]; returns the outbox id, or null if its idempotency key is
+     * already queued or sent. [seen] is recorded in the same transaction.
+     */
+    suspend fun enqueue(item: NewItem, seen: SmsSeenEntity? = null): Long? {
         val now = clock.millis()
         val plain = item.message.toJson(clock.zone).toByteArray(Charsets.UTF_8)
         val log = LogEntity(
@@ -48,13 +53,16 @@ internal class Outbox(
             state = OutboxEntity.STATE_PENDING,
             nextAt = now,
         )
-        return dao.enqueue(log, row, sentDigest(item.idemKey)) { id -> keys.aead().encrypt(plain, aad(id)) }
+        return dao.enqueue(log, row, sentDigest(item.idemKey), seen) { id -> keys.aead().encrypt(plain, aad(id)) }
     }
 
-    /** Records an item dropped by a local rule ([ForwardStatus.Skipped]); nothing is queued. */
-    suspend fun logSkipped(kind: ForwardKind, title: String, sourcePackage: String?, reason: String) {
+    /**
+     * Records an item dropped by a local rule ([ForwardStatus.Skipped]);
+     * nothing is queued. [seen] is recorded in the same transaction.
+     */
+    suspend fun logSkipped(kind: ForwardKind, title: String, sourcePackage: String?, reason: String, seen: SmsSeenEntity? = null) {
         val now = clock.millis()
-        dao.insertLog(
+        dao.insertSkipped(
             LogEntity(
                 kind = kind.name,
                 title = OutgoingMessage.clipTitle(title),
@@ -64,11 +72,25 @@ internal class Outbox(
                 lastError = reason,
                 updatedAt = now,
             ),
+            seen,
         )
     }
 
-    /** Decrypts a row's request body. Throws GeneralSecurityException if the key is gone or the row was moved. */
-    fun open(row: OutboxEntity): String = keys.aead().decrypt(row.payloadCt, aad(row.id)).toString(Charsets.UTF_8)
+    /**
+     * Decrypts a row's request body. Throws GeneralSecurityException if the
+     * key is gone or the row was moved, and [KeystoreUnavailableException]
+     * when the key cannot be loaded right now (worth retrying later).
+     */
+    fun open(row: OutboxEntity): String {
+        val aead = try {
+            keys.aead()
+        } catch (e: KeystoreUnavailableException) {
+            throw e
+        } catch (e: GeneralSecurityException) {
+            throw KeystoreUnavailableException("keyset unavailable", e)
+        }
+        return aead.decrypt(row.payloadCt, aad(row.id)).toString(Charsets.UTF_8)
+    }
 
     /** Retention: failed 7 days, pending 30 days, at most 5000 rows; returns the number of dropped items. */
     suspend fun prune(): Int = dao.prune(

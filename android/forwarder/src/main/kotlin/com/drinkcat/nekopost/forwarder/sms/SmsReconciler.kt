@@ -39,8 +39,11 @@ internal interface SmsInboxSource {
     /** Highest `_id` in the inbox (0 if empty), null without READ_SMS. */
     fun maxId(): Long?
 
-    /** Rows with `_id > afterId`, ascending, at most [limit]. */
-    fun after(afterId: Long, limit: Int): List<InboxSms>
+    /**
+     * Rows with `_id > afterId`, or with `date > afterDate` when given (the
+     * provider reuses the `_id` of deleted rows), ascending by `_id`, at most [limit].
+     */
+    fun after(afterId: Long, afterDate: Long?, limit: Int): List<InboxSms>
 }
 
 internal class ContentResolverInbox(private val context: Context) : SmsInboxSource {
@@ -56,7 +59,7 @@ internal class ContentResolverInbox(private val context: Context) : SmsInboxSour
     }
 
     @SuppressLint("MissingPermission") // checked by canRead()
-    override fun after(afterId: Long, limit: Int): List<InboxSms> {
+    override fun after(afterId: Long, afterDate: Long?, limit: Int): List<InboxSms> {
         if (!canRead()) return emptyList()
         val projection = arrayOf(
             BaseColumns._ID,
@@ -66,10 +69,15 @@ internal class ContentResolverInbox(private val context: Context) : SmsInboxSour
             Telephony.TextBasedSmsColumns.DATE_SENT,
             Telephony.TextBasedSmsColumns.SUBSCRIPTION_ID,
         )
+        val (selection, args) = if (afterDate == null) {
+            "${BaseColumns._ID} > ?" to arrayOf(afterId.toString())
+        } else {
+            "${BaseColumns._ID} > ? OR ${Telephony.TextBasedSmsColumns.DATE} > ?" to arrayOf(afterId.toString(), afterDate.toString())
+        }
         return query(
             projection,
-            "${BaseColumns._ID} > ?",
-            arrayOf(afterId.toString()),
+            selection,
+            args,
             "${BaseColumns._ID} ASC LIMIT $limit",
         ) { c ->
             val rows = ArrayList<InboxSms>(c.count.coerceAtLeast(0))
@@ -128,6 +136,11 @@ internal sealed interface ReconcileResult {
  * forwarding or the enrollment started, and every scan also ignores SMS
  * received before max(now − 72 h, enabled_at). More than 50 candidates in one
  * scan are held until the user confirms.
+ *
+ * The provider's `_id` has no AUTOINCREMENT: after the newest SMS is deleted,
+ * the next one gets the same `_id`. So besides `_id > last seen` the scan
+ * also takes rows received after the newest one already handled; the
+ * one-to-one matching in [SmsIngest] absorbs any overlap.
  */
 internal class SmsReconciler(
     private val prefs: ForwarderPrefs,
@@ -148,24 +161,26 @@ internal class SmsReconciler(
         val lastSeen = settings.smsLastSeenId
         if (lastSeen == null) {
             val start = inbox.maxId() ?: return ReconcileResult.NoPermission
-            prefs.initSmsStartIfUnset(start)
+            prefs.initSmsStartIfUnset(start, now)
             return ReconcileResult.StartPointSet(start)
         }
 
         val enabledAt = settings.smsEnabledAt ?: now
         val lookbackStart = maxOf(now.minus(LOOKBACK), enabledAt).toEpochMilli()
-        val rows = inbox.after(lastSeen, PAGE)
+        val rows = inbox.after(lastSeen, settings.smsLastSeenDate, PAGE)
         if (rows.isEmpty()) {
             if (settings.smsBacklog != null) prefs.setBacklog(null)
             return ReconcileResult.Done(0, lastSeen)
         }
-        val newLastSeen = rows.maxOf { it.id }
+        val newLastSeen = maxOf(lastSeen, rows.maxOf { it.id })
+        // A clock that jumped ahead must not hide later SMS: never past now.
+        val newLastSeenDate = minOf(rows.maxOf { it.dateMillis }, now.toEpochMilli())
         val candidates = rows.filter { it.dateMillis >= lookbackStart && it.address.isNotEmpty() }
-            .filterNot { ingest.isKnown(it.address, it.body, it.smscMillis) }
+        val uncaptured = ingest.uncaptured(candidates)
 
         // Only SMS the sender rules would forward count towards the backlog;
         // skipped ones still go through ingest so they are logged as Skipped.
-        val toForward = candidates.filter { SmsSenderRules.decide(settings.smsSenderRules, it.address) == RuleAction.Forward }
+        val toForward = uncaptured.filter { SmsSenderRules.decide(settings.smsSenderRules, it.address) == RuleAction.Forward }
         if (toForward.size > SmsBacklog.Threshold && !confirmBacklog) {
             prefs.setBacklog(
                 SmsBacklog(
@@ -177,15 +192,16 @@ internal class SmsReconciler(
             return ReconcileResult.NeedsConfirmation(toForward.size)
         }
 
+        // All candidates, so inbox rows of SMS the broadcast captured get matched too.
         val queued = ingest.onReconciled(candidates, now)
-        prefs.setSmsLastSeenId(newLastSeen)
+        prefs.setSmsLastSeen(newLastSeen, newLastSeenDate)
         if (settings.smsBacklog != null) prefs.setBacklog(null)
         return ReconcileResult.Done(queued, newLastSeen)
     }
 
     /** "全部跳过": move the start point to the inbox end without uploading anything. */
     suspend fun skipBacklog() {
-        inbox.maxId()?.let { prefs.setSmsLastSeenId(it) }
+        inbox.maxId()?.let { prefs.setSmsLastSeen(it, clock.millis()) }
         prefs.setBacklog(null)
     }
 

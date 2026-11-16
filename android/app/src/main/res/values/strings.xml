@@ -19,7 +19,9 @@
     <string name="health_paused_unauthorized">服务器拒绝了这台手机的凭证，请重新配对。消息仍在手机上排队，不会丢失。</string>
     <string name="health_paused_disabled">这个来源已在服务器上停用。消息仍在手机上排队，不会丢失。</string>
     <string name="health_backlog">有消息待发送</string>
-    <string name="health_backlog_detail">邮路暂时中断。消息仍在手机上排队，恢复后自动补寄。</string>
+    <string name="health_backlog_pending">邮路暂时中断，%1$d 条消息仍在手机上排队，恢复后自动补寄。</string>
+    <string name="health_backlog_held">补漏扫描发现 %1$d 条积压短信，等你决定是否补交。</string>
+    <string name="health_backlog_failed">%1$d 条被服务器拒绝，不会自动重试，可在转发记录中查看。</string>
     <string name="health_healthy">正常转发</string>
     <string name="health_healthy_detail">新短信和通知会立即转发到 %1$s。</string>
 
@@ -64,7 +66,7 @@
     <string name="otp_no_delay">未发现系统延迟</string>
     <string name="otp_no_delay_detail">近 %1$d 天的验证码短信都是实时收到的。</string>
     <string name="otp_delayed">发现系统延迟</string>
-    <string name="otp_delayed_detail">有验证码短信没有实时送达，是补漏扫描后来发现的。Android 17 可能会把验证码短信扣留最多 3 小时。</string>
+    <string name="otp_delayed_detail">有验证码短信没有实时送达，是补漏扫描后来发现的。常见原因是省电限制让猫邮局无法在后台运行，或者应用被强行停止。</string>
 
     <!-- Durations -->
     <string name="duration_seconds">%1$d 秒</string>

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -352,8 +354,14 @@ private fun SwitchRow(
     tag: String,
     minHeight: Dp = NekoTokens.Touch.minTarget,
 ) {
+    // The whole row is the switch: TalkBack reads the title with the state,
+    // and the touch target is the full row.
     Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = minHeight),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = minHeight)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Dot(tone, size = 10.dp)
@@ -363,7 +371,7 @@ private fun SwitchRow(
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.width(NekoTokens.Spacing.m))
-        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.testTag(tag))
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 

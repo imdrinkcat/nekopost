@@ -58,6 +58,15 @@ class ControllerTest {
         withTimeout(5_000) { controller.state.first(predicate) }
 
     @Test
+    fun enrollFailsClosedWithoutTheKeystore() = runBlocking {
+        respond(404, """{"ok":false,"error":{"code":"not_found"}}""")
+        env.keys.unavailable = true
+        assertEquals(EnrollResult.Failure(EnrollFailure.SecureStorage), controller.enroll(link()))
+        assertTrue(env.secretPrefs.all.isEmpty())
+        assertNull(env.prefs.current().enrollment)
+    }
+
+    @Test
     fun enrollProbesWithoutCreatingAMessageAndSetsTheSmsStartPoint() = runBlocking {
         repeat(3) { env.inbox.rows += InboxSms(it + 1L, "+81", "旧短信", 0, 0, 1) }
         respond(404, """{"ok":false,"error":{"code":"not_found","message":"消息不存在或不属于该来源"}}""")

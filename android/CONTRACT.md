@@ -89,32 +89,35 @@ data class ForwardLogItem(val id: Long, val kind: ForwardKind, val title: String
                           val serverMessageId: String? = null, val updatedAt: Instant = createdAt)
 
 data class OtpHealth(val windowDays: Int = 7, val realtimeCount: Int = 0, val reconciledCount: Int = 0,
+                     val explainedCount: Int = 0,
                      val medianDelay: Duration? = null, val maxDelay: Duration? = null, val lastCodeAt: Instant? = null) {
-    val verdict: OtpVerdict   // NoData, NoDelay, DelayDetected (any code SMS found only by the reconciler)
+    val verdict: OtpVerdict   // NoData, NoDelay, DelayDetected (a code SMS found only by the reconciler, not explained by a reboot/update)
 }
 
 sealed interface EnrollResult { Success(enrollment) ; Failure(reason: EnrollFailure, httpStatus: Int?) }
-enum class EnrollFailure { Network, CertificatePinning, Unauthorized, SourceDisabled, Server, AlreadyEnrolled }
+enum class EnrollFailure { Network, CertificatePinning, Unauthorized, SourceDisabled, Server, AlreadyEnrolled, SecureStorage }
 sealed interface SendTestResult { Accepted(serverMessageId: String?, duplicate: Boolean); Queued(reason); Rejected(reason, httpStatus); NotEnrolled }
-object NotificationAppPolicy { val blockedPackages: Set<String>; fun isSelectable(packageName: String): Boolean }
+object NotificationAppPolicy { val blockedPackages: Set<String>; fun isSelectable(packageName: String): Boolean
+                               fun isTelegramComponent(launcherClassName: String?): Boolean }
 ```
 
 Semantics the implementation must keep:
 
 | Item | Rule |
 |---|---|
-| `enroll` | Verify the token with a request that creates no message: `GET /v1/messages/<probe id>` with `Authorization: Bearer mgs_…` → 404 = valid, 401 = `Unauthorized`, 403 = `SourceDisabled`. Store the token encrypted (Tink AEAD, Keystore-wrapped keyset). Set the SMS reconciler start point (`last_seen_id = MAX(_id)`, `enabled_at = now`) — never upload old SMS. |
-| `unenroll` | Delete token, outbox, log, DataStore and Keystore aliases. Irreversible. Only the SMS sender rules (configuration, no secrets) are kept. |
+| `enroll` | Verify the token with a request that creates no message: `GET /v1/messages/<probe id>` with `Authorization: Bearer mgs_…` → 404 = valid, 401 = `Unauthorized`, 403 = `SourceDisabled`. Store the token encrypted (Tink AEAD, Keystore-wrapped keyset; if the Keystore cannot wrap it, fail with `SecureStorage` and store nothing — never a keyset in the clear). Set the SMS reconciler start point (`last_seen_id = MAX(_id)`, `enabled_at = now`) — never upload old SMS. |
+| `unenroll` | Delete token, outbox, log, DataStore and Keystore aliases. Irreversible. Only the SMS sender rules (configuration, no secrets) are kept. Holds the uploader and both capture paths while wiping, so nothing captured meanwhile survives. |
 | SMS sender rules | `SmsSenderRules.decide(rules, address)` runs in `SmsIngest` for both the broadcast and the inbox scan. `Skip` → the SMS is marked as seen and logged as `Skipped` (`lastError = "rule"`), never queued; its body still suppresses the SMS app's notification for 2 min. Skipped SMS do not count towards the reconciler's > 50 backlog. |
 | `ForwardLogItem.title` | SMS: originating address as-is; notification: app label; never the body. |
 | `ForwardStatus` | 202 → `Accepted`; 200 duplicate → `Duplicate`; network/429/5xx → `Retrying`; 413/415/422 → `Failed` (kept 7 days); 401/403 → `Paused` (queue kept, `ForwarderState.paused` set); local rule → `Skipped`. |
-| Uploads | `POST /v1/messages`, JSON `{title, body, type: "sms"|"notification"|"test", priority, occurred_at (RFC 3339, whole seconds, local offset), meta{}}`, header `Idempotency-Key`; SMS keys are `"sms:" + hex(HMAC-SHA256(device_secret, subId‖addr‖tsMillis‖body))[:32]` where `‖` is U+0000 and `subId`/`tsMillis` are decimal (tsMillis = SMSC time of the first segment; inbox `date_sent`), notification and test keys a persisted random UUID. Fields are clipped to the server limits (title 256, body 12 000 code points, meta 16 × 256). Honour `Retry-After` (seconds or HTTP date); otherwise back off 30 s × 2ⁿ up to 30 min; the first retryable failure pushes the whole queue back. No redirects, no logging interceptor. See `docs/api.md`. |
+| Uploads | `POST /v1/messages`, JSON `{title, body, type: "sms"|"notification"|"test", priority, occurred_at (RFC 3339, whole seconds, local offset), meta{}}`, header `Idempotency-Key`; SMS keys are `"sms:" + hex(HMAC-SHA256(device_secret, subId‖addr‖tsMillis‖body))[:32]` where `‖` is U+0000 and `subId`/`tsMillis` are decimal (tsMillis = SMSC time of the first segment; inbox `date_sent`), notification and test keys a persisted random UUID. Fields are clipped to the server limits (title 256, body 12 000 code points, meta 16 × 256). Honour `Retry-After` (seconds or HTTP date); otherwise back off 30 s × 2ⁿ up to 30 min; the first retryable failure pushes the whole queue back, including items queued later (`retryNow` lifts it). No redirects, no logging interceptor. See `docs/api.md`. |
 | `sendTest` | `type: "test"`, sent at once even while paused (doubles as a credential check; success clears `paused`). |
 | SMS payload | `title` = originating address as-is (no contact lookup, no READ_CONTACTS), `occurred_at` = SMSC time, `meta.sim` = `"SIM 1"`/`"SIM 2"` on dual-SIM phones (slot index, no READ_PHONE_STATE), `meta.parts` for multipart, `meta.via = "reconciler"` when found by the inbox scan. |
-| Reconciler | Start point `last_seen_id` = inbox MAX(_id) at enroll / SMS enable / first READ_SMS grant (never 0). Each scan only considers `date >= max(now − 72 h, enabled_at)`. More than 50 candidates → nothing uploaded, `smsBacklog` set until `resolveSmsBacklog`. SMS already captured by the broadcast (keyed fingerprint of sender + body, SMSC time ± 1 h) are skipped. Runs at boot / app update, app start and hourly with network. |
-| Notifications | Only selected packages, never `NotificationAppPolicy.blockedPackages` or this app. Skips ongoing, foreground-service, group-summary, `progress`/`transport`/`call`/`service`, media and progress-bar notifications. Title `"<应用名> · <通知标题>"` (rule `includeTitle = false` → app name only), body `EXTRA_BIG_TEXT` → `EXTRA_TEXT` → text lines; MessagingStyle: newest message only (`"sender: text"` in groups). Dedupe (key + content hash) 10 min; 30 per app per minute, the rest merged into one low-priority `"<应用名> · N 条通知"` message (`meta.coalesced = N`). System placeholder text (or no title and no text) → body `系统隐藏了验证码内容`, `meta.redacted = true`. Text equal to an SMS captured in the last 2 min → `Skipped` (`sms_duplicate`). `meta.pkg`, `meta.channel`. |
+| Reconciler | Start point `last_seen_id` = inbox MAX(_id) at enroll / SMS enable / first READ_SMS grant (never 0). Each scan only considers `date >= max(now − 72 h, enabled_at)`. Scans `_id > last_seen_id OR date > last_seen_date` (the provider reuses the `_id` of a deleted newest row). More than 50 candidates → nothing uploaded, `smsBacklog` set until `resolveSmsBacklog`. Matching against the broadcast is one to one (keyed fingerprint of sender + body, SMSC time ± 1 h): each inbox row pairs with at most one live capture, so a repeated identical SMS is still forwarded; the broadcast path drops only an exact redelivery (same SMSC time) or an SMS the scan found first. The seen record is written in the same transaction as the outbox / Skipped log row. Runs at boot / app update, app start and hourly with network. |
+| Notifications | Only selected packages, never `NotificationAppPolicy.blockedPackages` or this app. Skips ongoing, foreground-service, group-summary, `progress`/`transport`/`call`/`service`, media and progress-bar notifications. Title `"<应用名> · <通知标题>"` (rule `includeTitle = false` → app name only), body `EXTRA_BIG_TEXT` → `EXTRA_TEXT` → text lines; MessagingStyle: newest message only (`"sender: text"` in groups). Dedupe (key + content hash) 10 min; 30 per app per minute, the rest merged into one low-priority `"<应用名> · N 条通知"` message (`meta.coalesced = N`). System placeholder text (or no title and no text) → body `系统隐藏了验证码内容`, `meta.redacted = true`. Text equal to an SMS captured in the last 2 min → `Skipped` (`sms_duplicate`). Notifications of SMS apps (default SMS app and known Messages apps) wait 5 s for the SMS broadcast before that check, and a title that hits an SMS sender `Skip` rule → `Skipped` (`sms_rule`). Unlisted Telegram forks (launcher activity in `org.telegram.*`) are never forwarded. `meta.pkg`, `meta.channel`. |
 | Retention | Failed rows 7 days, pending rows 30 days or 5 000 rows (oldest dropped, log says `expired` / `queue_full`), accepted-key digests and SMS fingerprints 7 days, log 500 rows. |
-| `OtpHealth` | Code SMS over the last 7 days: counted as realtime when delivered by `SMS_RECEIVED`, as reconciled when first seen by the inbox scan. Delay = first seen − SMSC time; median over broadcast deliveries, max over all. |
+| `OtpHealth` | Code SMS over the last 7 days: counted as realtime when delivered by `SMS_RECEIVED`, as reconciled when first seen by the inbox scan, as explained when the scan found one sent before the last `BOOT_COMPLETED` / `MY_PACKAGE_REPLACED` (+1 min). Delay = first seen − SMSC time; median over broadcast deliveries, max over realtime and reconciled. |
+| Alerts | Channel `forwarder_alerts` (needs `POST_NOTIFICATIONS`): one notification while paused (401/403), one "有 N 条消息未能转发" once the oldest pending item is 30 min old. Counts and reasons only, `setLocalOnly`, tap opens the app. |
 | `setNotificationApps` | Filter through `NotificationAppPolicy.isSelectable` (Telegram clients and this app would loop). |
 
 `FakeForwarderController` (in `:core`) implements everything in memory;
@@ -270,10 +273,20 @@ repo secrets `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`,
 `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, no caches, draft GitHub release).
 Debug builds are signed with the committed `keystore/debug.p12`
 (password `android`, alias `androiddebugkey`) so debug APKs from different
-runs install over each other.
+runs install over each other. Because that key is public, debug builds are
+a separate app (`com.drinkcat.nekopost.debug`, label "Nekopost Debug") that
+can never update a release install; real-device runs with a real token use
+a signed release from an `app-v*` tag.
 
 Manifest rules: the launcher activity is our only exported component;
 `allowBackup=false`; data extraction excludes everything; cleartext is off
 (debug builds allow `10.0.2.2` and `localhost`). New exported components
 (SmsReceiver with `BROADCAST_SMS`, the notification listener with
 `BIND_NOTIFICATION_LISTENER_SERVICE`, …) must be added to the allowlist.
+
+Screen security (design §8.3): `MainActivity` sets `FLAG_SECURE` and turns
+off the Recents screenshot. Confirm actions (enroll, permission requests)
+ignore gestures that passed through another app's window
+(`TouchSecurity`), the unenroll sheet filters obscured touches on its
+window, and the enrollment link field is a password-type field so keyboards
+do not learn the token.

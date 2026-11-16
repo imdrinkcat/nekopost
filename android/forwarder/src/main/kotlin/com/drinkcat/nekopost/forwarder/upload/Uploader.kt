@@ -7,6 +7,9 @@ import com.drinkcat.nekopost.core.forwarder.FailureReason
 import com.drinkcat.nekopost.core.forwarder.ForwardKind
 import com.drinkcat.nekopost.core.forwarder.ForwardStatus
 import com.drinkcat.nekopost.core.forwarder.PauseReason
+import com.drinkcat.nekopost.forwarder.alert.AlertState
+import com.drinkcat.nekopost.forwarder.alert.Alerts
+import com.drinkcat.nekopost.forwarder.crypto.KeystoreUnavailableException
 import com.drinkcat.nekopost.forwarder.outbox.ForwarderDatabase
 import com.drinkcat.nekopost.forwarder.outbox.Outbox
 import com.drinkcat.nekopost.forwarder.outbox.OutboxEntity
@@ -26,7 +29,9 @@ import java.time.Duration
  * Drains the outbox (design §8.7). One upload at a time; the first retryable
  * failure stops the run and pushes the whole queue back (no hammering a
  * server that is down or rate limiting), 401/403 pause forwarding without
- * dropping anything, 400/413/415/422 mark only that item failed.
+ * dropping anything, 400/413/415/422 mark only that item failed. A
+ * Retry-After or backoff holds the whole queue, items queued later included.
+ * Pauses and items stuck for 30 minutes are also shown as notifications.
  */
 internal class Uploader(
     db: ForwarderDatabase,
@@ -36,6 +41,7 @@ internal class Uploader(
     private val http: HttpClients,
     private val scheduler: WorkScheduler,
     private val clock: Clock,
+    private val alerts: Alerts,
 ) {
     private val dao = db.dao()
     private val mutex = Mutex()
@@ -55,8 +61,14 @@ internal class Uploader(
     private suspend fun drainLocked(ignorePause: Boolean): Int {
         val settings = prefs.current()
         val enrollment = settings.enrollment ?: return 0
-        if (settings.paused != null && !ignorePause) return 0
+        if (settings.paused != null && !ignorePause) {
+            refreshAlerts()
+            return 0
+        }
         val api = apiFor(enrollment) ?: return pauseWithoutToken()
+        // Still inside a Retry-After / backoff: items queued since then wait too.
+        val notBefore = settings.retryNotBefore
+        if (notBefore != null && notBefore > clock.millis()) dao.deferPending(notBefore)
         var accepted = 0
         run loop@{
             while (true) {
@@ -72,6 +84,7 @@ internal class Uploader(
             }
         }
         scheduleNext()
+        refreshAlerts()
         return accepted
     }
 
@@ -90,7 +103,27 @@ internal class Uploader(
         val row = dao.get(outboxId) ?: return null
         val outcome = send(api, row)
         scheduleNext()
+        refreshAlerts()
         return outcome
+    }
+
+    /**
+     * Shows the pause alert, or "有 N 条消息未能转发" once the oldest pending
+     * item has waited [STUCK_AFTER]; clears whatever no longer applies.
+     */
+    private suspend fun refreshAlerts() {
+        val settings = prefs.current()
+        if (settings.enrollment == null) {
+            alerts.update(AlertState.None)
+            return
+        }
+        val oldest = dao.oldestPendingAt()
+        val stuck = if (settings.paused == null && oldest != null && clock.millis() - oldest >= STUCK_AFTER.toMillis()) {
+            dao.pendingCount()
+        } else {
+            0
+        }
+        alerts.update(AlertState(settings.paused, stuck))
     }
 
     private fun apiFor(enrollment: Enrollment): ApiClient? {
@@ -104,6 +137,7 @@ internal class Uploader(
         prefs.setPaused(PauseReason.Unauthorized)
         prefs.recordFailure(FailureEvent(clock.instant(), FailureReason.Unauthorized, null, "token_unreadable"))
         dao.setPendingLogStatus(ForwardStatus.Paused.name, clock.millis())
+        refreshAlerts()
         return 0
     }
 
@@ -111,6 +145,9 @@ internal class Uploader(
         val attempts = row.attempts + 1
         val json = try {
             outbox.open(row)
+        } catch (e: KeystoreUnavailableException) {
+            // Not this item's fault: stop the run, the worker retries later.
+            throw e
         } catch (e: GeneralSecurityException) {
             val outcome = UploadOutcome.Rejected(FailureReason.Rejected, null, "undecryptable")
             apply(row, attempts, outcome)
@@ -131,6 +168,7 @@ internal class Uploader(
                 val status = if (outcome.duplicate) ForwardStatus.Duplicate else ForwardStatus.Accepted
                 dao.markAccepted(row, Outbox.sentDigest(row.idemKey), status.name, attempts, outcome.httpStatus, outcome.serverMessageId, ms)
                 prefs.recordSuccess(DeliveryEvent(now, kind))
+                if (prefs.current().retryNotBefore != null) prefs.setRetryNotBefore(null)
                 if (prefs.current().paused != null) {
                     // The server takes our token again (re-enabled source, or a test after fixing it).
                     prefs.setPaused(null)
@@ -143,6 +181,7 @@ internal class Uploader(
                 val nextAt = ms + delay.toMillis()
                 dao.updateOutbox(row.id, OutboxEntity.STATE_PENDING, attempts, nextAt, outcome.detail, outcome.httpStatus)
                 dao.deferPending(nextAt)
+                prefs.setRetryNotBefore(nextAt)
                 dao.updateLog(row.logId, ForwardStatus.Retrying.name, attempts, outcome.httpStatus, outcome.detail, null, ms)
                 prefs.recordFailure(FailureEvent(now, outcome.reason, outcome.httpStatus, outcome.detail))
             }
@@ -177,6 +216,9 @@ internal class Uploader(
         private val MAX_RETRY_AFTER: Duration = Duration.ofHours(6)
         private val FIRST_BACKOFF: Duration = Duration.ofSeconds(30)
         private val MAX_BACKOFF: Duration = Duration.ofMinutes(30)
+
+        /** An item pending this long is reported as stuck (design §8.7). */
+        val STUCK_AFTER: Duration = Duration.ofMinutes(30)
 
         /** 30 s, 60 s, 2 min … capped at 30 min. */
         fun backoff(attempts: Int): Duration {

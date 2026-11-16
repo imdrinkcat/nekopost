@@ -263,7 +263,7 @@ data class ForwardLogItem(
     val updatedAt: Instant = createdAt,
 )
 
-/** Whether Android 17's OTP protection delays verification-code SMS on this device (design §8.4). */
+/** Whether verification-code SMS reach this app in real time (design §8.4). */
 enum class OtpVerdict {
     /** No verification-code SMS in the window yet. */
     NoData,
@@ -271,7 +271,11 @@ enum class OtpVerdict {
     /** Every code SMS arrived through the real-time broadcast. */
     NoDelay,
 
-    /** Some code SMS were only found by the reconciler: the system held them back. */
+    /**
+     * Some code SMS were only found by the reconciler although the app should
+     * have been able to receive them (not explained by a reboot or an app
+     * update): battery restrictions, a force stop, or the system held them.
+     */
     DelayDetected,
 }
 
@@ -280,8 +284,14 @@ data class OtpHealth(
     val windowDays: Int = 7,
     /** Code SMS delivered by the SMS_RECEIVED broadcast. */
     val realtimeCount: Int = 0,
-    /** Code SMS first discovered by the reconciler (inbox scan). */
+    /** Code SMS first discovered by the reconciler (inbox scan) without a known reason. */
     val reconciledCount: Int = 0,
+    /**
+     * Code SMS the reconciler found that arrived before the phone finished
+     * booting or while the app was being updated: missed for a known reason,
+     * so they do not count as a delay.
+     */
+    val explainedCount: Int = 0,
     /** Median broadcast delay (receive time − SMSC timestamp), if measured. */
     val medianDelay: Duration? = null,
     /** Largest observed delay. */
@@ -324,6 +334,12 @@ enum class EnrollFailure {
 
     /** Already enrolled: unenroll first. */
     AlreadyEnrolled,
+
+    /**
+     * The Android Keystore cannot protect the token on this device right now;
+     * nothing was stored (the forwarder never falls back to plaintext keys).
+     */
+    SecureStorage,
 }
 
 /** Result of [ForwarderController.sendTest]. */
@@ -339,10 +355,15 @@ sealed interface SendTestResult {
     data object NotEnrolled : SendTestResult
 }
 
-/** Packages that can never be selected for notification forwarding (would loop back via Telegram). */
+/**
+ * Apps that can never be selected for notification forwarding: ourselves and
+ * Telegram clients. The server delivers through Telegram, so forwarding a
+ * Telegram client's notifications would loop forever.
+ */
 object NotificationAppPolicy {
     val blockedPackages: Set<String> = setOf(
         "com.drinkcat.nekopost",
+        "com.drinkcat.nekopost.debug",
         "org.telegram.messenger",
         "org.telegram.messenger.web",
         "org.telegram.messenger.beta",
@@ -352,7 +373,26 @@ object NotificationAppPolicy {
         "tw.nekomimi.nekogram",
         "com.exteragram.messenger",
         "org.telegram.mdgram",
+        "xyz.nextalone.nagram",
+        "uz.unnarsx.cherrygram",
+        "org.forkgram.messenger",
+        "it.octogram.android",
+        "it.owlgram.android",
+        "com.radolyn.ayugram",
+        "app.nicegram",
+        "ir.ilmili.telegraph",
     )
 
+    /**
+     * Class-name prefixes of Telegram clients' launcher activities. Forks of
+     * the official app keep `org.telegram.ui.LaunchActivity`, so this catches
+     * forks that are not in [blockedPackages].
+     */
+    private val telegramComponentPrefixes = listOf("org.telegram.", "org.thunderdog.challegram.")
+
     fun isSelectable(packageName: String): Boolean = packageName !in blockedPackages
+
+    /** Whether [launcherClassName] (the app's launcher activity) belongs to a Telegram client. */
+    fun isTelegramComponent(launcherClassName: String?): Boolean =
+        launcherClassName != null && telegramComponentPrefixes.any { launcherClassName.startsWith(it) }
 }

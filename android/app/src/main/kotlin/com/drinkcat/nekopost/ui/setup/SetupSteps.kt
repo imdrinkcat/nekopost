@@ -33,6 +33,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.password
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -209,10 +211,12 @@ private fun ScanOrPaste(enroll: EnrollUiState, actions: SetupActions) {
             placeholder = { Text("nekopost://enroll?…") },
             singleLine = true,
             visualTransformation = TokenMaskTransformation,
-            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+            // Password type: keyboards neither learn nor suggest the token, and
+            // accessibility services get it as a password field.
+            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { if (text.isNotBlank()) actions.onSubmitLink(text) }),
             isError = enroll is EnrollUiState.Invalid,
-            modifier = Modifier.fillMaxWidth().testTag("enroll_paste_field"),
+            modifier = Modifier.fillMaxWidth().semantics { password() }.testTag("enroll_paste_field"),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.s)) {
             FilledTonalButton(onClick = actions.onPasteFromClipboard, modifier = Modifier.heightIn(min = ButtonHeight)) {
@@ -325,6 +329,7 @@ internal fun enrollFailureText(failure: EnrollFailure, httpStatus: Int?): String
             EnrollFailure.SourceDisabled -> R.string.enroll_failure_disabled
             EnrollFailure.Server -> R.string.enroll_failure_server
             EnrollFailure.AlreadyEnrolled -> R.string.enroll_failure_already
+            EnrollFailure.SecureStorage -> R.string.enroll_failure_secure_storage
         },
     )
     return if (httpStatus != null) stringResource(R.string.enroll_failure_with_status, base, httpStatus) else base

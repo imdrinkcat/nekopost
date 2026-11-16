@@ -22,6 +22,7 @@ import com.drinkcat.nekopost.core.forwarder.EnrollResult
 import com.drinkcat.nekopost.core.forwarder.ForwarderController
 import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.system.SystemIntents
+import com.drinkcat.nekopost.system.rememberObscuredTouchGuard
 import com.drinkcat.nekopost.system.startFirst
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
@@ -56,6 +57,9 @@ fun SetupRoute(
     val scope = rememberCoroutineScope()
     var enroll by remember { mutableStateOf<EnrollUiState>(EnrollUiState.Idle) }
     var fromClipboard by rememberSaveable { mutableStateOf(false) }
+    // POST_NOTIFICATIONS refused for good ("don't ask again"): the request returns at once, so open the settings.
+    var postBlocked by rememberSaveable { mutableStateOf(false) }
+    val guard = rememberObscuredTouchGuard()
 
     val smsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         val granted = result.isNotEmpty() && result.values.all { it }
@@ -68,7 +72,10 @@ fun SetupRoute(
         )
         onRefreshChecks()
     }
-    val postLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+    val postLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val activity = context.findActivity()
+        postBlocked = !granted && activity != null &&
+            !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.POST_NOTIFICATIONS)
         onRefreshChecks()
     }
 
@@ -100,7 +107,7 @@ fun SetupRoute(
             val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
             submit(text.orEmpty(), clipboard = true)
         },
-        onConfirmEnroll = {
+        onConfirmEnroll = guard {
             val link = when (val e = enroll) {
                 is EnrollUiState.Confirm -> e.link
                 is EnrollUiState.Failed -> e.link
@@ -124,20 +131,20 @@ fun SetupRoute(
         },
         onCancelEnroll = { enroll = EnrollUiState.Idle },
         onOpenAppDetails = { context.startFirst(SystemIntents.appDetails(context)) },
-        onRequestSms = {
+        onRequestSms = guard {
             smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
         },
         onOpenNotificationAccess = {
             context.startFirst(SystemIntents.notificationAccess(context), SystemIntents.notificationAccessFallback())
         },
-        onRequestPostNotifications = {
-            if (android.os.Build.VERSION.SDK_INT >= 33) {
+        onRequestPostNotifications = guard {
+            if (android.os.Build.VERSION.SDK_INT >= 33 && !postBlocked) {
                 postLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             } else {
                 context.startFirst(SystemIntents.appNotificationSettings(context), SystemIntents.appDetails(context))
             }
         },
-        onRequestBatteryExemption = {
+        onRequestBatteryExemption = guard {
             context.startFirst(
                 SystemIntents.requestIgnoreBatteryOptimizations(context),
                 SystemIntents.batteryOptimizationList(),

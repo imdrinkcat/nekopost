@@ -5,6 +5,7 @@ import com.drinkcat.nekopost.core.forwarder.FailureReason
 import com.drinkcat.nekopost.core.forwarder.ForwardKind
 import com.drinkcat.nekopost.core.forwarder.ForwardStatus
 import com.drinkcat.nekopost.core.forwarder.PauseReason
+import com.drinkcat.nekopost.forwarder.alert.AlertState
 import com.drinkcat.nekopost.forwarder.crypto.IdempotencyKeys
 import com.drinkcat.nekopost.forwarder.outbox.NewItem
 import com.drinkcat.nekopost.forwarder.outbox.Outbox
@@ -13,7 +14,9 @@ import com.drinkcat.nekopost.forwarder.outbox.OutgoingMessage
 import com.drinkcat.nekopost.forwarder.outbox.toItem
 import com.drinkcat.nekopost.forwarder.store.SecretStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import org.junit.After
@@ -167,6 +170,85 @@ class UploaderTest {
         respond(202, """{"ok":true,"id":"m_b"}""")
         assertEquals(2, env.graph.uploader.drain())
         assertTrue(dao.all().isEmpty())
+    }
+
+    @Test
+    fun itemsQueuedDuringRetryAfterWaitToo() = runBlocking {
+        enroll()
+        queue("a")
+        respond(429, """{"ok":false,"error":{"code":"rate_limited"}}""", "Retry-After" to "600")
+        env.graph.uploader.drain()
+        assertEquals(1, server.requestCount)
+
+        // A new SMS arrives a minute later and triggers an immediate upload run.
+        env.clock.advance(Duration.ofMinutes(1))
+        val late = queue("b")
+        assertEquals(0, env.graph.uploader.drain())
+        assertEquals(1, server.requestCount)
+        assertEquals(env.clock.millis() + 540_000, dao.get(late)!!.nextAt)
+        assertEquals(Duration.ofSeconds(540), env.scheduler.uploadAfter.last())
+
+        // "立即重试" overrides the wait.
+        AndroidForwarderController(env.graph, env.scope).retryNow()
+        withTimeout(5_000) {
+            while (env.prefs.current().retryNotBefore != null || dao.due(env.clock.millis(), 10).size < 2) delay(10)
+        }
+        respond(202, """{"ok":true,"id":"m_a"}""")
+        respond(202, """{"ok":true,"id":"m_b"}""")
+        assertEquals(2, env.graph.uploader.drain())
+    }
+
+    @Test
+    fun pausesAndStuckItemsRaiseAlerts() = runBlocking {
+        enroll()
+        queue()
+        server.close()
+        env.graph.uploader.drain()
+        assertEquals(AlertState.None, env.alerts.current)
+
+        // Still not delivered 30 minutes later: "有 N 条消息未能转发".
+        env.clock.advance(Duration.ofMinutes(31))
+        queue("second")
+        env.graph.uploader.drain()
+        assertEquals(AlertState(paused = null, stuck = 2), env.alerts.current)
+    }
+
+    @Test
+    fun unauthorizedRaisesThePauseAlertAndAcceptanceClearsIt() = runBlocking {
+        enroll()
+        queue()
+        respond(401, """{"ok":false,"error":{"code":"unauthorized"}}""")
+        env.graph.uploader.drain()
+        assertEquals(AlertState(paused = PauseReason.Unauthorized), env.alerts.current)
+
+        // The test message goes out even while paused; success clears the pause and the alert.
+        respond(202, """{"ok":true,"id":"m_t"}""")
+        respond(202, """{"ok":true,"id":"m_1"}""")
+        val id = queue("test")
+        env.graph.uploader.sendOne(id)
+        env.graph.uploader.drain()
+        assertEquals(AlertState.None, env.alerts.current)
+    }
+
+    @Test
+    fun keystoreOutageDoesNotFailItems() = runBlocking {
+        enroll()
+        val id = queue()
+        val token = env.graph.secrets.token()
+        assertNotNull(token)
+        // The keyset cannot be loaded for a while (e.g. right after an OTA).
+        env.keys.unavailable = true
+        try {
+            env.graph.uploader.drain()
+            fail("expected the run to stop")
+        } catch (expected: GeneralSecurityException) {
+            // UploadWorker retries later.
+        }
+        env.keys.unavailable = false
+        // Neither failed nor paused as "token unreadable": just not sent yet.
+        assertEquals(OutboxEntity.STATE_PENDING, dao.get(id)!!.state)
+        assertNull(env.prefs.current().paused)
+        assertEquals(0, server.requestCount)
     }
 
     @Test

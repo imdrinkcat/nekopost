@@ -124,6 +124,15 @@ class KeysAndPolicyTest {
         assertEquals(1, held.reconciledCount)
         assertEquals(Duration.ofMinutes(185), held.maxDelay)
         assertEquals(OtpVerdict.DelayDetected, held.verdict)
+
+        // Missed before boot completed / during an update: not a delay.
+        val e = SmsSeenEntity.VIA_RECONCILER_EXPLAINED
+        val reboot = OtpStats.compute(listOf(ev(b, 5_000, 3_000), ev(e, Duration.ofMinutes(40).toMillis(), 0)), now)
+        assertEquals(1, reboot.realtimeCount)
+        assertEquals(0, reboot.reconciledCount)
+        assertEquals(1, reboot.explainedCount)
+        assertEquals(Duration.ofSeconds(2), reboot.maxDelay)
+        assertEquals(OtpVerdict.NoDelay, reboot.verdict)
     }
 
     @Test

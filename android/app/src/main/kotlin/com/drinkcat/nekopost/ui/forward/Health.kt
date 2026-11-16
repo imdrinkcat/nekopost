@@ -115,6 +115,21 @@ fun healthDetail(f: ForwarderState): String = when (f.health()) {
     ForwarderHealth.Paused -> stringResource(
         if (f.paused == PauseReason.SourceDisabled) R.string.health_paused_disabled else R.string.health_paused_unauthorized,
     )
-    ForwarderHealth.Backlog -> stringResource(R.string.health_backlog_detail)
+    ForwarderHealth.Backlog -> backlogDetail(f)
     ForwarderHealth.Healthy -> stringResource(R.string.health_healthy_detail, f.enrollment?.serverHost.orEmpty())
+}
+
+/**
+ * Says what will happen to the waiting items: pending ones are retried
+ * automatically, a held SMS backlog waits for the user, rejected ones are
+ * never retried.
+ */
+@Composable
+private fun backlogDetail(f: ForwarderState): String {
+    val parts = buildList {
+        if (f.queue.pending > 0) add(stringResource(R.string.health_backlog_pending, f.queue.pending))
+        f.smsBacklog?.let { add(stringResource(R.string.health_backlog_held, it.count)) }
+        if (f.queue.failed > 0) add(stringResource(R.string.health_backlog_failed, f.queue.failed))
+    }
+    return parts.joinToString("")
 }

@@ -11,6 +11,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.drinkcat.nekopost.core.forwarder.NotificationAppPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.Collator
@@ -18,7 +19,12 @@ import java.util.Locale
 
 /** A launchable app the user may pick for notification forwarding. */
 @Immutable
-data class InstalledApp(val packageName: String, val label: String)
+data class InstalledApp(
+    val packageName: String,
+    val label: String,
+    /** A Telegram client by its launcher activity (forks not in the block list): never selectable. */
+    val telegramClient: Boolean = false,
+)
 
 /**
  * Launcher apps, visible through the MAIN/LAUNCHER `<queries>` entry in the
@@ -32,7 +38,13 @@ suspend fun Context.loadLauncherApps(): List<InstalledApp> = withContext(Dispatc
         .map { it.activityInfo }
         .filter { it.packageName != packageName }
         .distinctBy { it.packageName }
-        .map { InstalledApp(it.packageName, it.applicationInfo.loadLabel(pm).toString()) }
+        .map {
+            InstalledApp(
+                packageName = it.packageName,
+                label = it.applicationInfo.loadLabel(pm).toString(),
+                telegramClient = NotificationAppPolicy.isTelegramComponent(it.name),
+            )
+        }
         .sortedWith { a, b -> collator.compare(a.label, b.label) }
 }
 

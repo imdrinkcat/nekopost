@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -41,6 +42,9 @@ import kotlinx.coroutines.launch
  * has been held for [holdMillis]. A fill sweeps across while holding; letting
  * go early rewinds it. Accessibility services get the same action as a
  * long-click with an explicit label.
+ *
+ * The hold is timed at real speed: with "remove animations" (animator scale
+ * 0) a normal animation would finish at once and a tap would confirm.
  */
 @Composable
 fun HoldToConfirmButton(
@@ -85,7 +89,7 @@ fun HoldToConfirmButton(
                         if (!isEnabled) return@detectTapGestures
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         var done = false
-                        val job: Job = scope.launch {
+                        val job: Job = scope.launch(RealTime) {
                             val remaining = ((1f - progress.value) * holdMillis).toInt().coerceAtLeast(1)
                             progress.animateTo(1f, tween(remaining, easing = LinearEasing))
                             done = true
@@ -96,7 +100,7 @@ fun HoldToConfirmButton(
                         tryAwaitRelease()
                         if (!done) {
                             job.cancel()
-                            scope.launch { progress.animateTo(0f, tween(220)) }
+                            scope.launch(RealTime) { progress.animateTo(0f, tween(220)) }
                         }
                     },
                 )
@@ -111,4 +115,9 @@ fun HoldToConfirmButton(
             textAlign = TextAlign.Center,
         )
     }
+}
+
+/** Animation clock scale fixed at 1, independent of the system animator duration scale. */
+private object RealTime : MotionDurationScale {
+    override val scaleFactor: Float get() = 1f
 }

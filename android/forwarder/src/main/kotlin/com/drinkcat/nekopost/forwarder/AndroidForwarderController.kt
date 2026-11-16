@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.security.GeneralSecurityException
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
@@ -104,8 +105,15 @@ class AndroidForwarderController internal constructor(
         if (probe is ProbeOutcome.Failed) return EnrollResult.Failure(probe.reason, probe.httpStatus)
 
         val now = graph.clock.instant()
-        graph.secrets.setToken(link.token)
-        graph.secrets.deviceSecret()
+        try {
+            graph.secrets.setToken(link.token)
+            graph.secrets.deviceSecret()
+        } catch (e: GeneralSecurityException) {
+            // No Keystore-protected key (KeyManager fails closed): store nothing.
+            Log.w(TAG, "secure storage unavailable: ${e.javaClass.simpleName}")
+            graph.secrets.clear()
+            return EnrollResult.Failure(EnrollFailure.SecureStorage)
+        }
         val enrollment = Enrollment(
             serverUrl = link.serverUrl,
             sourceId = link.sourceId,
@@ -157,7 +165,7 @@ class AndroidForwarderController internal constructor(
         if (status.readSms && !before.readSms) {
             // READ_SMS just granted: pin the start point to the inbox end now.
             background {
-                graph.inbox.maxId()?.let { graph.prefs.initSmsStartIfUnset(it) }
+                graph.inbox.maxId()?.let { graph.prefs.initSmsStartIfUnset(it, graph.clock.instant()) }
             }
         }
     }
@@ -196,6 +204,7 @@ class AndroidForwarderController internal constructor(
     override fun retryNow() = background {
         val now = graph.clock.millis()
         graph.prefs.setPaused(null)
+        graph.prefs.setRetryNotBefore(null)
         dao.makeAllDue(now)
         dao.setPendingLogStatus(ForwardStatus.Queued.name, now)
         graph.scheduler.uploadNow()

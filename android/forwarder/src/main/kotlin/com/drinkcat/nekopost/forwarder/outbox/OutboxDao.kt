@@ -29,16 +29,33 @@ internal abstract class OutboxDao {
 
     /**
      * Inserts the log row and the outbox row, then stores the payload sealed
-     * with the new row id as AAD. Returns null (and writes nothing) when the
-     * idempotency key is already queued or was accepted in the last 7 days.
+     * with the new row id as AAD. Returns null (and writes no log or outbox
+     * row) when the idempotency key is already queued or was accepted in the
+     * last 7 days. [seen] (a captured SMS) is recorded either way, in the same
+     * transaction: if sealing fails, the SMS is not marked seen and the
+     * reconciler picks it up again.
      */
     @Transaction
-    open suspend fun enqueue(log: LogEntity, row: OutboxEntity, sentDigest: String, seal: (Long) -> ByteArray): Long? {
+    open suspend fun enqueue(
+        log: LogEntity,
+        row: OutboxEntity,
+        sentDigest: String,
+        seen: SmsSeenEntity?,
+        seal: (Long) -> ByteArray,
+    ): Long? {
+        if (seen != null) insertSeen(seen)
         if (countIdemKey(row.idemKey) > 0 || countSent(sentDigest) > 0) return null
         val logId = insertLog(log)
         val id = insertOutbox(row.copy(logId = logId))
         setPayload(id, seal(id))
         return id
+    }
+
+    /** A Skipped log row and, for an SMS, its seen record, written together. */
+    @Transaction
+    open suspend fun insertSkipped(log: LogEntity, seen: SmsSeenEntity?) {
+        if (seen != null) insertSeen(seen)
+        insertLog(log)
     }
 
     // --- upload --------------------------------------------------------------
@@ -54,6 +71,12 @@ internal abstract class OutboxDao {
 
     @Query("SELECT MIN(next_at) FROM outbox WHERE state = 'pending'")
     abstract suspend fun nextPendingAt(): Long?
+
+    @Query("SELECT COUNT(*) FROM outbox WHERE state = 'pending'")
+    abstract suspend fun pendingCount(): Int
+
+    @Query("SELECT MIN(created_at) FROM outbox WHERE state = 'pending'")
+    abstract suspend fun oldestPendingAt(): Long?
 
     @Query(
         "UPDATE outbox SET state = :state, attempts = :attempts, next_at = :nextAt, last_error = :error, " +
@@ -113,8 +136,16 @@ internal abstract class OutboxDao {
     @Insert
     abstract suspend fun insertSeen(seen: SmsSeenEntity): Long
 
-    @Query("SELECT * FROM sms_seen WHERE fingerprint = :fingerprint")
+    @Query("SELECT * FROM sms_seen WHERE fingerprint = :fingerprint ORDER BY id")
     abstract suspend fun seenByFingerprint(fingerprint: String): List<SmsSeenEntity>
+
+    /** The reconciler matched a live-captured SMS to its inbox row. */
+    @Query("UPDATE sms_seen SET inbox_id = :inboxId WHERE id = :id")
+    abstract suspend fun setSeenInboxId(id: Long, inboxId: Long)
+
+    /** The broadcast delivered an SMS the reconciler had already found. */
+    @Query("UPDATE sms_seen SET live = 1 WHERE id = :id")
+    abstract suspend fun setSeenLive(id: Long)
 
     @Query("SELECT * FROM sms_seen WHERE is_code = 1 ORDER BY seen_at DESC LIMIT 1000")
     abstract fun codeEvents(): Flow<List<SmsSeenEntity>>

@@ -58,7 +58,7 @@
     <string name="otp_reconciled">补漏发现</string>
     <string name="otp_median_delay">中位延迟</string>
     <string name="otp_max_delay_label">最长延迟</string>
-    <string name="otp_delayed_advice">补漏扫描每小时运行一次，被扣留的验证码最终也会送达，但可能已经过期。可以在设置向导的「验证码自测」中重新检查。</string>
+    <string name="otp_delayed_advice">补漏扫描每小时运行一次，漏掉的验证码最终也会送达，但可能已经过期。请检查电池设置是否允许猫邮局在后台运行，然后在设置向导的「验证码自测」中重新检查。重启或更新应用期间收到的短信不算在内。</string>
     <string name="monitor_conveyor_title">实时传送带</string>
     <string name="monitor_conveyor_empty">还没有转发记录。新消息会从下面的投信口进来。</string>
 
@@ -212,6 +212,7 @@
     <string name="enroll_failure_disabled">这个来源已在服务器上停用。</string>
     <string name="enroll_failure_server">服务器返回了意外的结果。</string>
     <string name="enroll_failure_already">这台手机已经配对过了。</string>
+    <string name="enroll_failure_secure_storage">这台手机的安全存储（Android Keystore）暂时不可用，凭证没有保存。请重启手机后再试。</string>
     <string name="enroll_failure_with_status">%1$s（HTTP %2$d）</string>
 
     <string name="setup_restricted_title">允许受限设置</string>
@@ -271,7 +272,7 @@
     </string-array>
 
     <string name="setup_otp_title">验证码自测</string>
-    <string name="setup_otp_summary">Android 17 可能会把验证码短信扣留最多 3 小时。做一次自测，确认这台手机能实时收到。</string>
+    <string name="setup_otp_summary">做一次自测，确认验证码短信能实时转发，没有被省电限制耽误。</string>
     <string name="setup_otp_send_from_other">用另一台手机给本机发这样一条短信：</string>
     <string name="setup_otp_sample">【测试】您的验证码是 123456</string>
     <string name="setup_otp_waiting">还没有收到验证码短信。收到后这里会显示是否实时到达。</string>
@@ -287,4 +288,7 @@
     <string name="setup_finish_recap_title">已检查</string>
     <string name="setup_stamp_ready">已开通</string>
     <string name="setup_stamp_partial">待完善</string>
+
+    <!-- A confirm button was tapped through another app's overlay (tapjacking defence). -->
+    <string name="touch_obscured">屏幕上有其他应用的悬浮窗挡住了按钮，这次点击已忽略。请关闭悬浮窗后再试。</string>
 </resources>

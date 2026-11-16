@@ -7,6 +7,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.drinkcat.nekopost.core.forwarder.ForwardStatus
 import com.drinkcat.nekopost.core.forwarder.MessagePriority
 import com.drinkcat.nekopost.core.forwarder.NotificationRule
+import com.drinkcat.nekopost.core.rules.RuleAction
+import com.drinkcat.nekopost.core.rules.SmsSenderRule
 import com.drinkcat.nekopost.forwarder.notify.CapturedNotification
 import com.drinkcat.nekopost.forwarder.notify.Extraction
 import com.drinkcat.nekopost.forwarder.notify.NotificationDecision
@@ -218,5 +220,60 @@ class NotificationTest {
             env.graph.notifications.onPosted(notif("【测试】您的验证码是 123456", key = "sms")),
         )
         assertEquals(NotificationIngest.RATE_LIMIT, 30)
+    }
+
+    private val messages = "com.samsung.android.messaging"
+
+    @Test
+    fun smsAppNotificationWaitsForTheSmsBroadcast() = runBlocking {
+        selectApps(messages)
+        val body = "【测试】您的验证码是 123456"
+        // Android delivers SMS_DELIVER to the SMS app first: its notification
+        // arrives before our SMS_RECEIVED capture, which lands during the hold.
+        env.smsHold = {
+            env.graph.smsIngest.onBroadcast(listOf(IncomingSms("+819012345678", 1, body, env.clock.millis())), env.clock.instant())
+        }
+        assertEquals(
+            NotificationDecision.Skipped("sms_duplicate"),
+            env.graph.notifications.onPosted(notif(body, title = "+819012345678", key = "sms", pkg = messages)),
+        )
+        // Only the SMS itself is queued.
+        val rows = env.db.dao().all()
+        assertEquals(1, rows.size)
+        assertEquals("sms", queuedJson()["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun smsAppNotificationHonoursSmsSenderRules() = runBlocking {
+        selectApps(messages, bank)
+        env.prefs.setSmsSenderRules(listOf(SmsSenderRule("95588", RuleAction.Skip)))
+        // No SMS capture at all (SMS forwarding off or the broadcast missed).
+        assertEquals(
+            NotificationDecision.Skipped("sms_rule"),
+            env.graph.notifications.onPosted(notif("您尾号1234的账户支出 88.00 元", title = "95588", key = "a", pkg = messages)),
+        )
+        // Other apps' titles are not SMS senders.
+        assertTrue(env.graph.notifications.onPosted(notif("ログイン", title = "95588", key = "b")) is NotificationDecision.Queued)
+        assertEquals(1, env.db.dao().all().size)
+    }
+
+    @Test
+    fun unlistedTelegramForksAreNeverForwarded() = runBlocking {
+        val fork = "io.example.telegram.fork"
+        selectApps(fork, "xyz.nextalone.nagram")
+        env.appTraits.telegramForks += fork
+        assertEquals(NotificationDecision.NotSelected, env.graph.notifications.onPosted(notif("转发的消息", pkg = fork)))
+        assertEquals(NotificationDecision.NotSelected, env.graph.notifications.onPosted(notif("转发的消息", pkg = "xyz.nextalone.nagram")))
+        assertTrue(env.db.dao().all().isEmpty())
+    }
+
+    @Test
+    fun notificationArrivingDuringUnenrollIsNotQueued() = runBlocking {
+        selectApps(messages)
+        // Unenroll completes while the SMS app's notification is held.
+        env.smsHold = { env.graph.wipe() }
+        assertEquals(NotificationDecision.NotSelected, env.graph.notifications.onPosted(notif("x", pkg = messages)))
+        assertTrue(env.db.dao().all().isEmpty())
+        assertEquals(1, env.keys.destroyed)
     }
 }

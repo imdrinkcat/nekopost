@@ -3,10 +3,15 @@ package com.drinkcat.nekopost.forwarder
 import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.drinkcat.nekopost.forwarder.alert.AlertState
+import com.drinkcat.nekopost.forwarder.alert.Alerts
+import com.drinkcat.nekopost.forwarder.alert.NotificationAlerts
 import com.drinkcat.nekopost.forwarder.crypto.AndroidKeyManager
 import com.drinkcat.nekopost.forwarder.crypto.KeyManager
 import com.drinkcat.nekopost.forwarder.notify.AppLabeler
+import com.drinkcat.nekopost.forwarder.notify.AppTraits
 import com.drinkcat.nekopost.forwarder.notify.NotificationIngest
+import com.drinkcat.nekopost.forwarder.notify.PackageManagerAppTraits
 import com.drinkcat.nekopost.forwarder.notify.PackageManagerLabeler
 import com.drinkcat.nekopost.forwarder.outbox.ForwarderDatabase
 import com.drinkcat.nekopost.forwarder.outbox.Outbox
@@ -25,6 +30,7 @@ import com.drinkcat.nekopost.forwarder.work.WorkScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import java.time.Clock
 
@@ -46,28 +52,42 @@ internal class ForwarderGraph(
     val inbox: SmsInboxSource,
     simLabeler: SimLabeler,
     appLabeler: AppLabeler,
+    appTraits: AppTraits,
     val http: HttpClients,
+    val alerts: Alerts,
+    /** How an SMS app's notification waits for the SMS broadcast ([NotificationIngest.SMS_HOLD]). */
+    smsHold: suspend () -> Unit = { delay(NotificationIngest.SMS_HOLD.toMillis()) },
 ) {
     val outbox = Outbox(db, keys, clock)
     val smsIngest = SmsIngest(prefs, secrets, outbox, db.dao(), simLabeler, scheduler, clock)
     val reconciler = SmsReconciler(prefs, inbox, smsIngest, clock)
-    val notifications = NotificationIngest(prefs, outbox, scheduler, clock, appLabeler, smsIngest, context.packageName)
-    val uploader = Uploader(db, outbox, prefs, secrets, http, scheduler, clock)
+    val notifications = NotificationIngest(
+        prefs, outbox, scheduler, clock, appLabeler, smsIngest, context.packageName, appTraits, smsHold,
+    )
+    val uploader = Uploader(db, outbox, prefs, secrets, http, scheduler, clock, alerts)
 
     /** Serializes enroll / unenroll / setting changes. */
     val mutations = Mutex()
 
-    /** Unenroll: stop all work and delete every trace (token, queue, log, settings, keys). */
+    /**
+     * Unenroll: stop all work and delete every trace (token, queue, log,
+     * settings, keys). Holds the uploader and both capture paths, so an SMS or
+     * notification arriving meanwhile is either wiped too or sees "not enrolled".
+     */
     suspend fun wipe() {
         scheduler.cancelAll()
         uploader.exclusive {
-            // Secrets first; the settings go last because they drive the visible "not enrolled" state.
-            secrets.clear()
-            keys.destroy()
-            notifications.reset()
-            db.clearAllTables()
-            prefs.clear()
+            smsIngest.exclusive {
+                notifications.resetAfter {
+                    // Secrets first; the settings go last because they drive the visible "not enrolled" state.
+                    secrets.clear()
+                    keys.destroy()
+                    db.clearAllTables()
+                    prefs.clear()
+                }
+            }
         }
+        alerts.update(AlertState.None)
     }
 
     companion object {
@@ -102,7 +122,9 @@ internal class ForwarderGraph(
                 inbox = ContentResolverInbox(app),
                 simLabeler = AndroidSimLabeler(app),
                 appLabeler = PackageManagerLabeler(app),
+                appTraits = PackageManagerAppTraits(app),
                 http = HttpClients(HttpClients.defaultBase(), clock),
+                alerts = NotificationAlerts(app),
             )
         }
     }

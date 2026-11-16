@@ -29,6 +29,9 @@ android {
 
     signingConfigs {
         // Stable, committed debug key so every CI build can be installed over the previous one.
+        // It is public, so debug builds are a separate app (applicationIdSuffix below):
+        // an APK signed with it can never update a release install. Real-device
+        // runs with a real token use a signed release from an app-v* tag.
         getByName("debug") {
             storeFile = rootProject.file("keystore/debug.p12")
             storeType = "pkcs12"
@@ -48,6 +51,9 @@ android {
 
     buildTypes {
         debug {
+            // com.drinkcat.nekopost.debug: installs next to the release app and keeps its own data and Keystore keys.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
             signingConfig = signingConfigs.getByName("debug")
         }
         release {

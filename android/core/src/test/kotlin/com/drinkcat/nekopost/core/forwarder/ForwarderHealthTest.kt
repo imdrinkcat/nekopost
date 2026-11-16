@@ -2,6 +2,7 @@ package com.drinkcat.nekopost.core.forwarder
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Duration
 
@@ -39,5 +40,19 @@ class ForwarderHealthTest {
         val fake = FakeForwarderController()
         fake.setNotificationApps(setOf("org.telegram.messenger", "jp.co.rakuten.bank"))
         assertEquals(setOf("jp.co.rakuten.bank"), fake.state.value.notificationApps)
+    }
+
+    @Test
+    fun telegramForksAreRecognised() {
+        for (fork in listOf("xyz.nextalone.nagram", "uz.unnarsx.cherrygram", "org.forkgram.messenger", "it.octogram.android", "it.owlgram.android")) {
+            assertFalse(fork, NotificationAppPolicy.isSelectable(fork))
+        }
+        assertFalse(NotificationAppPolicy.isSelectable("com.drinkcat.nekopost.debug"))
+        // Unknown forks keep the official app's launcher activity.
+        assertTrue(NotificationAppPolicy.isTelegramComponent("org.telegram.ui.LaunchActivity"))
+        assertTrue(NotificationAppPolicy.isTelegramComponent("org.thunderdog.challegram.MainActivity"))
+        assertFalse(NotificationAppPolicy.isTelegramComponent("jp.co.rakuten.bank.MainActivity"))
+        assertFalse(NotificationAppPolicy.isTelegramComponent("org.telegramx.Fake"))
+        assertFalse(NotificationAppPolicy.isTelegramComponent(null))
     }
 }

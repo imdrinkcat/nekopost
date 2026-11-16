@@ -61,8 +61,14 @@ internal data class SentKeyEntity(
 
 /**
  * An SMS this device has captured, keyed by a keyed fingerprint (no content).
- * Lets the reconciler skip SMS the broadcast already delivered, and feeds the
+ * Lets each path recognise what the other already delivered, and feeds the
  * OTP delay statistics (kept 7 days).
+ *
+ * Matching is one to one, so identical texts from the same sender (a repeated
+ * self-test, "余额不足" twice) are still separate SMS: the broadcast path only
+ * drops an exact redelivery ([live] row with the same SMSC time) or claims a
+ * row the reconciler found first; the reconciler pairs each inbox row with at
+ * most one row the broadcast captured ([inboxId]).
  */
 @Entity(tableName = "sms_seen", indices = [Index(value = ["fingerprint"]), Index(value = ["seen_at"])])
 internal data class SmsSeenEntity(
@@ -72,13 +78,20 @@ internal data class SmsSeenEntity(
     @ColumnInfo(name = "smsc_at") val smscAt: Long,
     /** When this device first saw it. */
     @ColumnInfo(name = "seen_at") val seenAt: Long,
-    /** [VIA_BROADCAST] or [VIA_RECONCILER]. */
+    /** How it was first seen: [VIA_BROADCAST], [VIA_RECONCILER] or [VIA_RECONCILER_EXPLAINED]. */
     val via: String,
     @ColumnInfo(name = "is_code") val isCode: Boolean,
+    /** Inbox `_id` of the row the reconciler matched to this SMS; null until then. */
+    @ColumnInfo(name = "inbox_id") val inboxId: Long? = null,
+    /** Whether the SMS_RECEIVED broadcast delivered this SMS (first or after the reconciler). */
+    @ColumnInfo(name = "live", defaultValue = "0") val live: Boolean = false,
 ) {
     companion object {
         const val VIA_BROADCAST = "broadcast"
         const val VIA_RECONCILER = "reconciler"
+
+        /** Found by the reconciler, but it arrived before boot completed or during an app update. */
+        const val VIA_RECONCILER_EXPLAINED = "reconciler_explained"
     }
 }
 

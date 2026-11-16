@@ -17,6 +17,8 @@
     <!-- Inbox scan that catches SMS the broadcast missed (SmsReconciler). -->
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Our own alerts: forwarding paused, or messages stuck for 30 minutes (design §8.7). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- App names and the notification app picker; no QUERY_ALL_PACKAGES. -->
     <queries>

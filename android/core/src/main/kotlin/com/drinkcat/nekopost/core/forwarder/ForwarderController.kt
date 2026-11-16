@@ -69,7 +69,7 @@ interface ForwarderController {
     /** Latest 50 log rows, newest first. Metadata only. */
     fun observeLog(): Flow<List<ForwardLogItem>>
 
-    /** Verification-code SMS delay statistics (Android 17 OTP protection check). */
+    /** Verification-code SMS delay statistics: do codes reach the receiver in real time? */
     fun otpHealth(): Flow<OtpHealth>
 
     /**

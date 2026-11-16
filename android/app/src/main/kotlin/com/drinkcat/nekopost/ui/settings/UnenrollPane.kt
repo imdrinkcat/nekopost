@@ -14,11 +14,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -79,6 +81,15 @@ fun UnenrollPane(state: ShellUiState, actions: ShellActions) {
 /** Body of the confirmation sheet; public so screenshot tests can render it without a window. */
 @Composable
 fun UnenrollSheetContent(enrollment: Enrollment, pending: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
+    // Tapjacking (design §8.3): the sheet is its own window, so filter its
+    // root view; touches that pass through another app's window are dropped.
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val root = view.rootView
+        val before = root.filterTouchesWhenObscured
+        root.filterTouchesWhenObscured = true
+        onDispose { root.filterTouchesWhenObscured = before }
+    }
     Column(
         Modifier
             .fillMaxWidth()

@@ -26,6 +26,10 @@ import kotlin.math.abs
  * Payload (design §8.4): `{type:"sms", title:<sender as-is>, body,
  * occurred_at:<SMSC time>, meta:{sim, parts, via}}`. Contact names are never
  * looked up or sent.
+ *
+ * Each SMS is matched one to one against what the other path already
+ * captured (see [SmsSeenEntity]), so a repeated identical text is forwarded
+ * again while a redelivery or the inbox copy of a live SMS is not.
  */
 internal class SmsIngest(
     private val prefs: ForwarderPrefs,
@@ -43,22 +47,43 @@ internal class SmsIngest(
 
     /** SMS_RECEIVED path. Returns how many messages were queued. */
     suspend fun onBroadcast(messages: List<IncomingSms>, receivedAt: Instant): Int = capture(
-        messages.map { Captured(it.address, it.subId, it.body, it.timestampMillis, it.parts) },
+        messages.map { Captured(it.address, it.subId, it.body, it.timestampMillis, it.parts, inboxId = null) },
         observedAt = receivedAt,
-        via = SmsSeenEntity.VIA_BROADCAST,
+        live = true,
     )
 
     /** Inbox-scan path (rows already filtered by start point and lookback). */
     suspend fun onReconciled(rows: List<InboxSms>, scannedAt: Instant): Int = capture(
-        rows.map { Captured(it.address, it.subId, it.body, it.smscMillis, 1) },
+        rows.map { Captured(it.address, it.subId, it.body, it.smscMillis, 1, inboxId = it.id) },
         observedAt = scannedAt,
-        via = SmsSeenEntity.VIA_RECONCILER,
+        live = false,
     )
 
-    /** Whether this SMS was already captured (by either path). */
-    suspend fun isKnown(address: String, body: String, smscMillis: Long): Boolean {
-        val fingerprint = IdempotencyKeys.smsFingerprint(secrets.deviceSecret(), address, body)
-        return seen(fingerprint, smscMillis)
+    /**
+     * The inbox rows of [rows] that no path has captured yet (read-only; the
+     * matching is redone and recorded by [onReconciled]). Empty when not enrolled.
+     */
+    suspend fun uncaptured(rows: List<InboxSms>): List<InboxSms> {
+        if (rows.isEmpty()) return emptyList()
+        return mutex.withLock { uncapturedLocked(rows) }
+    }
+
+    private suspend fun uncapturedLocked(rows: List<InboxSms>): List<InboxSms> {
+        val settings = prefs.current()
+        if (settings.enrollment == null || !settings.smsEnabled) return emptyList()
+        val secret = secrets.deviceSecret()
+        val claimed = HashSet<Long>()
+        return rows.filter { row ->
+            val fingerprint = IdempotencyKeys.smsFingerprint(secret, row.address, row.body)
+            when (val m = matchInbox(dao.seenByFingerprint(fingerprint), row.id, row.smscMillis, claimed)) {
+                Match.Known -> false
+                is Match.Claim -> {
+                    claimed += m.seenId
+                    false
+                }
+                Match.New -> true
+            }
+        }
     }
 
     /** True if an SMS with exactly this body was captured in the last 2 minutes. */
@@ -67,38 +92,74 @@ internal class SmsIngest(
         return now.toEpochMilli() - at <= RECENT_BODY_WINDOW.toMillis()
     }
 
-    private data class Captured(val address: String, val subId: Int, val body: String, val smscMillis: Long, val parts: Int)
+    /** Runs [block] while no SMS is being captured (unenroll). */
+    suspend fun <T> exclusive(block: suspend () -> T): T = mutex.withLock { block() }
 
-    private suspend fun capture(items: List<Captured>, observedAt: Instant, via: String): Int {
+    private data class Captured(
+        val address: String,
+        val subId: Int,
+        val body: String,
+        val smscMillis: Long,
+        val parts: Int,
+        val inboxId: Long?,
+    )
+
+    private sealed interface Match {
+        /** Already captured by this path (redelivery, or an inbox row matched before). */
+        data object Known : Match
+
+        /** Captured by the other path: record that this path saw it too, queue nothing. */
+        data class Claim(val seenId: Long) : Match
+
+        data object New : Match
+    }
+
+    private suspend fun capture(items: List<Captured>, observedAt: Instant, live: Boolean): Int {
         if (items.isEmpty()) return 0
-        val settings = prefs.current()
-        if (settings.enrollment == null || !settings.smsEnabled) return 0
         var queued = 0
         mutex.withLock {
+            // Read under the lock: unenroll holds it while it wipes everything.
+            val settings = prefs.current()
+            if (settings.enrollment == null || !settings.smsEnabled) return 0
             val secret = secrets.deviceSecret()
+            val claimed = HashSet<Long>()
             for (sms in items) {
                 val fingerprint = IdempotencyKeys.smsFingerprint(secret, sms.address, sms.body)
-                if (seen(fingerprint, sms.smscMillis)) continue
-                dao.insertSeen(
-                    SmsSeenEntity(
-                        fingerprint = fingerprint,
-                        smscAt = sms.smscMillis,
-                        seenAt = observedAt.toEpochMilli(),
-                        via = via,
-                        isCode = OtpDetector.looksLikeCode(sms.body),
-                    ),
+                val seen = dao.seenByFingerprint(fingerprint)
+                val match = if (live) {
+                    matchBroadcast(seen, sms.smscMillis, claimed)
+                } else {
+                    matchInbox(seen, sms.inboxId ?: 0, sms.smscMillis, claimed)
+                }
+                when (match) {
+                    Match.Known -> continue
+                    is Match.Claim -> {
+                        claimed += match.seenId
+                        if (live) dao.setSeenLive(match.seenId) else dao.setSeenInboxId(match.seenId, sms.inboxId ?: 0)
+                        continue
+                    }
+                    Match.New -> Unit
+                }
+                val record = SmsSeenEntity(
+                    fingerprint = fingerprint,
+                    smscAt = sms.smscMillis,
+                    seenAt = observedAt.toEpochMilli(),
+                    via = via(live, sms.smscMillis, settings.lastRestartAt),
+                    isCode = OtpDetector.looksLikeCode(sms.body),
+                    inboxId = sms.inboxId,
+                    live = live,
                 )
-                // Remember skipped bodies too, so the SMS app's notification
-                // of a skipped SMS is not forwarded as a notification either.
-                rememberBody(sms.body, observedAt)
                 if (SmsSenderRules.decide(settings.smsSenderRules, sms.address) == RuleAction.Skip) {
-                    outbox.logSkipped(ForwardKind.Sms, sms.address, null, "rule")
+                    outbox.logSkipped(ForwardKind.Sms, sms.address, null, "rule", seen = record)
+                    // Remember skipped bodies too, so the SMS app's notification
+                    // of a skipped SMS is not forwarded as a notification either.
+                    rememberBody(sms.body, observedAt)
                     continue
                 }
                 val meta = buildMap<String, Any> {
                     simLabeler.label(sms.subId)?.let { put("sim", it) }
                     if (sms.parts > 1) put("parts", sms.parts)
-                    if (via == SmsSeenEntity.VIA_RECONCILER) put("via", "reconciler")
+                    if (!live) put("via", "reconciler")
                 }
                 val message = OutgoingMessage(
                     type = "sms",
@@ -109,15 +170,47 @@ internal class SmsIngest(
                     meta = meta,
                 )
                 val key = IdempotencyKeys.sms(secret, sms.subId, sms.address, sms.smscMillis, sms.body)
-                if (outbox.enqueue(NewItem(ForwardKind.Sms, sms.address, null, key, message)) != null) queued++
+                // The seen record is written in the same transaction as the outbox row.
+                if (outbox.enqueue(NewItem(ForwardKind.Sms, sms.address, null, key, message), seen = record) != null) queued++
+                rememberBody(sms.body, observedAt)
             }
         }
         if (queued > 0) scheduler.uploadNow()
         return queued
     }
 
-    private suspend fun seen(fingerprint: String, smscMillis: Long): Boolean =
-        dao.seenByFingerprint(fingerprint).any { abs(it.smscAt - smscMillis) <= SAME_SMS_TOLERANCE.toMillis() }
+    /**
+     * Broadcast: the same SMS again is an exact redelivery (same SMSC time);
+     * otherwise it may be one the reconciler found first. A new SMS with the
+     * same text from the same sender has a different SMSC time.
+     */
+    private fun matchBroadcast(seen: List<SmsSeenEntity>, smscMillis: Long, claimed: Set<Long>): Match {
+        if (seen.any { it.live && it.smscAt == smscMillis }) return Match.Known
+        val first = seen.filter { !it.live && it.id !in claimed && near(it.smscAt, smscMillis) }
+            .minByOrNull { abs(it.smscAt - smscMillis) }
+        return if (first != null) Match.Claim(first.id) else Match.New
+    }
+
+    /**
+     * Inbox scan: an inbox row matches at most one captured SMS, and each
+     * captured SMS matches at most one inbox row.
+     */
+    private fun matchInbox(seen: List<SmsSeenEntity>, inboxId: Long, smscMillis: Long, claimed: Set<Long>): Match {
+        if (seen.any { it.inboxId == inboxId && near(it.smscAt, smscMillis) }) return Match.Known
+        val live = seen.filter { it.inboxId == null && it.id !in claimed && near(it.smscAt, smscMillis) }
+            .minByOrNull { abs(it.smscAt - smscMillis) }
+        return if (live != null) Match.Claim(live.id) else Match.New
+    }
+
+    private fun near(a: Long, b: Long): Boolean = abs(a - b) <= SAME_SMS_TOLERANCE.toMillis()
+
+    /** Reconciled SMS that arrived before the last boot or app update were missed for a known reason. */
+    private fun via(live: Boolean, smscMillis: Long, lastRestartAt: Long?): String = when {
+        live -> SmsSeenEntity.VIA_BROADCAST
+        lastRestartAt != null && smscMillis > 0 && smscMillis <= lastRestartAt + RESTART_GRACE.toMillis() ->
+            SmsSeenEntity.VIA_RECONCILER_EXPLAINED
+        else -> SmsSeenEntity.VIA_RECONCILER
+    }
 
     private fun rememberBody(body: String, at: Instant) {
         val now = at.toEpochMilli()
@@ -128,8 +221,16 @@ internal class SmsIngest(
     }
 
     companion object {
-        /** Broadcast and inbox timestamps of the same SMS can differ (segments, clock sources). */
+        /**
+         * How far apart the two paths' timestamps of one SMS may be (inbox
+         * `date` stands in when the provider has no `date_sent`). Only used to
+         * pair one broadcast capture with one inbox row, never to drop a
+         * second SMS with the same text.
+         */
         val SAME_SMS_TOLERANCE: Duration = Duration.ofHours(1)
         val RECENT_BODY_WINDOW: Duration = Duration.ofMinutes(2)
+
+        /** SMS this soon after BOOT_COMPLETED / MY_PACKAGE_REPLACED may still have missed the receiver. */
+        val RESTART_GRACE: Duration = Duration.ofMinutes(1)
     }
 }

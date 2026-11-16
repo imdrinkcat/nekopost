@@ -25,6 +25,8 @@ class BootReceiver : BroadcastReceiver() {
         graph.scope.launch {
             try {
                 if (graph.prefs.current().enrollment != null) {
+                    // SMS received before this point could not reach SmsReceiver (OTP health).
+                    graph.prefs.recordRestart(graph.clock.instant())
                     graph.scheduler.ensurePeriodic()
                     graph.scheduler.reconcileNow()
                     graph.scheduler.uploadNow()

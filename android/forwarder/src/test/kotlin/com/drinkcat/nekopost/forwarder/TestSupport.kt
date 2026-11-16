@@ -7,8 +7,12 @@ import com.drinkcat.nekopost.core.forwarder.Enrollment
 import com.drinkcat.nekopost.core.forwarder.OtpHealth
 import com.drinkcat.nekopost.forwarder.sms.OtpStats
 import kotlinx.coroutines.flow.first
+import com.drinkcat.nekopost.forwarder.alert.AlertState
+import com.drinkcat.nekopost.forwarder.alert.Alerts
 import com.drinkcat.nekopost.forwarder.crypto.KeyManager
+import com.drinkcat.nekopost.forwarder.crypto.KeystoreUnavailableException
 import com.drinkcat.nekopost.forwarder.notify.AppLabeler
+import com.drinkcat.nekopost.forwarder.notify.AppTraits
 import com.drinkcat.nekopost.forwarder.outbox.ForwarderDatabase
 import com.drinkcat.nekopost.forwarder.sms.InboxSms
 import com.drinkcat.nekopost.forwarder.sms.SimLabeler
@@ -65,7 +69,13 @@ internal class TestKeyManager : KeyManager {
     var current: Aead = TestAead()
     var destroyed = 0
 
-    override fun aead(): Aead = current
+    /** Set to simulate a Keystore that cannot wrap the keyset (AndroidKeyManager fails closed). */
+    var unavailable = false
+
+    override fun aead(): Aead {
+        if (unavailable) throw KeystoreUnavailableException("test: Keystore unavailable")
+        return current
+    }
 
     override fun destroy() {
         destroyed++
@@ -116,8 +126,25 @@ internal class FakeInbox : SmsInboxSource {
 
     override fun canRead(): Boolean = readable
     override fun maxId(): Long? = if (readable) rows.maxOfOrNull { it.id } ?: 0L else null
-    override fun after(afterId: Long, limit: Int): List<InboxSms> =
-        rows.filter { it.id > afterId }.sortedBy { it.id }.take(limit)
+    override fun after(afterId: Long, afterDate: Long?, limit: Int): List<InboxSms> =
+        rows.filter { it.id > afterId || (afterDate != null && it.dateMillis > afterDate) }.sortedBy { it.id }.take(limit)
+}
+
+internal class RecordingAlerts : Alerts {
+    val updates = mutableListOf<AlertState>()
+    val current: AlertState get() = updates.lastOrNull() ?: AlertState.None
+
+    override fun update(state: AlertState) {
+        updates += state
+    }
+}
+
+internal class FakeAppTraits : AppTraits {
+    val smsApps = mutableSetOf("com.samsung.android.messaging")
+    val telegramForks = mutableSetOf<String>()
+
+    override fun isSmsApp(packageName: String): Boolean = packageName in smsApps
+    override fun isTelegramClient(packageName: String): Boolean = packageName in telegramForks
 }
 
 /** A fully wired graph on in-memory Room, a temp DataStore and fakes for everything Android-specific. */
@@ -130,6 +157,11 @@ internal class TestEnv(
     val keys = TestKeyManager()
     val scheduler = RecordingScheduler()
     val inbox = FakeInbox()
+    val alerts = RecordingAlerts()
+    val appTraits = FakeAppTraits()
+
+    /** Runs while an SMS app's notification waits for the SMS broadcast (instant by default). */
+    var smsHold: suspend () -> Unit = {}
     val sim = mutableMapOf<Int, String>()
     val labels = mutableMapOf("jp.co.rakuten.bank" to "楽天銀行", "com.sagawa.app" to "佐川急便")
     private val name = "t" + UUID.randomUUID().toString().replace("-", "")
@@ -153,7 +185,10 @@ internal class TestEnv(
         inbox = inbox,
         simLabeler = SimLabeler { sim[it] },
         appLabeler = AppLabeler { labels[it] ?: it },
+        appTraits = appTraits,
         http = HttpClients(baseHttp, clock),
+        alerts = alerts,
+        smsHold = { smsHold() },
     )
 
     /** Enrolls directly (no network), as enroll() would after a successful probe. */

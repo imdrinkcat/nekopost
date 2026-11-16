@@ -10,7 +10,10 @@ import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
+import java.security.GeneralSecurityException
 import java.security.KeyStore
+import java.security.KeyStoreException
+import java.security.ProviderException
 import javax.crypto.KeyGenerator
 
 /**
@@ -19,12 +22,19 @@ import javax.crypto.KeyGenerator
  * no user authentication, so SMS can be queued while the phone is locked.
  */
 internal interface KeyManager {
-    /** AEAD for the token, the device secret and outbox payloads; created on first use. */
+    /**
+     * AEAD for the token, the device secret and outbox payloads; created on
+     * first use. Throws [KeystoreUnavailableException] rather than ever
+     * using a keyset that the Keystore does not protect.
+     */
     fun aead(): Aead
 
     /** Deletes the keyset and the Keystore key: everything they protected becomes unreadable. */
     fun destroy()
 }
+
+/** The Android Keystore cannot wrap the keyset right now; nothing was stored in the clear. */
+internal class KeystoreUnavailableException(message: String, cause: Throwable? = null) : GeneralSecurityException(message, cause)
 
 internal class AndroidKeyManager(private val context: Context) : KeyManager {
     @Volatile
@@ -48,12 +58,24 @@ internal class AndroidKeyManager(private val context: Context) : KeyManager {
     private fun create(): Aead {
         AeadConfig.register()
         ensureMasterKey()
-        val manager = AndroidKeysetManager.Builder()
-            .withSharedPref(context, KEYSET_NAME, KEYSET_PREFS)
-            .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
-            .withMasterKeyUri(MASTER_KEY_URI)
-            .build()
-        if (!manager.isUsingKeystore) Log.w(TAG, "Android Keystore unavailable; the keyset is not wrapped")
+        val manager = try {
+            AndroidKeysetManager.Builder()
+                .withSharedPref(context, KEYSET_NAME, KEYSET_PREFS)
+                .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
+                .withMasterKeyUri(MASTER_KEY_URI)
+                .build()
+        } catch (e: KeyStoreException) {
+            // The Keystore key exists but cannot be used (e.g. right after an OTA); the keyset stays as it is.
+            throw KeystoreUnavailableException("Android Keystore error", e)
+        } catch (e: ProviderException) {
+            throw KeystoreUnavailableException("Android Keystore error", e)
+        }
+        if (!manager.isUsingKeystore) {
+            // Tink fell back to a keyset in the clear: never use it, fail closed.
+            context.deleteSharedPreferences(KEYSET_PREFS)
+            Log.w(TAG, "Android Keystore unavailable; refusing an unwrapped keyset")
+            throw KeystoreUnavailableException("Android Keystore unavailable")
+        }
         return manager.keysetHandle.getPrimitive(RegistryConfiguration.get(), Aead::class.java)
     }
 

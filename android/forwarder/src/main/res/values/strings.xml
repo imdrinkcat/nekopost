@@ -2,4 +2,14 @@
 <resources>
     <!-- Shown in the system "通知使用权" list. -->
     <string name="fwd_notification_listener_label">Nekopost 通知转发</string>
+
+    <!-- The forwarder's own alerts (design §8.7). Never message content. -->
+    <string name="fwd_alert_channel">转发告警</string>
+    <string name="fwd_alert_channel_description">转发暂停，或者消息长时间没能送出时提醒你。</string>
+    <string name="fwd_alert_paused_unauthorized_title">转发已暂停：服务器拒绝了凭证</string>
+    <string name="fwd_alert_paused_unauthorized_text">服务器拒绝了这台手机的凭证。消息仍在手机上排队，不会丢失；打开猫邮局重新配对。</string>
+    <string name="fwd_alert_paused_disabled_title">转发已暂停：来源已停用</string>
+    <string name="fwd_alert_paused_disabled_text">这个来源已在服务器上停用。消息仍在手机上排队，来源重新启用后会自动补寄。</string>
+    <string name="fwd_alert_stuck_title">有 %1$d 条消息未能转发</string>
+    <string name="fwd_alert_stuck_text">最早的一条已经等了 30 分钟以上。打开猫邮局查看原因。</string>
 </resources>

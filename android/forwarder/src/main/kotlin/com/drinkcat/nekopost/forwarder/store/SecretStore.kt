@@ -3,6 +3,7 @@ package com.drinkcat.nekopost.forwarder.store
 import android.annotation.SuppressLint
 import android.content.SharedPreferences
 import com.drinkcat.nekopost.forwarder.crypto.KeyManager
+import com.drinkcat.nekopost.forwarder.crypto.KeystoreUnavailableException
 import java.security.GeneralSecurityException
 import java.security.SecureRandom
 import java.util.Base64
@@ -41,6 +42,9 @@ internal class SecretStore(
         val stored = prefs.getString(name, null) ?: return null
         return try {
             keys.aead().decrypt(Base64.getDecoder().decode(stored), aad(name))
+        } catch (e: KeystoreUnavailableException) {
+            // Temporary: the stored value is fine, the key cannot be loaded right now.
+            throw e
         } catch (e: GeneralSecurityException) {
             null
         } catch (e: IllegalArgumentException) {

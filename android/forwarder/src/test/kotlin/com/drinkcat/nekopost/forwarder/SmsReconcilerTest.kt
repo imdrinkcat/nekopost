@@ -3,12 +3,14 @@ package com.drinkcat.nekopost.forwarder
 import androidx.test.core.app.ApplicationProvider
 import com.drinkcat.nekopost.core.forwarder.ForwardKind
 import com.drinkcat.nekopost.core.forwarder.ForwardStatus
+import com.drinkcat.nekopost.core.forwarder.OtpVerdict
 import com.drinkcat.nekopost.core.rules.RuleAction
 import com.drinkcat.nekopost.core.rules.SmsSenderRule
 import com.drinkcat.nekopost.forwarder.outbox.toItem
 import com.drinkcat.nekopost.forwarder.sms.IncomingSms
 import com.drinkcat.nekopost.forwarder.sms.InboxSms
 import com.drinkcat.nekopost.forwarder.sms.ReconcileResult
+import com.google.crypto.tink.Aead
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -18,9 +20,11 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.security.GeneralSecurityException
 import java.time.Duration
 import java.time.Instant
 
@@ -220,6 +224,119 @@ class SmsReconcilerTest {
         env.prefs.clear()
         assertNull(env.prefs.current().enrollment)
         assertEquals(rules, env.prefs.current().smsSenderRules)
+    }
+
+    @Test
+    fun identicalSmsMinutesApartAreBothForwarded() = runBlocking {
+        enrollThenWait()
+        val body = "【测试】您的验证码是 123456"
+        val first = env.clock.millis() - 300_000
+        val second = env.clock.millis()
+        // The setup wizard's self-test, repeated a few minutes later: two real SMS.
+        assertEquals(1, env.graph.smsIngest.onBroadcast(listOf(IncomingSms("+819012345678", 1, body, first)), env.clock.instant()))
+        assertEquals(1, env.graph.smsIngest.onBroadcast(listOf(IncomingSms("+819012345678", 1, body, second)), env.clock.instant()))
+        // A system redelivery of the second one is still recognised.
+        assertEquals(0, env.graph.smsIngest.onBroadcast(listOf(IncomingSms("+819012345678", 1, body, second)), env.clock.instant()))
+        assertEquals(2, env.db.dao().all().size)
+        assertEquals(2, env.otpHealth().realtimeCount)
+
+        // Their inbox rows pair up one to one with the two captures: nothing more is queued.
+        env.inbox.rows += InboxSms(nextId++, "+819012345678", body, first + 2_000, first, 1)
+        env.inbox.rows += InboxSms(nextId++, "+819012345678", body, second + 2_000, second, 1)
+        assertEquals(0, (reconciler.run() as ReconcileResult.Done).queued)
+        assertEquals(2, env.db.dao().all().size)
+    }
+
+    @Test
+    fun reconcilerQueuesTheRepeatTheBroadcastMissed() = runBlocking {
+        enrollThenWait()
+        val body = "余额不足，请及时充值"
+        val firstAt = env.clock.millis() - 600_000
+        env.graph.smsIngest.onBroadcast(listOf(IncomingSms("10086", 1, body, firstAt)), Instant.ofEpochMilli(firstAt + 1_000))
+        // The same alert again ten minutes later, while the app was killed: only in the inbox.
+        env.inbox.rows += InboxSms(nextId++, "10086", body, firstAt + 1_000, firstAt, 1)
+        val missed = InboxSms(nextId++, "10086", body, env.clock.millis(), env.clock.millis() - 1_000, 1).also { env.inbox.rows += it }
+
+        assertEquals(ReconcileResult.Done(1, missed.id), reconciler.run())
+        assertEquals(2, env.db.dao().all().size)
+        // A later identical SMS cannot pair with the first capture any more.
+        env.clock.advance(Duration.ofMinutes(5))
+        val third = InboxSms(nextId++, "10086", body, env.clock.millis(), env.clock.millis() - 1_000, 1).also { env.inbox.rows += it }
+        assertEquals(ReconcileResult.Done(1, third.id), reconciler.run())
+    }
+
+    @Test
+    fun broadcastAfterTheReconcilerIsNotSentTwice() = runBlocking {
+        enrollThenWait()
+        val row = inbox("【测试】您的验证码是 246810", Duration.ofMinutes(2))
+        assertEquals(1, (reconciler.run() as ReconcileResult.Done).queued)
+        // The broadcast arrives late (system held it).
+        assertEquals(0, env.graph.smsIngest.onBroadcast(listOf(IncomingSms(row.address, row.subId, row.body, row.dateSentMillis)), env.clock.instant()))
+        assertEquals(1, env.db.dao().all().size)
+    }
+
+    @Test
+    fun smsIsNotMarkedSeenWhenQueueingFails() = runBlocking {
+        enrollThenWait()
+        val body = "【测试】您的验证码是 135790"
+        val smsc = env.clock.millis() - 3_000
+        env.graph.secrets.deviceSecret()
+        // Sealing the payload fails (Keystore hiccup): nothing may be half-written.
+        val real = env.keys.current
+        env.keys.current = object : Aead {
+            override fun encrypt(plaintext: ByteArray, associatedData: ByteArray?): ByteArray =
+                throw GeneralSecurityException("keystore hiccup")
+
+            override fun decrypt(ciphertext: ByteArray, associatedData: ByteArray?): ByteArray =
+                real.decrypt(ciphertext, associatedData)
+        }
+        try {
+            env.graph.smsIngest.onBroadcast(listOf(IncomingSms("+819012345678", 1, body, smsc)), env.clock.instant())
+            fail("expected the capture to fail")
+        } catch (expected: GeneralSecurityException) {
+        }
+        env.keys.current = real
+        assertTrue(env.db.dao().all().isEmpty())
+        assertTrue(env.db.dao().latestLog(5).isEmpty())
+
+        // The reconciler still finds it.
+        val row = InboxSms(nextId++, "+819012345678", body, smsc + 3_000, smsc, 1).also { env.inbox.rows += it }
+        assertEquals(ReconcileResult.Done(1, row.id), reconciler.run())
+    }
+
+    @Test
+    fun reusedInboxIdIsStillScanned() = runBlocking {
+        enrollThenWait()
+        val first = inbox("第一条", Duration.ofMinutes(10))
+        assertEquals(ReconcileResult.Done(1, first.id), reconciler.run())
+        // The user deletes it; the provider hands the same _id to the next SMS.
+        env.inbox.rows.remove(first)
+        env.clock.advance(Duration.ofMinutes(5))
+        val reused = InboxSms(first.id, "+819012345678", "第二条", env.clock.millis(), env.clock.millis() - 2_000, 1)
+        env.inbox.rows += reused
+        assertEquals(1, (reconciler.run() as ReconcileResult.Done).queued)
+        assertEquals(2, env.db.dao().all().size)
+        // And only once.
+        assertEquals(0, (reconciler.run() as ReconcileResult.Done).queued)
+    }
+
+    @Test
+    fun codesMissedAroundARebootAreNotReportedAsSystemDelay() = runBlocking {
+        enrollThenWait()
+        // Arrived before the first unlock after a reboot: SmsReceiver could not run.
+        inbox("【银行】验证码 112233", Duration.ofMinutes(3))
+        env.prefs.recordRestart(env.clock.instant().minus(Duration.ofMinutes(1)))
+        assertEquals(1, (reconciler.run() as ReconcileResult.Done).queued)
+        val health = env.otpHealth()
+        assertEquals(0, health.reconciledCount)
+        assertEquals(1, health.explainedCount)
+        assertEquals(OtpVerdict.NoData, health.verdict)
+
+        // One missed while the app should have been running still counts.
+        env.clock.advance(Duration.ofHours(1))
+        inbox("【银行】验证码 445566", Duration.ofMinutes(3))
+        reconciler.run()
+        assertEquals(OtpVerdict.DelayDetected, env.otpHealth().verdict)
     }
 
     @Test

@@ -9,7 +9,9 @@ import java.time.Instant
  * OTP health (design §8.4, "OTP 短信是否被系统延迟？"): verification-code SMS
  * of the last [WINDOW_DAYS] days, split by how we first saw them. Delay =
  * first seen − SMSC timestamp; the median covers broadcast deliveries only
- * (the inbox scan adds its own latency), the maximum covers both.
+ * (the inbox scan adds its own latency), the maximum covers both. Codes
+ * that arrived before boot completed or during an app update are counted
+ * apart ([OtpHealth.explainedCount]): the receiver could not run then.
  */
 internal object OtpStats {
     const val WINDOW_DAYS = 7
@@ -19,12 +21,14 @@ internal object OtpStats {
         val codes = events.filter { it.isCode && it.seenAt >= since }
         if (codes.isEmpty()) return OtpHealth(windowDays = WINDOW_DAYS)
         val realtime = codes.filter { it.via == SmsSeenEntity.VIA_BROADCAST }
+        val explained = codes.count { it.via == SmsSeenEntity.VIA_RECONCILER_EXPLAINED }
         val realtimeDelays = realtime.mapNotNull(::delayMillis).sorted()
-        val allDelays = codes.mapNotNull(::delayMillis)
+        val allDelays = codes.filter { it.via != SmsSeenEntity.VIA_RECONCILER_EXPLAINED }.mapNotNull(::delayMillis)
         return OtpHealth(
             windowDays = WINDOW_DAYS,
             realtimeCount = realtime.size,
-            reconciledCount = codes.size - realtime.size,
+            reconciledCount = codes.size - realtime.size - explained,
+            explainedCount = explained,
             medianDelay = median(realtimeDelays)?.let(Duration::ofMillis),
             maxDelay = allDelays.maxOrNull()?.let(Duration::ofMillis),
             lastCodeAt = Instant.ofEpochMilli(codes.maxOf { it.seenAt }),

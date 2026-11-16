@@ -122,7 +122,7 @@ private fun AppList(apps: List<InstalledApp>, selected: Set<String>, query: Stri
         val visible = all.filter {
             query.isEmpty() || it.label.contains(query, ignoreCase = true) || it.packageName.contains(query, ignoreCase = true)
         }
-        val (blocked, selectable) = visible.partition { !NotificationAppPolicy.isSelectable(it.packageName) }
+        val (blocked, selectable) = visible.partition { it.telegramClient || !NotificationAppPolicy.isSelectable(it.packageName) }
         val (chosen, others) = selectable.partition { it.packageName in selected }
 
         LazyColumn(

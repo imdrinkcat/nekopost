@@ -47,6 +47,11 @@ internal data class ForwarderSettings(
     val smsEnabledAt: Instant? = null,
     /** Highest inbox `_id` already handled; null = not set yet (set on first scan, never 0). */
     val smsLastSeenId: Long? = null,
+    /**
+     * Latest inbox `date` already handled (epoch ms). The provider reuses the
+     * `_id` of deleted rows, so the reconciler also scans rows newer than this.
+     */
+    val smsLastSeenDate: Long? = null,
     val notificationsEnabled: Boolean = false,
     val notificationApps: Set<String> = emptySet(),
     val notificationRules: Map<String, NotificationRule> = emptyMap(),
@@ -55,6 +60,10 @@ internal data class ForwarderSettings(
     val lastFailure: FailureEvent? = null,
     val smsBacklog: SmsBacklog? = null,
     val smsSenderRules: List<SmsSenderRule> = emptyList(),
+    /** Queue-wide Retry-After / backoff (epoch ms): nothing is uploaded before it, new items included. */
+    val retryNotBefore: Long? = null,
+    /** Last BOOT_COMPLETED or MY_PACKAGE_REPLACED (epoch ms): SMS before it could not reach the receiver. */
+    val lastRestartAt: Long? = null,
 )
 
 /** DataStore-backed settings (file `nekopost_forwarder.preferences_pb`). */
@@ -73,6 +82,7 @@ internal class ForwarderPrefs(private val store: DataStore<Preferences>) {
         it[ENROLLED_AT] = enrollment.enrolledAt.toEpochMilli()
         it.remove(PAUSED)
         it.remove(BACKLOG_COUNT)
+        it.remove(RETRY_NOT_BEFORE)
         it.clearFailure()
         it.setSmsStart(smsStartId, now)
     }
@@ -97,14 +107,26 @@ internal class ForwarderPrefs(private val store: DataStore<Preferences>) {
     }
 
     /** Sets the reconciler start point only if none is set yet. */
-    suspend fun initSmsStartIfUnset(smsStartId: Long) = store.edit {
-        if (it[SMS_LAST_SEEN_ID] == null) it[SMS_LAST_SEEN_ID] = smsStartId
+    suspend fun initSmsStartIfUnset(smsStartId: Long, now: Instant) = store.edit {
+        if (it[SMS_LAST_SEEN_ID] == null) {
+            it[SMS_LAST_SEEN_ID] = smsStartId
+            it[SMS_LAST_SEEN_DATE] = now.toEpochMilli()
+        }
     }
 
-    suspend fun setSmsLastSeenId(id: Long) = store.edit {
+    /** Moves the reconciler position forward (never back). */
+    suspend fun setSmsLastSeen(id: Long, date: Long?) = store.edit {
         val old = it[SMS_LAST_SEEN_ID]
         if (old == null || id > old) it[SMS_LAST_SEEN_ID] = id
+        val oldDate = it[SMS_LAST_SEEN_DATE]
+        if (date != null && (oldDate == null || date > oldDate)) it[SMS_LAST_SEEN_DATE] = date
     }
+
+    suspend fun setRetryNotBefore(at: Long?) = store.edit {
+        if (at == null) it.remove(RETRY_NOT_BEFORE) else it[RETRY_NOT_BEFORE] = at
+    }
+
+    suspend fun recordRestart(at: Instant) = store.edit { it[LAST_RESTART] = at.toEpochMilli() }
 
     suspend fun setNotificationsEnabled(enabled: Boolean) = store.edit { it[NOTIF_ENABLED] = enabled }
 
@@ -148,7 +170,13 @@ internal class ForwarderPrefs(private val store: DataStore<Preferences>) {
 
     private fun MutablePreferences.setSmsStart(smsStartId: Long?, now: Instant) {
         this[SMS_ENABLED_AT] = now.toEpochMilli()
-        if (smsStartId == null) remove(SMS_LAST_SEEN_ID) else this[SMS_LAST_SEEN_ID] = smsStartId
+        if (smsStartId == null) {
+            remove(SMS_LAST_SEEN_ID)
+            remove(SMS_LAST_SEEN_DATE)
+        } else {
+            this[SMS_LAST_SEEN_ID] = smsStartId
+            this[SMS_LAST_SEEN_DATE] = now.toEpochMilli()
+        }
     }
 
     private fun MutablePreferences.clearFailure() {
@@ -194,6 +222,7 @@ internal class ForwarderPrefs(private val store: DataStore<Preferences>) {
             smsEnabled = this[SMS_ENABLED] ?: false,
             smsEnabledAt = this[SMS_ENABLED_AT]?.let(Instant::ofEpochMilli),
             smsLastSeenId = this[SMS_LAST_SEEN_ID],
+            smsLastSeenDate = this[SMS_LAST_SEEN_DATE],
             notificationsEnabled = this[NOTIF_ENABLED] ?: false,
             notificationApps = this[NOTIF_APPS] ?: emptySet(),
             notificationRules = decodeRules(this[NOTIF_RULES]),
@@ -202,6 +231,8 @@ internal class ForwarderPrefs(private val store: DataStore<Preferences>) {
             lastFailure = failure,
             smsBacklog = backlog,
             smsSenderRules = SmsSenderRules.decode(this[SMS_RULES].orEmpty()),
+            retryNotBefore = this[RETRY_NOT_BEFORE],
+            lastRestartAt = this[LAST_RESTART],
         )
     }
 
@@ -215,6 +246,9 @@ internal class ForwarderPrefs(private val store: DataStore<Preferences>) {
         private val SMS_ENABLED = booleanPreferencesKey("sms_enabled")
         private val SMS_ENABLED_AT = longPreferencesKey("sms_enabled_at")
         private val SMS_LAST_SEEN_ID = longPreferencesKey("sms_last_seen_id")
+        private val SMS_LAST_SEEN_DATE = longPreferencesKey("sms_last_seen_date")
+        private val RETRY_NOT_BEFORE = longPreferencesKey("retry_not_before")
+        private val LAST_RESTART = longPreferencesKey("last_restart")
         private val NOTIF_ENABLED = booleanPreferencesKey("notif_enabled")
         private val NOTIF_APPS = stringSetPreferencesKey("notif_apps")
         private val NOTIF_RULES = stringPreferencesKey("notif_rules")
