@@ -79,6 +79,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.drinkcat.nekopost.lock.LocalAppLock
 import com.drinkcat.nekopost.R
 import com.drinkcat.nekopost.core.ui.component.EmptyState
 import com.drinkcat.nekopost.core.ui.component.NekoIcons
@@ -483,7 +484,7 @@ fun MessageRow(
     onCopyCode: () -> Unit,
     onToggleRead: () -> Unit,
 ) {
-    var menu by rememberSaveable(message.id) { mutableStateOf(false) }
+    var menu by rememberSaveable(message.id, LocalAppLock.current.epoch) { mutableStateOf(false) }
     val unread = !message.read
     val readLabel = stringResource(if (unread) R.string.inbox_mark_read else R.string.inbox_mark_unread)
     val copyLabel = stringResource(R.string.inbox_copy_code)

@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.drinkcat.nekopost.lock.LocalAppLock
 import com.drinkcat.nekopost.R
 import com.drinkcat.nekopost.core.ui.theme.NekoTextStyles
 import com.drinkcat.nekopost.core.ui.theme.NekopostTheme
@@ -214,7 +215,7 @@ fun <T> ValueRow(
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    var open by rememberSaveable { mutableStateOf(false) }
+    var open by rememberSaveable(LocalAppLock.current.epoch) { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier

@@ -200,7 +200,7 @@ private fun DevicesPage(ui: AdminUi, device: ThisDeviceUi?, actions: AdminAction
 
 @Composable
 private fun DeviceRow(d: AdminDevice, self: Boolean, busy: Boolean, onTest: () -> Unit, onRevoke: () -> Unit) {
-    var menu by rememberSaveable(d.id) { mutableStateOf(false) }
+    var menu by rememberSaveable(d.id, LocalAppLock.current.epoch) { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -407,7 +407,7 @@ private fun SourcesPage(ui: AdminUi, actions: AdminActions, onBack: () -> Unit) 
 
 @Composable
 private fun SourceRow(s: AdminSource, busy: Boolean, onToggle: () -> Unit, onRotate: () -> Unit, onDelete: () -> Unit) {
-    var menu by rememberSaveable(s.id) { mutableStateOf(false) }
+    var menu by rememberSaveable(s.id, LocalAppLock.current.epoch) { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = NekoTokens.Spacing.l, end = NekoTokens.Spacing.xs),

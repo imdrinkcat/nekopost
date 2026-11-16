@@ -20,6 +20,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import com.drinkcat.nekopost.lock.LocalAppLock
 import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.core.ui.fold.HingeAwareSplit
 import com.drinkcat.nekopost.core.ui.fold.SplitAxis
@@ -44,7 +45,8 @@ fun InboxScreen(
 ) {
     val searchFocus = remember { FocusRequester() }
     var searchFocused by remember { mutableStateOf(false) }
-    var menuOpen by remember { mutableStateOf(false) }
+    // Popups are separate windows: close them whenever the app locks.
+    var menuOpen by remember(LocalAppLock.current.epoch) { mutableStateOf(false) }
     val rows = state.visibleRows
 
     // ① 展开即达 and notification taps: the open message is scrolled into view.

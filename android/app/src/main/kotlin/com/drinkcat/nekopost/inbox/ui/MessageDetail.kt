@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.drinkcat.nekopost.lock.LocalAppLock
 import com.drinkcat.nekopost.R
 import com.drinkcat.nekopost.core.ui.component.NekoIcons
 import com.drinkcat.nekopost.core.ui.component.StatusPill
@@ -164,7 +165,7 @@ fun MessageDetailPane(
 
 @Composable
 private fun DetailTopBar(message: InboxMessage, mode: PaneMode, tools: Boolean, actions: InboxActions) {
-    var menu by rememberSaveable(message.id) { mutableStateOf(false) }
+    var menu by rememberSaveable(message.id, LocalAppLock.current.epoch) { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
