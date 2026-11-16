@@ -11,11 +11,12 @@ const messages = (process.env.NEKOPOST_TEST_MESSAGES || "").split(",").filter(Bo
 // Every page is checked for horizontal overflow; with NEKOPOST_SCREENSHOTS set
 // it is also captured full-page in the light and dark theme for review.
 async function capture(page, label, name) {
+  const shoot = shots && shooting && !label.endsWith("-360");
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     assert.equal(fits, true, `${label} ${name} (${colorScheme}) scrolls horizontally`);
-    if (shots && shooting) {
+    if (shoot) {
       await page.screenshot({ path: path.join(shots, `${label}-${name}-${colorScheme}.png`), fullPage: true, animations: "disabled" });
     }
   }
@@ -28,7 +29,7 @@ async function tab(page, label, link, heading, name) {
   await capture(page, label, name);
 }
 
-async function run(browser, viewport, label, full) {
+async function run(browser, viewport, label, full, sweep = false) {
   shooting = full;
   const context = await browser.newContext({ viewport, ignoreHTTPSErrors: true, deviceScaleFactor: 1 });
   const issues = [];
@@ -120,6 +121,16 @@ async function run(browser, viewport, label, full) {
   await tab(page, label, "安全", "安全", "50-security");
   await tab(page, label, "设置", "设置", "51-settings");
 
+  if (sweep) {
+    // A small phone: every page must still fit without horizontal scrolling.
+    await page.setViewportSize({ width: 360, height: 780 });
+    const tabs = ["", "?tab=filtered", "?tab=status", "?tab=stats", "?tab=sources", "?tab=devices", "?tab=keys", "?tab=security", "?tab=settings"];
+    for (const target of [...tabs.map(t => "/panel" + t), ...messages.map(id => "/panel/message/" + id)]) {
+      await page.goto(url + target);
+      await capture(page, label + "-360", target);
+    }
+  }
+
   await page.getByRole("button", { name: "退出", exact: true }).click();
   await page.getByRole("link", { name: "使用 Google 登录" }).waitFor();
   assert.deepEqual(issues, []);
@@ -131,11 +142,10 @@ async function run(browser, viewport, label, full) {
   if (shots) fs.mkdirSync(shots, { recursive: true });
   const browser = await chromium.launch({ headless: true });
   try {
-    // Galaxy Z Fold8 cover screen, inner screen, desktop; then a small phone.
+    // Galaxy Z Fold8 cover screen, inner screen and desktop.
     await run(browser, { width: 412, height: 915 }, "0412", true);
     await run(browser, { width: 960, height: 720 }, "0960", true);
-    await run(browser, { width: 1440, height: 900 }, "1440", true);
-    await run(browser, { width: 360, height: 780 }, "0360", false);
+    await run(browser, { width: 1440, height: 900 }, "1440", true, true);
   } finally {
     await browser.close();
   }

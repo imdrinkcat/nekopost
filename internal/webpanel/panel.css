@@ -355,6 +355,9 @@ button:disabled { opacity: .55; cursor: progress; box-shadow: none; }
   scroll-padding-inline: var(--gutter);
 }
 .nav-scroll::-webkit-scrollbar { display: none; }
+@media (max-width: 839px) {
+  .nav-scroll { mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 24px), transparent 100%); }
+}
 .nav-group { display: none; }
 .nav a {
   display: inline-flex; align-items: center; gap: 8px; flex: none;
@@ -470,6 +473,7 @@ a.row:active { background: var(--surface-highest); }
 .item-stat { color: var(--on-surface-variant); font-size: .9375rem; }
 .item-stat strong { color: var(--on-surface); font-size: 1.0625rem; }
 .item.empty { padding: 32px 16px; }
+.card.item > * { margin: 0; }
 
 /* ---------- Forms ---------- */
 .form {
