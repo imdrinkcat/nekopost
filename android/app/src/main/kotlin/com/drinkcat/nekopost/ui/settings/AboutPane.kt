@@ -63,19 +63,14 @@ fun AboutPane(state: ShellUiState, memory: ShellMemory, onCopy: (String) -> Unit
         )
         Text("Nekopost · " + stringResource(R.string.brand_name), style = MaterialTheme.typography.titleLarge)
         Text(state.appVersion, style = NekoTextStyles.mono, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Release builds without developer options show nothing at all (no countdown, no hint).
         val remaining = DEBUG_PANEL_TAPS - taps
-        when {
-            memory.debugUnlocked -> Unit
-            taps >= DEBUG_PANEL_TAPS && !state.debugPanelAvailable -> Text(
-                stringResource(R.string.about_debug_unavailable),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            taps >= 3 -> Text(
+        if (state.debugPanelAvailable && !memory.debugUnlocked && taps >= 3 && remaining > 0) {
+            Text(
                 stringResource(R.string.about_taps_remaining, remaining),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
         }
     }

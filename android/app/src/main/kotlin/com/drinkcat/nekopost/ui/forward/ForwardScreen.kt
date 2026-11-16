@@ -142,7 +142,6 @@ fun ForwardScreen(
                 ScrollColumn {
                     if (f.enrollment != null) TestCard(state.testSend, actions, large = false)
                     OtpCard(state.otp)
-                    f.enrollment?.let { EnrollmentCard(it) }
                 }
             },
         )

@@ -56,6 +56,8 @@ data class SetupSnapshot(
     val acknowledged: Set<SetupStep> = emptySet(),
     /** The last SMS permission request was refused without a rationale: most likely blocked as a restricted setting. */
     val smsBlocked: Boolean = false,
+    /** The finish step's app-lock line: true = on, false = needs a screen lock first, null = none. */
+    val appLock: Boolean? = null,
 )
 
 /** Steps that must be done for forwarding to work reliably. */
@@ -157,4 +159,6 @@ data class SetupActions(
     val onRequestBatteryExemption: () -> Unit = {},
     val onOpenBatterySettings: () -> Unit = {},
     val onOpenDisplaySettings: () -> Unit = {},
+    /** 接收消息：配对此手机 (the identity choice on the enroll step). */
+    val onPairDevice: () -> Unit = {},
 )

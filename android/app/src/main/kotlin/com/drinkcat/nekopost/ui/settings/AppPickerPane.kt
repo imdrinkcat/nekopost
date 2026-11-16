@@ -41,6 +41,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.drinkcat.nekopost.R
+import com.drinkcat.nekopost.core.ui.theme.StatusTone
+import com.drinkcat.nekopost.ui.common.NoticeCard
 import com.drinkcat.nekopost.core.forwarder.NotificationAppPolicy
 import com.drinkcat.nekopost.core.ui.theme.NekoTextStyles
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
@@ -67,26 +69,15 @@ fun AppPickerPane(state: ShellUiState, actions: ShellActions, memory: ShellMemor
             Modifier.padding(horizontal = NekoTokens.Spacing.l),
             verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.s),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .toggleable(
-                        value = f.notificationsEnabled,
-                        role = Role.Switch,
-                        onValueChange = actions.onNotificationsEnabledChange,
-                    ),
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.apps_master), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(R.string.apps_master_detail, selected.size),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = f.notificationsEnabled, onCheckedChange = null)
+            // The on/off switch lives on 转发; here only a reminder when it is off.
+            if (!f.notificationsEnabled) {
+                NoticeCard(
+                    text = stringResource(R.string.apps_forwarding_off),
+                    tone = StatusTone.Warning,
+                    action = stringResource(R.string.apps_forwarding_turn_on),
+                    onAction = { actions.onNotificationsEnabledChange(true) },
+                    actionTag = "apps_turn_on",
+                )
             }
             OutlinedTextField(
                 value = memory.appQuery,

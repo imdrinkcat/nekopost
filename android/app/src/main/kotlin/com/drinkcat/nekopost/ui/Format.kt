@@ -23,6 +23,31 @@ private val DateTimeFormat = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm")
 private val DayFormat = DateTimeFormatter.ofPattern("M月d日")
 private val FullFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+private val LongFormat = DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm")
+
+/** Conversation-list time: "09:41" today, "昨天", then "11月3日". */
+@Composable
+@ReadOnlyComposable
+fun formatListTime(instant: Instant): String {
+    val zone = LocalDisplayZone.current
+    val day = instant.atZone(zone).toLocalDate()
+    val today = LocalNow.current().atZone(zone).toLocalDate()
+    return when (ChronoUnit.DAYS.between(day, today)) {
+        0L -> TimeFormat.format(instant.atZone(zone))
+        1L -> stringResource(R.string.time_yesterday)
+        else -> DayFormat.format(day)
+    }
+}
+
+/** "2026年11月16日 09:41" (message detail). */
+@Composable
+@ReadOnlyComposable
+fun formatLongDateTime(instant: Instant): String = LongFormat.format(instant.atZone(LocalDisplayZone.current))
+
+/** "11月16日" (body deletion date). */
+@Composable
+@ReadOnlyComposable
+fun formatDate(instant: Instant): String = DayFormat.format(instant.atZone(LocalDisplayZone.current))
 
 @Composable
 @ReadOnlyComposable

@@ -8,6 +8,7 @@ import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,10 +24,9 @@ import com.drinkcat.nekopost.core.forwarder.ForwarderController
 import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.system.SystemIntents
 import com.drinkcat.nekopost.system.rememberObscuredTouchGuard
-import com.drinkcat.nekopost.system.startFirst
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.drinkcat.nekopost.inbox.PairingInput
+import com.drinkcat.nekopost.system.LocalExternalLauncher
+import com.drinkcat.nekopost.system.ScanTarget
 import kotlinx.coroutines.launch
 
 /**
@@ -52,9 +52,13 @@ fun SetupRoute(
     onRefreshChecks: () -> Unit,
     onFinish: () -> Unit,
     onClose: () -> Unit,
+    onPairDevice: (link: String?) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // Scanner, permission dialogs and settings pages go through the launcher:
+    // the app lock ignores them, and the scan result waits at process level.
+    val launcher = LocalExternalLauncher.current
     var enroll by remember { mutableStateOf<EnrollUiState>(EnrollUiState.Idle) }
     var fromClipboard by rememberSaveable { mutableStateOf(false) }
     // POST_NOTIFICATIONS refused for good ("don't ask again"): the request returns at once, so open the settings.
@@ -80,10 +84,23 @@ fun SetupRoute(
     }
 
     fun submit(raw: String, clipboard: Boolean) {
+        // A receiving-device link (CONTRACT §2.1) belongs to device pairing, not here.
+        if (PairingInput.isDeviceLink(raw)) {
+            enroll = EnrollUiState.Idle
+            onPairDevice(raw.trim())
+            return
+        }
         fromClipboard = clipboard
         enroll = when (val r = EnrollmentLink.parse(raw, allowInsecureLocalhost)) {
             is EnrollmentParseResult.Valid -> EnrollUiState.Confirm(r.link)
             is EnrollmentParseResult.Invalid -> EnrollUiState.Invalid(r.error)
+        }
+    }
+
+    LaunchedEffect(launcher) {
+        launcher.scans.collect {
+            val result = launcher.consume(ScanTarget.Enroll) ?: return@collect
+            if (result.unavailable) enroll = EnrollUiState.ScannerUnavailable else submit(result.raw.orEmpty(), clipboard = false)
         }
     }
 
@@ -92,15 +109,8 @@ fun SetupRoute(
         onClose = onClose,
         onFinish = onFinish,
         onAcknowledge = onAcknowledge,
-        onScanQr = {
-            val options = GmsBarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                .enableAutoZoom()
-                .build()
-            GmsBarcodeScanning.getClient(context, options).startScan()
-                .addOnSuccessListener { barcode -> submit(barcode.rawValue.orEmpty(), clipboard = false) }
-                .addOnFailureListener { enroll = EnrollUiState.ScannerUnavailable }
-        },
+        onScanQr = { launcher.scanQr(context, ScanTarget.Enroll) },
+        onPairDevice = { onPairDevice(null) },
         onSubmitLink = { submit(it, clipboard = false) },
         onPasteFromClipboard = {
             val cm = context.getSystemService(ClipboardManager::class.java)
@@ -130,30 +140,31 @@ fun SetupRoute(
             }
         },
         onCancelEnroll = { enroll = EnrollUiState.Idle },
-        onOpenAppDetails = { context.startFirst(SystemIntents.appDetails(context)) },
+        onOpenAppDetails = { launcher.startSettings(context, SystemIntents.appDetails(context)) },
         onRequestSms = guard {
-            smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
+            launcher.launch(smsLauncher, arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
         },
         onOpenNotificationAccess = {
-            context.startFirst(SystemIntents.notificationAccess(context), SystemIntents.notificationAccessFallback())
+            launcher.startSettings(context, SystemIntents.notificationAccess(context), SystemIntents.notificationAccessFallback())
         },
         onRequestPostNotifications = guard {
             if (android.os.Build.VERSION.SDK_INT >= 33 && !postBlocked) {
-                postLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                launcher.launch(postLauncher, Manifest.permission.POST_NOTIFICATIONS)
             } else {
-                context.startFirst(SystemIntents.appNotificationSettings(context), SystemIntents.appDetails(context))
+                launcher.startSettings(context, SystemIntents.appNotificationSettings(context), SystemIntents.appDetails(context))
             }
         },
         onRequestBatteryExemption = guard {
-            context.startFirst(
+            launcher.startSettings(
+                context,
                 SystemIntents.requestIgnoreBatteryOptimizations(context),
                 SystemIntents.batteryOptimizationList(),
             )
         },
         onOpenBatterySettings = {
-            context.startFirst(SystemIntents.batteryOptimizationList(), SystemIntents.appDetails(context))
+            launcher.startSettings(context, SystemIntents.batteryOptimizationList(), SystemIntents.appDetails(context))
         },
-        onOpenDisplaySettings = { context.startFirst(SystemIntents.displaySettings()) },
+        onOpenDisplaySettings = { launcher.startSettings(context, SystemIntents.displaySettings()) },
     )
 
     SetupWizard(

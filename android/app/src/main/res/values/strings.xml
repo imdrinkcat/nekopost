@@ -101,14 +101,11 @@
 
     <!-- Settings -->
     <string name="settings_title">设置</string>
-    <string name="settings_server">服务器与来源</string>
     <string name="settings_server_none">尚未配对</string>
     <string name="settings_apps">通知转发应用</string>
     <string name="settings_security">应用锁</string>
-    <string name="settings_security_detail">生物识别解锁将在后续版本提供。</string>
     <string name="settings_unenroll">解除配对</string>
-    <string name="settings_unenroll_detail">删除本机保存的凭证、发送队列和转发记录，转发立即停止，无法撤销。</string>
     <string name="settings_about">关于</string>
-    <string name="settings_about_detail">Nekopost %1$s · 自托管消息网关的安卓客户端</string>
-    <string name="nav_inbox">收件箱</string>
+    <string name="settings_about_detail">Nekopost %1$s</string>
+    <string name="nav_inbox">消息</string>
 </resources>

@@ -146,10 +146,9 @@ class ScreenshotMatrixTest(private val case: Case) {
                     ShellMemory(settingsItem = SettingsItem.About, debugUnlocked = true)
                 }
             },
-            Screen("settings_unenroll") { Shell(enrolled, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.Unenroll) } },
             Screen("unenroll_sheet", devices = listOf(Fold8.Cover)) {
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                    UnenrollSheetContent(FakeForwarderData.enrollment, pending = 1, onConfirm = {}, onCancel = {})
+                    UnenrollSheetContent(FakeForwarderData.enrollment, device = null, pending = 1, onConfirm = {}, onCancel = {})
                 }
             },
             Screen("setup_welcome") { Wizard(Samples.snapshot(), SetupStep.Welcome, it) },

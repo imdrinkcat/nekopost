@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,12 +41,17 @@ import com.drinkcat.nekopost.system.FoldDebugInfo
 import com.drinkcat.nekopost.system.InstalledApp
 import com.drinkcat.nekopost.ui.forward.ForwardScreen
 import com.drinkcat.nekopost.ui.log.LogScreen
+import com.drinkcat.nekopost.ui.settings.AdminUi
+import com.drinkcat.nekopost.ui.settings.LockSettingsUi
+import com.drinkcat.nekopost.ui.settings.NotifySettingsUi
+import com.drinkcat.nekopost.ui.settings.SettingsActions
 import com.drinkcat.nekopost.ui.settings.SettingsScreen
+import com.drinkcat.nekopost.ui.settings.ThisDeviceUi
 
-/** Top-level destinations. */
+/** Top-level destinations, in navigation order (消息 first: it is the everyday screen). */
 enum class Destination(@param:StringRes val label: Int, val icon: ImageVector) {
+    Inbox(R.string.nav_inbox, Icons.Filled.Email),
     Forward(R.string.nav_forward, Icons.AutoMirrored.Filled.Send),
-    Inbox(R.string.nav_inbox, Icons.AutoMirrored.Filled.List),
     Log(R.string.nav_log, Icons.AutoMirrored.Filled.List),
     Settings(R.string.nav_settings, Icons.Filled.Settings),
 }
@@ -102,6 +110,14 @@ data class ShellUiState(
     /** The foldable debug panel may be unlocked (debug build or developer options on). */
     val debugPanelAvailable: Boolean = false,
     val foldDebug: FoldDebugInfo? = null,
+    /** Unread messages: the badge on 消息. */
+    val inboxUnread: Int = 0,
+    /** This phone as a receiving device; null when not paired. */
+    val device: ThisDeviceUi? = null,
+    val lock: LockSettingsUi = LockSettingsUi(),
+    val notify: NotifySettingsUi = NotifySettingsUi(),
+    /** 设备与管理 (admin devices only). */
+    val admin: AdminUi? = null,
 )
 
 /** UI events. Defaults are no-ops so previews and tests can omit them. */
@@ -119,6 +135,7 @@ data class ShellActions(
     val onClearFailed: () -> Unit = {},
     val onUnenroll: () -> Unit = {},
     val onCopy: (String) -> Unit = {},
+    val settings: SettingsActions = SettingsActions(),
 )
 
 /** Stateless adaptive shell: navigation suite + the selected screen. */
@@ -141,7 +158,15 @@ fun NekopostShell(
                     NavigationSuiteItem(
                         selected = d == destination,
                         onClick = { onDestinationChange(d) },
-                        icon = { Icon(imageVector = d.icon, contentDescription = null) },
+                        icon = {
+                            if (d == Destination.Inbox && state.inboxUnread > 0) {
+                                BadgedBox(badge = { Badge { Text(if (state.inboxUnread > 99) "99+" else state.inboxUnread.toString()) } }) {
+                                    Icon(imageVector = d.icon, contentDescription = null)
+                                }
+                            } else {
+                                Icon(imageVector = d.icon, contentDescription = null)
+                            }
+                        },
                         label = { Text(stringResource(d.label)) },
                         navigationSuiteType = navType,
                     )

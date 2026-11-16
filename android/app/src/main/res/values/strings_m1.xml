@@ -93,13 +93,8 @@
     <string name="settings_sms_rules_count">%1$d 条规则</string>
     <string name="settings_setup">设置向导</string>
     <string name="settings_setup_done">所有检查都已通过</string>
-    <string name="settings_setup_body">重新检查权限、电池和封面屏设置，或者再做一次验证码自测。</string>
-    <string name="settings_setup_open">打开设置向导</string>
-    <string name="settings_security_body">生物识别应用锁会在后续版本加入。转发记录只包含发件人和状态，不含消息内容。</string>
     <string name="settings_server_note">来源凭证加密保存在本机，界面上不会显示。</string>
     <string name="settings_unenroll_summary">删除本机凭证、队列和记录</string>
-    <string name="apps_master">转发通知</string>
-    <string name="apps_master_detail">已选择 %1$d 个应用。默认一个都不转发。</string>
     <string name="apps_search">搜索应用名称或包名</string>
     <string name="apps_section_selected">已选择（%1$d）</string>
     <string name="apps_section_others">其他应用</string>
@@ -124,7 +119,6 @@
     <string name="rules_try_label">输入一个发件人</string>
     <string name="rules_try_hit">命中第 %1$d 条规则（%2$s）</string>
     <string name="rules_try_default">没有命中规则，按默认转发</string>
-    <string name="unenroll_open">解除配对…</string>
     <string name="unenroll_sheet_title">解除与「%1$s」的配对？</string>
     <string name="unenroll_consequence_token">删除本机保存的来源凭证，这台手机立即停止转发。</string>
     <string name="unenroll_consequence_queue">队列中还有 %1$d 条消息没有送出，会和转发记录一起被删除。</string>
@@ -134,8 +128,7 @@
     <string name="unenroll_hold">按住 1.5 秒解除配对</string>
     <string name="about_cat_label">摸摸猫</string>
     <string name="about_taps_remaining">再点 %1$d 次</string>
-    <string name="about_debug_unavailable">折叠屏调试面板只在调试版本或开启开发者选项后可用。</string>
-    <string name="about_body">猫邮局是一个自托管的消息网关。这台手机把收到的短信和选定应用的通知转发到你自己的服务器，再由服务器投递到 Telegram 等渠道。</string>
+    <string name="about_body">猫邮局是一个自托管的消息网关。这台手机把收到的短信和选定应用的通知转发到你自己的服务器，服务器再投递到 Telegram，或直接推送到配对的手机。</string>
     <string name="about_privacy">应用不含任何统计、广告或崩溃上报 SDK，只和你配对的服务器通信。</string>
     <string name="debug_title">折叠屏调试</string>
     <string name="debug_window_px">窗口（px）</string>
@@ -182,8 +175,8 @@
     <string name="setup_enroll_summary">在服务器上运行 nekopost source add --qr，然后扫描终端里显示的二维码。</string>
     <string name="setup_identity_forward">仅转发</string>
     <string name="setup_identity_forward_detail">把这台手机登记为消息来源，转发短信和通知。</string>
-    <string name="setup_identity_device">完整设备</string>
-    <string name="setup_identity_device_detail">在手机上收消息、审批登录。后续版本提供。</string>
+    <string name="setup_identity_device">接收消息：配对此手机</string>
+    <string name="setup_identity_device_detail">用管理员给的配对二维码、链接或配对码，在这台手机上直接收消息。</string>
     <string name="setup_enroll_scan">扫描二维码</string>
     <string name="setup_enroll_scan_hint">扫码由 Google Play 服务完成，猫邮局不需要相机权限。</string>
     <string name="setup_enroll_paste_label">或粘贴配对链接</string>

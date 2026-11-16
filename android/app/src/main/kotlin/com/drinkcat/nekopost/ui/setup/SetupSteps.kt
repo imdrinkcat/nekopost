@@ -136,7 +136,7 @@ private fun EnrollStep(snapshot: SetupSnapshot, enroll: EnrollUiState, actions: 
         return
     }
 
-    IdentityChoice()
+    IdentityChoice(actions.onPairDevice)
 
     when (enroll) {
         is EnrollUiState.Confirm -> ConfirmLinkCard(enroll.link, busy = false, failure = null, actions = actions)
@@ -146,9 +146,12 @@ private fun EnrollStep(snapshot: SetupSnapshot, enroll: EnrollUiState, actions: 
     }
 }
 
-/** "仅转发" is the only identity in M1; full devices come with pairing later. */
+/**
+ * 转发 (this step: scan the source QR) or 接收消息 (pair this phone as a
+ * receiving device: leaves the wizard for the pairing screen).
+ */
 @Composable
-private fun IdentityChoice() {
+private fun IdentityChoice(onPairDevice: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.s)) {
         IdentityOption(
             title = stringResource(R.string.setup_identity_forward),
@@ -160,20 +163,29 @@ private fun IdentityChoice() {
             title = stringResource(R.string.setup_identity_device),
             detail = stringResource(R.string.setup_identity_device_detail),
             selected = false,
-            enabled = false,
+            enabled = true,
+            onClick = onPairDevice,
+            modifier = Modifier.testTag("setup_pair_device"),
         )
     }
 }
 
 @Composable
-private fun IdentityOption(title: String, detail: String, selected: Boolean, enabled: Boolean) {
+private fun IdentityOption(
+    title: String,
+    detail: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     Surface(
         shape = MaterialTheme.shapes.medium,
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = {}),
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick),
     ) {
         Row(Modifier.padding(NekoTokens.Spacing.m), verticalAlignment = Alignment.CenterVertically) {
             RadioButton(selected = selected, onClick = null, enabled = enabled)
@@ -502,6 +514,15 @@ private fun FinishStep(snapshot: SetupSnapshot, actions: SetupActions, showStamp
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
+                snapshot.appLock?.let { on ->
+                    Text(
+                        stringResource(if (on) R.string.setup_finish_lock_on else R.string.setup_finish_lock_insecure),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag("setup_finish_lock"),
+                    )
+                }
             }
         }
     }
