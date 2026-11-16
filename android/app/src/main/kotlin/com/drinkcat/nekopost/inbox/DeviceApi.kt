@@ -46,6 +46,19 @@ internal data class PairingInput(val server: HttpUrl, val code: String) {
             })
         }
 
+        /**
+         * Pasted or typed text (CONTRACT §2.1): the full `nekopost://enroll?…kind=device`
+         * link (from the Telegram bot, the web panel or the CLI), or the short code
+         * `XXXX-XXXX-XX` / long code with [server] typed or prefilled.
+         */
+        fun parse(text: String, server: String): PairingInput {
+            val trimmed = text.trim()
+            return if (trimmed.startsWith("nekopost:", ignoreCase = true)) scanned(trimmed) else manual(server, trimmed)
+        }
+
+        /** True for a device pairing link (the wizard routes it to device pairing). */
+        fun isDeviceLink(text: String): Boolean = runCatching { scanned(text.trim()) }.isSuccess
+
         fun scanned(value: String): PairingInput {
             require(value.length <= 2048)
             val uri = Uri.parse(value)

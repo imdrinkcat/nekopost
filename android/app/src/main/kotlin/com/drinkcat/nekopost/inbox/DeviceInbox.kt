@@ -3,91 +3,100 @@ package com.drinkcat.nekopost.inbox
 import android.content.Context
 import android.os.Build
 import com.drinkcat.nekopost.BuildConfig
+import com.drinkcat.nekopost.R
 import com.drinkcat.nekopost.forwarder.upload.ForwarderDeviceAuth
-import okhttp3.HttpUrl
+import com.drinkcat.nekopost.inbox.notify.InboxNotifier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.security.Signature
 import java.time.Duration
 import java.time.Instant
+import java.util.Collections
 
-internal data class InboxMessage(
-    val id: String,
-    val seq: Long,
-    val title: String,
-    val preview: String,
-    val source: String,
-    val category: String,
-    val status: String,
-    val received: String,
-    val expiry: String?,
-    val hasCode: Boolean,
-    val read: Boolean,
-    val body: String?,
-    val otp: String?,
-) {
-    companion object {
-        fun parse(json: JSONObject, clock: Instant = Instant.now()): InboxMessage {
-            val id = json.getString("id")
-            require(messagePattern.matches(id))
-            val source = json.optJSONObject("source")
-            val expiry = json.optString("body_expires_at").takeIf { !json.isNull("body_expires_at") && it.isNotBlank() }
-            val live = expiry?.let { runCatching { Instant.parse(it).isAfter(clock) }.getOrDefault(false) } == true
-            return InboxMessage(
-                id, json.optLong("seq"), if (live) json.optString("title") else "", if (live) json.optString("preview") else "",
-                source?.optString("name")?.takeIf(String::isNotBlank) ?: source?.optString("id").orEmpty(),
-                json.optString("category_text"), json.optString("status_text"), json.optString("received_at"),
-                expiry, json.optBoolean("has_code"), json.optBoolean("read"),
-                if (live && json.has("body")) json.optString("body") else null,
-                if (live) json.optJSONObject("otp")?.optString("code") else null,
-            )
-        }
-    }
-}
+/** What `GET /v1/devices/self` says about this phone. */
+internal data class DeviceSelf(
+    val name: String,
+    val pushState: String,
+    /** null = Telegram receives every type; otherwise the types it receives (empty = none). */
+    val telegramTypes: List<String>?,
+    val pushEnabled: Boolean,
+)
 
 internal data class InboxState(
+    /** null until the vault was read. */
+    val paired: Boolean? = null,
     val server: String? = null,
+    val serverUrl: String? = null,
+    val deviceId: String? = null,
     val canRead: Boolean = false,
     val canAdmin: Boolean = false,
     val canSend: Boolean = false,
     val rows: List<InboxMessage> = emptyList(),
+    val hasMore: Boolean = false,
+    val unreadCount: Int? = null,
+    /** Non-null while the rows are server search results for this query. */
+    val searchQuery: String? = null,
     val detail: InboxMessage? = null,
+    val detailLoading: Boolean = false,
+    /** Nothing to show yet. */
+    val loading: Boolean = false,
+    val refreshing: Boolean = false,
+    val loadingMore: Boolean = false,
+    /** The server could not be reached; [rows] come from the encrypted cache saved at this time. */
+    val offlineSince: Instant? = null,
+    val error: String? = null,
+    val revoked: Boolean = false,
+    val self: DeviceSelf? = null,
     val pairingNumber: String? = null,
     val pairing: Boolean = false,
-    val busy: Boolean = false,
-    val error: String? = null,
 )
 
+/**
+ * The receiving side of this phone: device session (DPoP), inbox list and
+ * detail, read state, push fetches and admin calls. Every operation runs
+ * through one [SerialQueue]: user actions wait for a push fetch instead of
+ * being dropped, and a refresh is coalesced. The app lock never clears the
+ * rows (only unpairing or revocation does); the content is hidden by the
+ * lock overlay instead.
+ */
 internal class DeviceInbox private constructor(
     private val appContext: Context,
     private val keys: DeviceKeys,
     private val vault: DeviceVault,
     private val api: DeviceApi,
-    private val serial: Mutex,
+    private val queue: SerialQueue,
 ) {
-    constructor(context: Context) : this(context.applicationContext, DeviceKeys(), DeviceVault(context.applicationContext), Mutex())
-    private constructor(context: Context, keys: DeviceKeys, vault: DeviceVault, serial: Mutex) :
-        this(context, keys, vault, DeviceApi(keys), serial)
+    constructor(context: Context) : this(context.applicationContext, DeviceKeys(), DeviceVault(context.applicationContext), SerialQueue())
+    private constructor(context: Context, keys: DeviceKeys, vault: DeviceVault, queue: SerialQueue) :
+        this(context, keys, vault, DeviceApi(keys), queue)
 
-    fun newWindow() = DeviceInbox(appContext, keys, vault, api, serial)
+    /** A second view on the same session (the adjacent window) with its own list and detail state. */
+    fun newWindow() = DeviceInbox(appContext, keys, vault, api, queue)
+
     private val mutable = MutableStateFlow(InboxState())
     val state: StateFlow<InboxState> = mutable.asStateFlow()
     val updates = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
+    @Volatile
+    private var cursor: Map<String, String>? = null
+    private val pendingReads = Collections.synchronizedSet(mutableSetOf<String>())
+
     private fun session(): DeviceSession? = vault.read("session")?.let(DeviceSession::decode)
+
+    private fun text(id: Int) = appContext.getString(id)
 
     fun signForwarder(server: HttpUrl, source: String, target: String, at: Instant, nonce: String?): ForwarderDeviceAuth.Proof? {
         val s = session() ?: return null
@@ -96,68 +105,73 @@ internal class DeviceInbox private constructor(
         return ForwarderDeviceAuth.Proof(s.token, keys.proof("POST", target, s.token, at.epochSecond, nonce))
     }
 
+    /** Whether a session is stored, without decrypting it (Application.onCreate). */
+    fun hasStoredSession(): Boolean = runCatching { vault.contains("session") }.getOrDefault(false)
+
     suspend fun paired(): Boolean = withContext(Dispatchers.IO) { runCatching { session() != null }.getOrDefault(false) }
 
     suspend fun canReceive(): Boolean = withContext(Dispatchers.IO) {
         runCatching { session()?.scopes?.contains("msg:read") == true }.getOrDefault(false)
     }
 
-    private fun initial(s: DeviceSession) = InboxState(
+    private fun identity(s: DeviceSession, from: InboxState) = from.copy(
+        paired = true,
         server = s.server.host,
+        serverUrl = s.server.toString(),
+        deviceId = s.deviceID,
         canRead = "msg:read" in s.scopes,
         canAdmin = "admin:read" in s.scopes,
         canSend = "msg:send" in s.scopes,
+        revoked = false,
     )
 
-    suspend fun load() = onlyWhenIdle {
-        val session = session() ?: return@onlyWhenIdle
-        mutable.value = initial(session)
-        if (!mutable.value.canRead) return@onlyWhenIdle
-        val cache = vault.read("list")?.let(::JSONObject)
-        pruneDetails()
-        if (cache != null) {
-            val at = Instant.ofEpochMilli(cache.optLong("at"))
-            if (Duration.between(at, Instant.now()) <= Duration.ofHours(72)) {
-                mutable.value = mutable.value.copy(rows = rows(cache.optJSONArray("items")))
-            } else {
-                vault.remove("list")
-            }
+    /** Reads the session and the cached list, then refreshes from the server. */
+    suspend fun load() = withContext(Dispatchers.IO) {
+        val s = try {
+            session()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
         }
-        refreshLocked(session)
+        if (s == null) {
+            mutable.update { InboxState(paired = false, error = it.error, revoked = it.revoked) }
+            return@withContext
+        }
+        mutable.update { identity(s, it) }
+        if (!mutable.value.canRead) return@withContext
+        if (mutable.value.rows.isEmpty()) {
+            val cache = runCatching { vault.read("list")?.let(::JSONObject) }.getOrNull()
+            if (cache != null) {
+                val at = Instant.ofEpochMilli(cache.optLong("at"))
+                if (Duration.between(at, Instant.now()) <= Duration.ofHours(72)) {
+                    val rows = rows(cache.optJSONArray("items"))
+                    mutable.update { it.copy(rows = rows, offlineSince = at) }
+                } else {
+                    vault.remove("list")
+                }
+            }
+            mutable.update { it.copy(loading = it.rows.isEmpty()) }
+        }
+        refresh()
     }
 
-    suspend fun pair(input: PairingInput, name: String) = onlyWhenIdle {
-        if (session() != null) return@onlyWhenIdle
-        mutable.value = InboxState(pairing = true, busy = true)
-        keys.init()
-        val claim = api.call(input.server, "POST", listOf("v1", "pairing", "claim"),
-            JSONObject().put("code", input.code).put("jwk", keys.jwk()).put("reauth_jwk", keys.jwk(true))
-                .put("device", JSONObject().put("name", name.trim().take(64))
-                    .put("model", Build.MODEL.orEmpty().take(64)).put("app_version", BuildConfig.VERSION_NAME))
-        ).json
-        val id = claim.getString("pairing_id")
-        require(pairPattern.matches(id))
-        val digits = claim.getString("short_code")
-        require(Regex("[0-9]{2}").matches(digits))
-        mutable.value = mutable.value.copy(pairingNumber = digits)
-        repeat(145) {
-            val reply = api.call(input.server, "POST", listOf("v1", "pairing", id, "token"), JSONObject(), proof = true)
-            if (reply.status == 200) {
-                val scopes = reply.json.optJSONArray("scopes") ?: JSONArray()
-                val linked = DeviceSession(input.server, reply.json.getString("device_id"),
-                    reply.json.getString("token"), reply.json.optString("source_id"),
-                    (0 until scopes.length()).map { scopes.getString(it) }.toSet())
-                vault.write("session", linked.encode())
-                mutable.value = initial(linked)
-                if (mutable.value.canRead) refreshLocked(linked)
-                return@onlyWhenIdle
-            }
-            delay(2000)
+    /** Pull-to-refresh and live updates; re-runs the search while one is shown. */
+    suspend fun refresh() {
+        val query = mutable.value.searchQuery
+        if (query != null) {
+            search(query)
+            return
         }
-        error("配对确认已过期")
+        withContext(Dispatchers.IO) {
+            queue.coalesce("refresh") {
+                val s = session() ?: return@coalesce
+                mutable.update { it.copy(refreshing = true) }
+                attempt { refreshLocked(s) }
+                mutable.update { it.copy(refreshing = false, loading = false) }
+            }
+        }
     }
-
-    suspend fun refresh() = onlyWhenIdle { session()?.let { refreshLocked(it) } }
 
     private suspend fun refreshLocked(s: DeviceSession) {
         val reply = api.call(s.server, "GET", listOf("v1", "inbox"), token = s.token).json
@@ -168,23 +182,91 @@ internal class DeviceInbox private constructor(
             if (row.optString("body_state") != "stored") vault.remove("body:" + row.optString("id"))
         }
         pruneDetails()
-        mutable.value = mutable.value.copy(server = s.server.host, rows = rows(received), error = null)
+        cursor = cursorOf(reply)
+        val rows = rows(received)
+        mutable.update {
+            it.copy(
+                server = s.server.host,
+                rows = rows,
+                hasMore = cursor != null,
+                unreadCount = if (reply.has("unread_count")) reply.optInt("unread_count") else rows.count { r -> !r.read },
+                searchQuery = null,
+                offlineSince = null,
+                error = null,
+            )
+        }
+        InboxNotifier.reconcile(appContext, rows)
     }
 
-    suspend fun search(text: String) = onlyWhenIdle {
-        val s = session() ?: return@onlyWhenIdle
+    private fun cursorOf(reply: JSONObject): Map<String, String>? {
+        val next = reply.optJSONObject("next_cursor") ?: return null
+        val id = next.optString("before_id").takeIf(messagePattern::matches) ?: return null
+        return mapOf("before" to next.optLong("before").toString(), "before_id" to id)
+    }
+
+    /** Infinite scroll: the next page of the list (not for search results). */
+    suspend fun loadMore() = withContext(Dispatchers.IO) {
+        if (cursor == null || mutable.value.searchQuery != null) return@withContext
+        queue.coalesce("more") {
+            val page = cursor ?: return@coalesce
+            val s = session() ?: return@coalesce
+            mutable.update { it.copy(loadingMore = true) }
+            attempt {
+                val reply = api.call(s.server, "GET", listOf("v1", "inbox"), token = s.token, query = page).json
+                val more = rows(reply.optJSONArray("items"))
+                cursor = cursorOf(reply)
+                mutable.update { state ->
+                    val known = state.rows.mapTo(HashSet()) { it.id }
+                    state.copy(rows = state.rows + more.filter { it.id !in known }, hasMore = cursor != null)
+                }
+            }
+            mutable.update { it.copy(loadingMore = false) }
+        }
+    }
+
+    /** Server search (bounded by a 300 ms budget on the server); a blank query returns to the list. */
+    suspend fun search(text: String) = withContext(Dispatchers.IO) {
         val query = text.trim().take(200)
-        if (query.isEmpty()) { refreshLocked(s); return@onlyWhenIdle }
-        val result = api.call(s.server, "POST", listOf("v1", "inbox", "search"),
-            JSONObject().put("q", query), s.token).json
-        mutable.value = mutable.value.copy(rows = rows(result.optJSONArray("items")), detail = null)
+        if (query.isEmpty()) {
+            mutable.update { it.copy(searchQuery = null) }
+            refresh()
+            return@withContext
+        }
+        queue.run {
+            val s = session() ?: return@run
+            mutable.update { it.copy(refreshing = true) }
+            attempt {
+                val result = api.call(s.server, "POST", listOf("v1", "inbox", "search"), JSONObject().put("q", query), s.token).json
+                mutable.update { it.copy(rows = rows(result.optJSONArray("items")), searchQuery = query, hasMore = false, error = null) }
+            }
+            mutable.update { it.copy(refreshing = false) }
+        }
     }
 
-    suspend fun detail(id: String) = onlyWhenIdle {
+    /** Opens a message: the row is shown at once, the body follows from the server (or the cache when offline). */
+    suspend fun open(id: String) = withContext(Dispatchers.IO) {
         require(messagePattern.matches(id))
-        val s = session() ?: return@onlyWhenIdle
+        val row = mutable.value.rows.firstOrNull { it.id == id }
+        mutable.update {
+            val keep = it.detail?.takeIf { d -> d.id == id }
+            it.copy(detail = keep ?: row, detailLoading = true)
+        }
+        queue.run {
+            attempt {
+                val item = fetchDetail(id)
+                mutable.update { state ->
+                    if (state.detail?.id != id && state.detail != null) state
+                    else state.copy(detail = item, rows = state.rows.map { r -> if (r.id == id) r.copy(read = item.read) else r })
+                }
+            }
+        }
+        mutable.update { it.copy(detailLoading = false) }
+    }
+
+    private suspend fun fetchDetail(id: String): InboxMessage {
+        val s = session() ?: error("not paired")
         val key = "body:$id"
-        val item = try {
+        return try {
             val raw = api.call(s.server, "GET", listOf("v1", "inbox", id), token = s.token).json
             saveDetail(raw)
             InboxMessage.parse(raw)
@@ -192,18 +274,43 @@ internal class DeviceInbox private constructor(
             if (e.status == 404 || e.status == 403) vault.remove(key)
             throw e
         } catch (e: IOException) {
-            val offline = vault.read(key)?.let(::JSONObject) ?: throw e
-            if (!cacheLive(offline)) { vault.remove(key); throw e }
-            InboxMessage.parse(offline.getJSONObject("item"))
+            cachedDetail(id) ?: throw e
         }
-        mutable.value = mutable.value.copy(detail = item)
+    }
+
+    /** The cached detail (no network): the notification's 复制验证码 action reads this. */
+    fun cachedDetail(id: String): InboxMessage? {
+        if (!messagePattern.matches(id)) return null
+        val key = "body:$id"
+        val offline = runCatching { vault.read(key)?.let(::JSONObject) }.getOrNull() ?: return null
+        if (!cacheLive(offline)) {
+            vault.remove(key)
+            return null
+        }
+        return runCatching { InboxMessage.parse(offline.getJSONObject("item")) }.getOrNull()
+    }
+
+    /** The verification code of a message, for 复制验证码 on a row: detail, cache, then the server. */
+    suspend fun codeFor(id: String): String? = withContext(Dispatchers.IO) {
+        mutable.value.detail?.takeIf { it.id == id }?.otp?.let { return@withContext it }
+        cachedDetail(id)?.otp?.let { return@withContext it }
+        queue.run {
+            try {
+                fetchDetail(id).otp
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     private fun cacheLive(record: JSONObject): Boolean {
         val now = Instant.now()
         val at = Instant.ofEpochMilli(record.optLong("at"))
         val item = record.optJSONObject("item") ?: return false
-        return at <= now && Duration.between(at, now) <= Duration.ofHours(72) && InboxMessage.parse(item, now).body != null
+        return at <= now && Duration.between(at, now) <= Duration.ofHours(72) &&
+            runCatching { InboxMessage.parse(item, now).body != null }.getOrDefault(false)
     }
 
     private fun pruneDetails() {
@@ -225,36 +332,113 @@ internal class DeviceInbox private constructor(
     }
 
     fun hideDetail() {
-        mutable.value = mutable.value.copy(detail = null)
+        mutable.update { it.copy(detail = null, detailLoading = false) }
     }
 
-    fun hideContent() {
-        mutable.value = mutable.value.copy(rows = emptyList(), detail = null)
-    }
-
-    suspend fun markRead(id: String, read: Boolean) = onlyWhenIdle {
+    /**
+     * Marks a message read or unread. Optimistic; the request waits for the
+     * queue (never dropped) and a repeat of the same request is coalesced.
+     * Reading clears its notification.
+     */
+    suspend fun setRead(id: String, read: Boolean) = withContext(Dispatchers.IO) {
         require(messagePattern.matches(id))
-        val s = session() ?: return@onlyWhenIdle
-        api.call(s.server, "PATCH", listOf("v1", "inbox", id), JSONObject().put("read", read), s.token)
-        if (read) androidx.core.app.NotificationManagerCompat.from(appContext).cancel(id, 1)
-        mutable.value = mutable.value.copy(
-            rows = mutable.value.rows.map { if (it.id == id) it.copy(read = read) else it },
-            detail = mutable.value.detail?.takeIf { it.id == id }?.copy(read = read),
+        val key = "$id:$read"
+        if (!pendingReads.add(key)) return@withContext
+        try {
+            applyRead(id, read)
+            if (read) InboxNotifier.cancel(appContext, id)
+            queue.run {
+                val s = session() ?: return@run
+                try {
+                    api.call(s.server, "PATCH", listOf("v1", "inbox", id), JSONObject().put("read", read), s.token)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    applyRead(id, !read)
+                    mutable.update { it.copy(error = failureText(e)) }
+                }
+            }
+        } finally {
+            pendingReads.remove(key)
+        }
+    }
+
+    private fun applyRead(id: String, read: Boolean) = mutable.update { state ->
+        val before = state.rows.firstOrNull { it.id == id }
+        val delta = when {
+            before == null || before.read == read -> 0
+            read -> -1
+            else -> 1
+        }
+        state.copy(
+            rows = state.rows.map { if (it.id == id) it.copy(read = read) else it },
+            detail = state.detail?.let { if (it.id == id) it.copy(read = read) else it },
+            unreadCount = state.unreadCount?.let { (it + delta).coerceAtLeast(0) },
         )
     }
 
-    suspend fun unpair() = onlyWhenIdle {
-        val s = session() ?: return@onlyWhenIdle
-        api.call(s.server, "DELETE", listOf("v1", "devices", "self"), token = s.token)
-        clear()
+    /** A message was read on another device (FCM t:"read"): reflect it if loaded. */
+    fun readElsewhere(ids: Collection<String>) {
+        ids.forEach { id -> if (mutable.value.rows.any { it.id == id && !it.read }) applyRead(id, true) }
+    }
+
+    suspend fun pair(input: PairingInput, name: String) = withContext(Dispatchers.IO) {
+        queue.run {
+            if (session() != null) return@run
+            mutable.value = InboxState(paired = false, pairing = true)
+            try {
+                attempt {
+                    keys.init()
+                    val claim = api.call(input.server, "POST", listOf("v1", "pairing", "claim"),
+                        JSONObject().put("code", input.code).put("jwk", keys.jwk()).put("reauth_jwk", keys.jwk(true))
+                            .put("device", JSONObject().put("name", name.trim().take(64))
+                                .put("model", Build.MODEL.orEmpty().take(64)).put("app_version", BuildConfig.VERSION_NAME)),
+                    ).json
+                    val id = claim.getString("pairing_id")
+                    require(pairPattern.matches(id))
+                    val digits = claim.getString("short_code")
+                    require(Regex("[0-9]{2}").matches(digits))
+                    mutable.update { it.copy(pairingNumber = digits) }
+                    repeat(145) {
+                        val reply = api.call(input.server, "POST", listOf("v1", "pairing", id, "token"), JSONObject(), proof = true)
+                        if (reply.status == 200) {
+                            val scopes = reply.json.optJSONArray("scopes") ?: JSONArray()
+                            val linked = DeviceSession(input.server, reply.json.getString("device_id"),
+                                reply.json.getString("token"), reply.json.optString("source_id"),
+                                (0 until scopes.length()).map { scopes.getString(it) }.toSet())
+                            vault.write("session", linked.encode())
+                            mutable.value = identity(linked, InboxState(loading = "msg:read" in linked.scopes))
+                            if (mutable.value.canRead) refreshLocked(linked)
+                            return@attempt
+                        }
+                        delay(2000)
+                    }
+                    mutable.update { it.copy(error = text(R.string.pair_error_expired)) }
+                }
+            } finally {
+                mutable.update { it.copy(pairing = false, pairingNumber = null, loading = false) }
+            }
+        }
+    }
+
+    suspend fun unpair(): Boolean = withContext(Dispatchers.IO) {
+        queue.run {
+            val s = session() ?: return@run true
+            var done = false
+            attempt {
+                api.call(s.server, "DELETE", listOf("v1", "devices", "self"), token = s.token)
+                clear()
+                done = true
+            }
+            done
+        }
     }
 
     suspend fun registerPush(token: String): Boolean = withContext(Dispatchers.IO) {
-        serial.withLock {
-            val s = session() ?: return@withLock true
+        queue.run {
+            val s = session() ?: return@run true
             try {
-                api.call(s.server, "PUT", listOf("v1", "devices", "self", "push"),
-                    JSONObject().put("token", token), s.token)
+                api.call(s.server, "PUT", listOf("v1", "devices", "self", "push"), JSONObject().put("token", token), s.token)
                 true
             } catch (e: ApiFailure) {
                 if (e.code == "device_revoked") clear()
@@ -263,21 +447,45 @@ internal class DeviceInbox private constructor(
         }
     }
 
+    /**
+     * The push fetch: one request that also acknowledges the push and is audited
+     * as `message.push_fetch` (server 0.10). Returns null when the device is
+     * revoked or the message is gone.
+     */
     suspend fun messageForPush(id: String): InboxMessage? = withContext(Dispatchers.IO) {
-        serial.withLock {
-            require(messagePattern.matches(id))
-            val s = session() ?: return@withLock null
+        require(messagePattern.matches(id))
+        queue.run {
+            val s = session() ?: return@run null
             try {
-                val msg = api.call(s.server, "GET", listOf("v1", "inbox", id), token = s.token).json
+                val msg = api.call(s.server, "GET", listOf("v1", "inbox", id), token = s.token,
+                    query = mapOf("via" to "push", "ack" to "1")).json
                 saveDetail(msg)
                 pruneDetails()
-                api.call(s.server, "POST", listOf("v1", "devices", "self", "acks"),
-                    JSONObject().put("ids", JSONArray().put(id)), s.token)
                 InboxMessage.parse(msg)
             } catch (e: ApiFailure) {
                 if (e.code == "device_revoked") clear()
                 null
             }
+        }
+    }
+
+    suspend fun loadSelf() = withContext(Dispatchers.IO) {
+        val s = runCatching { session() }.getOrNull() ?: return@withContext
+        try {
+            val json = queue.run { api.call(s.server, "GET", listOf("v1", "devices", "self"), token = s.token).json }
+            val types = if (json.isNull("telegram_types") || !json.has("telegram_types")) null else {
+                val arr = json.optJSONArray("telegram_types") ?: JSONArray()
+                (0 until arr.length()).map { arr.optString(it) }
+            }
+            mutable.update {
+                it.copy(self = DeviceSelf(json.optString("name"), json.optString("push_state"), types, json.optBoolean("push_enabled")))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiFailure) {
+            if (e.code == "device_revoked") clear()
+        } catch (_: Exception) {
+            // Shown as unknown.
         }
     }
 
@@ -296,7 +504,7 @@ internal class DeviceInbox private constructor(
                 if (e.status == 401) {
                     verifySelf()
                 } else if (e.status == 403) {
-                    hideContent()
+                    mutable.update { it.copy(error = text(R.string.inbox_error_locked_down)) }
                 }
             } catch (_: Exception) {
                 // Reconnect after transient network loss.
@@ -306,8 +514,8 @@ internal class DeviceInbox private constructor(
     }
 
     suspend fun verifySelf(): Boolean = withContext(Dispatchers.IO) {
-        serial.withLock {
-            val s = session() ?: return@withLock false
+        queue.run {
+            val s = session() ?: return@run false
             try {
                 api.call(s.server, "GET", listOf("v1", "devices", "self"), token = s.token)
                 true
@@ -334,12 +542,12 @@ internal class DeviceInbox private constructor(
         data: JSONObject? = null,
         authenticate: (suspend (Signature) -> Signature?)? = null,
     ): JSONObject {
-        val current = withContext(Dispatchers.IO) { session() } ?: error("设备未配对")
+        val current = withContext(Dispatchers.IO) { session() } ?: error(text(R.string.inbox_error_not_paired))
         if (authenticate != null) {
             val challenge = api.call(current.server, "POST", listOf("v1", "devices", "self", "reauth", "challenge"),
                 JSONObject(), current.token).json.getString("challenge")
             val signer = withContext(Dispatchers.IO) { keys.biometricSignature() }
-            val approved = authenticate(signer) ?: error("未完成指纹验证")
+            val approved = authenticate(signer) ?: throw AuthCancelled()
             val signed = withContext(Dispatchers.IO) {
                 approved.update("nekopost/reauth/v1|${current.deviceID}|$challenge".toByteArray())
                 approved.sign().url64()
@@ -347,7 +555,7 @@ internal class DeviceInbox private constructor(
             api.call(current.server, "POST", listOf("v1", "devices", "self", "reauth"),
                 JSONObject().put("challenge", challenge).put("sig", signed), current.token)
         }
-        return serial.withLock {
+        return queue.run {
             val latest = withContext(Dispatchers.IO) { session() }
             check(latest?.deviceID == current.deviceID)
             api.call(current.server, method, path, data, current.token).json
@@ -357,32 +565,48 @@ internal class DeviceInbox private constructor(
     private fun clear() {
         vault.clear()
         keys.clear()
-        mutable.value = InboxState()
+        cursor = null
+        InboxNotifier.cancelAll(appContext)
+        mutable.value = InboxState(paired = false)
     }
 
-    private suspend fun onlyWhenIdle(work: suspend () -> Unit) = withContext(Dispatchers.IO) {
-        if (!serial.tryLock()) return@withContext
+    /** Runs [block], turning failures into [InboxState.error] (or the offline banner). */
+    private suspend fun attempt(block: suspend () -> Unit) {
         try {
-            mutable.value = mutable.value.copy(busy = true, error = null)
-            work()
+            block()
         } catch (e: CancellationException) {
             throw e
+        } catch (e: IOException) {
+            mutable.update {
+                if (it.rows.isNotEmpty() && it.searchQuery == null) it.copy(offlineSince = it.offlineSince ?: Instant.now(), error = null)
+                else it.copy(error = text(R.string.inbox_error_offline))
+            }
         } catch (e: ApiFailure) {
-            if (e.code == "device_revoked") clear()
-            mutable.value = mutable.value.copy(error = when (e.code) {
-                "device_revoked" -> "此设备已被吊销，请重新配对。"
-                "pairing_contested" -> "配对码已发生争用，请重新生成。"
-                "locked_down" -> "设备读取已被暂停。"
-                "pairing_not_found", "pairing_gone" -> "配对码无效或已过期。"
-                else -> e.message
-            })
-        } catch (_: Exception) {
-            mutable.value = mutable.value.copy(error = "操作未完成，请检查网络、设备安全设置或配对码。")
-        } finally {
-            mutable.value = mutable.value.copy(busy = false, pairing = false, pairingNumber = null)
-            serial.unlock()
+            if (e.code == "device_revoked") {
+                clear()
+                mutable.update { it.copy(revoked = true) }
+            }
+            mutable.update { it.copy(error = failureText(e)) }
+        } catch (e: Exception) {
+            mutable.update { it.copy(error = failureText(e)) }
         }
     }
 
-    private fun rows(arr: JSONArray?) = List(arr?.length() ?: 0) { i -> InboxMessage.parse(arr!!.getJSONObject(i)) }
+    fun failureText(e: Exception): String = when {
+        e is ApiFailure -> when (e.code) {
+            "device_revoked" -> text(R.string.inbox_error_revoked)
+            "pairing_contested" -> text(R.string.pair_error_contested)
+            "locked_down" -> text(R.string.inbox_error_locked_down)
+            "pairing_not_found", "pairing_gone" -> text(R.string.pair_error_invalid)
+            else -> appContext.getString(R.string.inbox_error_server, e.status)
+        }
+        e is IOException -> text(R.string.inbox_error_offline)
+        else -> text(R.string.inbox_error_generic)
+    }
+
+    private fun rows(arr: JSONArray?): List<InboxMessage> =
+        (0 until (arr?.length() ?: 0)).mapNotNull { i -> runCatching { InboxMessage.parse(arr!!.getJSONObject(i)) }.getOrNull() }
 }
+
+/** The user cancelled the biometric prompt of an admin operation: not an error. */
+internal class AuthCancelled : IllegalStateException("cancelled")

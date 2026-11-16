@@ -3,4 +3,6 @@
     <!-- Mirrors NekoTokens.Light.surface / Dark.surface. -->
     <color name="window_background">#FFFFF8F5</color>
     <color name="ic_launcher_background">#FFFDF1E6</color>
+    <!-- Mirrors NekoTokens.Light.primary: notification accent. -->
+    <color name="notification_accent">#FF9C4511</color>
 </resources>

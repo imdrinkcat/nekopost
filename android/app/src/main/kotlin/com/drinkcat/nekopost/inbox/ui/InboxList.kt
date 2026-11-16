@@ -1,0 +1,633 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+
+package com.drinkcat.nekopost.inbox.ui
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.drinkcat.nekopost.R
+import com.drinkcat.nekopost.core.ui.component.EmptyState
+import com.drinkcat.nekopost.core.ui.component.NekoIcons
+import com.drinkcat.nekopost.core.ui.theme.StatusTone
+import com.drinkcat.nekopost.core.ui.token.NekoTokens
+import com.drinkcat.nekopost.inbox.InboxMessage
+import com.drinkcat.nekopost.inbox.MessageKind
+import com.drinkcat.nekopost.inbox.notify.NotificationFormatter
+import com.drinkcat.nekopost.ui.LocalNow
+import com.drinkcat.nekopost.ui.common.NoticeCard
+import com.drinkcat.nekopost.ui.formatListTime
+import com.drinkcat.nekopost.ui.shell.PaneMode
+import java.time.Duration
+
+/**
+ * The conversation list (requirement: 像平时收消息的软件): title bar with the
+ * overflow tools, a search field, filter chips, then one row per message with
+ * the sender, a one-line preview, the time and an unread dot. Pull to refresh;
+ * more rows load while scrolling.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun InboxListPane(
+    state: InboxUiState,
+    mode: PaneMode,
+    actions: InboxActions,
+    listState: LazyListState,
+    searchFocus: FocusRequester,
+    onSearchFocused: (Boolean) -> Unit,
+    menuOpen: Boolean,
+    onMenuOpen: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val rows = state.visibleRows
+    Column(modifier.fillMaxSize().testTag("inbox_list")) {
+        InboxTopBar(state, menuOpen, onMenuOpen, actions)
+        SearchField(state, actions, searchFocus, onSearchFocused)
+        FilterRow(state, mode, actions)
+        Banners(state, actions)
+        PullToRefreshBox(
+            isRefreshing = state.refreshing,
+            onRefresh = actions.onRefresh,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        ) {
+            when {
+                state.revoked -> RevokedState(actions)
+                state.loading && rows.isEmpty() -> LoadingState()
+                rows.isEmpty() -> EmptyList(state, actions)
+                else -> LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = NekoTokens.Spacing.s, end = NekoTokens.Spacing.s, bottom = NekoTokens.Spacing.xl),
+                ) {
+                    state.envelope?.let { letter ->
+                        item(key = "envelope") { EnvelopeCard(letter, actions) }
+                    }
+                    if (state.filteringLocally) {
+                        item(key = "local") {
+                            Text(
+                                stringResource(R.string.inbox_search_local),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = NekoTokens.Spacing.m, vertical = NekoTokens.Spacing.xs),
+                            )
+                        }
+                    }
+                    items(rows, key = { it.id }) { message ->
+                        MessageRow(
+                            message = message,
+                            selected = mode != PaneMode.Single && message.id == state.selectedId,
+                            onOpen = { actions.onOpen(message.id) },
+                            onCopyCode = { actions.onCopyCode(message.id) },
+                            onToggleRead = { actions.onSetRead(message.id, !message.read) },
+                        )
+                    }
+                    if (state.loadingMore) {
+                        item(key = "more") {
+                            Box(Modifier.fillMaxWidth().padding(NekoTokens.Spacing.l), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        state.toast?.let { Toast(it) }
+    }
+    val nearEnd by remember(listState, rows.size) {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            rows.isNotEmpty() && last >= listState.layoutInfo.totalItemsCount - 4
+        }
+    }
+    LaunchedEffect(nearEnd, state.hasMore) {
+        if (nearEnd && state.hasMore && !state.loadingMore && state.searchedQuery == null) actions.onLoadMore()
+    }
+}
+
+@Composable
+private fun InboxTopBar(state: InboxUiState, menuOpen: Boolean, onMenuOpen: (Boolean) -> Unit, actions: InboxActions) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .padding(start = NekoTokens.Spacing.l, end = NekoTokens.Spacing.xs),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.inbox_title),
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.semantics { heading() },
+            )
+            if (state.unreadCount > 0) {
+                Text(
+                    stringResource(R.string.inbox_unread_count, state.unreadCount),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        if (state.tools) Box {
+            IconButton(onClick = { onMenuOpen(true) }, modifier = Modifier.testTag("inbox_overflow")) {
+                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuOpen(false) }) {
+                if (state.canSend) {
+                    MenuItem(stringResource(R.string.inbox_tool_drop_note), Icons.Filled.Edit) {
+                        onMenuOpen(false)
+                        actions.onOpenTool(InboxSubScreen.DropNote)
+                    }
+                }
+                if (state.canAdmin) {
+                    MenuItem(stringResource(R.string.inbox_tool_sorting), NekoIcons.PostBox) {
+                        onMenuOpen(false)
+                        actions.onOpenTool(InboxSubScreen.Sorting)
+                    }
+                }
+                MenuItem(stringResource(R.string.inbox_tool_watch), NekoIcons.CoverScreen) {
+                    onMenuOpen(false)
+                    actions.onOpenTool(InboxSubScreen.Watch)
+                }
+                if (state.hardwareKeyboard) {
+                    MenuItem(stringResource(R.string.inbox_tool_shortcuts), Icons.Filled.Build) {
+                        onMenuOpen(false)
+                        actions.onOpenTool(InboxSubScreen.Shortcuts)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MenuItem(text: String, icon: ImageVector, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(text) },
+        leadingIcon = { Icon(icon, contentDescription = null) },
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun SearchField(state: InboxUiState, actions: InboxActions, focus: FocusRequester, onFocused: (Boolean) -> Unit) {
+    TextField(
+        value = state.query,
+        onValueChange = { actions.onQueryChange(it.take(200)) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.xs)
+            .focusRequester(focus)
+            .onFocusChanged { onFocused(it.isFocused) }
+            .testTag("inbox_search"),
+        placeholder = { Text(stringResource(R.string.inbox_search_hint)) },
+        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+        trailingIcon = if (state.query.isNotEmpty()) {
+            {
+                IconButton(onClick = actions.onClearSearch) {
+                    Icon(Icons.Filled.Clear, contentDescription = stringResource(R.string.inbox_search_clear))
+                }
+            }
+        } else {
+            null
+        },
+        singleLine = true,
+        shape = CircleShape,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { actions.onSearch() }),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+        ),
+    )
+}
+
+@Composable
+private fun FilterRow(state: InboxUiState, mode: PaneMode, actions: InboxActions) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.s),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = NekoTokens.Spacing.l),
+    ) {
+        InboxFilter.entries.forEach { filter ->
+            FilterChip(
+                selected = state.filter == filter,
+                onClick = { actions.onFilter(filter) },
+                label = {
+                    Text(
+                        when (filter) {
+                            InboxFilter.All -> stringResource(R.string.inbox_filter_all)
+                            InboxFilter.Unread -> if (state.unreadCount > 0) {
+                                stringResource(R.string.inbox_filter_unread_n, state.unreadCount)
+                            } else {
+                                stringResource(R.string.inbox_filter_unread)
+                            }
+                            InboxFilter.Codes -> stringResource(R.string.inbox_filter_codes)
+                        },
+                    )
+                },
+                modifier = Modifier.testTag("inbox_filter_${filter.name}"),
+            )
+        }
+        // Tabletop: the fold tools sit on the lower half, next to the filters.
+        if (mode == PaneMode.TopBottom) {
+            Spacer(Modifier.width(NekoTokens.Spacing.s))
+            FilterChip(selected = false, onClick = { actions.onOpenTool(InboxSubScreen.Watch) }, label = { Text(stringResource(R.string.inbox_tool_watch)) })
+            if (state.canAdmin) {
+                FilterChip(selected = false, onClick = { actions.onOpenTool(InboxSubScreen.Sorting) }, label = { Text(stringResource(R.string.inbox_tool_sorting)) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun Banners(state: InboxUiState, actions: InboxActions) {
+    val offline = state.offlineSince
+    if (offline != null && state.rows.isNotEmpty()) {
+        val hours = Duration.between(offline, LocalNow.current()).toHours().coerceAtLeast(0)
+        NoticeCard(
+            text = if (hours < 1) {
+                stringResource(R.string.inbox_offline_recent)
+            } else {
+                stringResource(R.string.inbox_offline_hours, hours.toInt())
+            },
+            tone = StatusTone.Warning,
+            action = stringResource(R.string.action_retry),
+            onAction = actions.onRefresh,
+            modifier = Modifier.padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.xs),
+        )
+    } else if (state.error != null && state.rows.isNotEmpty() && !state.revoked) {
+        NoticeCard(
+            text = state.error,
+            tone = StatusTone.Error,
+            action = stringResource(R.string.action_retry),
+            onAction = actions.onRefresh,
+            modifier = Modifier.padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.xs),
+        )
+    }
+}
+
+@Composable
+private fun LoadingState() {
+    Column(
+        Modifier.fillMaxSize().padding(NekoTokens.Spacing.xxl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.m),
+    ) {
+        Spacer(Modifier.height(NekoTokens.Spacing.xxl))
+        CircularProgressIndicator()
+        Text(stringResource(R.string.inbox_loading), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun EmptyList(state: InboxUiState, actions: InboxActions) {
+    Column(
+        Modifier.fillMaxSize().padding(top = NekoTokens.Spacing.xl).testTag("inbox_empty"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        val searched = state.searchedQuery ?: state.query.takeIf { it.isNotBlank() }
+        when {
+            state.error != null -> {
+                NoticeCard(
+                    text = state.error,
+                    tone = StatusTone.Error,
+                    action = stringResource(R.string.action_retry),
+                    onAction = actions.onRefresh,
+                    modifier = Modifier.padding(NekoTokens.Spacing.l),
+                )
+            }
+            searched != null -> {
+                EmptyState(
+                    title = stringResource(R.string.inbox_search_none, searched),
+                    message = stringResource(
+                        if (state.searchedQuery == null) R.string.inbox_search_none_local else R.string.inbox_search_none_detail,
+                    ),
+                    showCat = false,
+                )
+                TextButton(onClick = actions.onClearSearch) { Text(stringResource(R.string.inbox_search_clear)) }
+            }
+            state.filter == InboxFilter.Unread -> EmptyState(
+                title = stringResource(R.string.inbox_empty_unread),
+                message = stringResource(R.string.inbox_empty_unread_detail),
+            )
+            state.filter == InboxFilter.Codes -> EmptyState(
+                title = stringResource(R.string.inbox_empty_codes),
+                message = stringResource(R.string.inbox_empty_codes_detail),
+                showCat = false,
+            )
+            else -> {
+                EmptyState(
+                    title = stringResource(R.string.inbox_empty_title),
+                    message = stringResource(R.string.inbox_empty_detail),
+                )
+                if (state.notificationsBlocked) {
+                    Button(
+                        onClick = actions.onEnableNotifications,
+                        modifier = Modifier.heightIn(min = NekoTokens.Touch.minTarget).testTag("inbox_enable_notifications"),
+                    ) {
+                        Icon(Icons.Filled.Notifications, contentDescription = null)
+                        Spacer(Modifier.width(NekoTokens.Spacing.s))
+                        Text(stringResource(R.string.inbox_enable_notifications))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RevokedState(actions: InboxActions) {
+    Column(
+        Modifier.fillMaxSize().padding(NekoTokens.Spacing.l),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        NoticeCard(
+            title = stringResource(R.string.inbox_revoked_title),
+            text = stringResource(R.string.inbox_revoked_detail),
+            tone = StatusTone.Error,
+            action = stringResource(R.string.inbox_pair_again),
+            onAction = actions.onRepair,
+        )
+    }
+}
+
+@Composable
+private fun Toast(text: String) {
+    Box(Modifier.fillMaxWidth().padding(NekoTokens.Spacing.m), contentAlignment = Alignment.Center) {
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.inverseSurface,
+            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+        ) {
+            Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.m))
+        }
+    }
+}
+
+/** One conversation row: avatar, sender + time, one-line preview, code chip and unread dot. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MessageRow(
+    message: InboxMessage,
+    selected: Boolean,
+    onOpen: () -> Unit,
+    onCopyCode: () -> Unit,
+    onToggleRead: () -> Unit,
+) {
+    var menu by rememberSaveable(message.id) { mutableStateOf(false) }
+    val unread = !message.read
+    val readLabel = stringResource(if (unread) R.string.inbox_mark_read else R.string.inbox_mark_unread)
+    val copyLabel = stringResource(R.string.inbox_copy_code)
+    Box {
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 1.dp)
+                .testTag("inbox_row_${message.id}"),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .combinedClickable(onClick = onOpen, onLongClick = { menu = true })
+                    .semantics {
+                        customActions = buildList {
+                            add(CustomAccessibilityAction(readLabel) { onToggleRead(); true })
+                            if (message.hasCode && !message.expired) add(CustomAccessibilityAction(copyLabel) { onCopyCode(); true })
+                        }
+                    }
+                    .heightIn(min = 72.dp)
+                    .padding(horizontal = NekoTokens.Spacing.m, vertical = NekoTokens.Spacing.s),
+            ) {
+                SourceAvatar(message, size = 48.dp)
+                Spacer(Modifier.width(NekoTokens.Spacing.m))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xxs)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            message.displaySender,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        message.receivedAt?.let {
+                            Spacer(Modifier.width(NekoTokens.Spacing.s))
+                            Text(
+                                formatListTime(it),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (unread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (message.hasCode && !message.expired) {
+                            CodeChip(onCopyCode)
+                            Spacer(Modifier.width(NekoTokens.Spacing.s))
+                        }
+                        PreviewText(message, Modifier.weight(1f))
+                        if (unread) {
+                            Spacer(Modifier.width(NekoTokens.Spacing.s))
+                            Box(
+                                Modifier
+                                    .size(10.dp)
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                    .testTag("unread_dot"),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text(readLabel) }, onClick = { menu = false; onToggleRead() })
+            if (message.hasCode && !message.expired) {
+                DropdownMenuItem(text = { Text(copyLabel) }, onClick = { menu = false; onCopyCode() })
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewText(message: InboxMessage, modifier: Modifier) {
+    if (message.expired) {
+        Text(
+            stringResource(R.string.inbox_body_expired),
+            style = MaterialTheme.typography.bodyMedium,
+            fontStyle = FontStyle.Italic,
+            color = MaterialTheme.colorScheme.outline,
+            maxLines = 1,
+            modifier = modifier,
+        )
+    } else {
+        val text = message.preview.lineSequence().map(String::trim).firstOrNull(String::isNotBlank)
+            ?: message.category.ifBlank { message.sourceName }
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = modifier,
+        )
+    }
+}
+
+/** 「验证码」 with a copy icon: one tap copies the code (fetched if needed) to the sensitive clipboard. */
+@Composable
+private fun CodeChip(onCopy: () -> Unit) {
+    Surface(
+        onClick = onCopy,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        modifier = Modifier.heightIn(min = 32.dp).testTag("code_chip"),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xs),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        ) {
+            Icon(NekoIcons.Copy, contentDescription = null, modifier = Modifier.size(16.dp))
+            Text(stringResource(R.string.inbox_code_chip), style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+/**
+ * The source's emoji icon, or the first letter on a tonal circle whose colour
+ * is stable per source; a small badge tells SMS, notification, note and script apart.
+ */
+@Composable
+fun SourceAvatar(message: InboxMessage, size: Dp) {
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val palette = if (dark) NekoTokens.Avatar.dark else NekoTokens.Avatar.light
+    val key = message.sourceId.ifBlank { message.sourceName }
+    val (container, content) = palette[NekoTokens.Avatar.index(key)]
+    val label = NotificationFormatter.avatarLabel(message.sourceIcon, message.displaySender)
+    Box(Modifier.size(size)) {
+        Surface(shape = CircleShape, color = container, contentColor = content, modifier = Modifier.size(size)) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(label, style = if (size >= 48.dp) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium)
+            }
+        }
+        val badge = when (message.kind) {
+            MessageKind.Sms -> NekoIcons.Sms
+            MessageKind.Notification -> Icons.Filled.Notifications
+            MessageKind.Note -> Icons.Filled.Edit
+            MessageKind.Script -> NekoIcons.Script
+        }
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(size * 0.42f)
+                .align(Alignment.BottomEnd)
+                .offset(x = 2.dp, y = 2.dp)
+                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(badge, contentDescription = null, modifier = Modifier.size(size * 0.26f))
+            }
+        }
+    }
+}
+
+/** Cover → inner unfold with an unread letter waiting (§10.4 ⑫): one tap opens it. */
+@Composable
+private fun EnvelopeCard(message: InboxMessage, actions: InboxActions) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        modifier = Modifier.fillMaxWidth().padding(NekoTokens.Spacing.s).testTag("inbox_envelope"),
+    ) {
+        Row(Modifier.padding(NekoTokens.Spacing.m), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.inbox_envelope_title), style = MaterialTheme.typography.labelLarge)
+                Text(message.displaySender, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            TextButton(onClick = { actions.onOpen(message.id) }) { Text(stringResource(R.string.inbox_envelope_open)) }
+            TextButton(onClick = actions.onDismissEnvelope) { Text(stringResource(R.string.action_close)) }
+        }
+    }
+}

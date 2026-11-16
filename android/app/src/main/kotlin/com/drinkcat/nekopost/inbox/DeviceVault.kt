@@ -47,6 +47,10 @@ internal class DeviceVault(private val context: Context) {
         prefs.edit().remove(key).commit()
     }
 
+    /** Whether [key] is stored, without decrypting it (cheap enough for Application.onCreate). */
+    @Synchronized
+    fun contains(key: String): Boolean = prefs.contains(key)
+
     @Synchronized
     fun detailKeys(): Set<String> = prefs.all.keys.filter { it.startsWith("body:") }.toSet()
 

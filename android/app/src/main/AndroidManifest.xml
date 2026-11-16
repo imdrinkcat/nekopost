@@ -28,6 +28,7 @@
       Security baseline (design §8.3): no backups, no cleartext, the launcher
       activity is the only exported component of our own. It ignores every
       Intent extra and data; there are no deep links (pairing is in-app only).
+      Notification taps go through the non-exported OpenMessageActivity.
     -->
     <application
         android:name=".NekopostApp"
@@ -51,6 +52,15 @@
             </intent-filter>
         </service>
         <activity android:name=".inbox.AdjacentMessageActivity" android:exported="false" />
+        <!-- Notification tap trampoline: validates the message ID and hands it to the app in-process. -->
+        <activity
+            android:name=".inbox.notify.OpenMessageActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- Notification actions (复制验证码 / 标为已读); only our own PendingIntents reach it. -->
+        <receiver android:name=".inbox.notify.InboxActionReceiver" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

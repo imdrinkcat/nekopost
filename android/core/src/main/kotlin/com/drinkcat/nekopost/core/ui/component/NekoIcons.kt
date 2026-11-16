@@ -116,6 +116,26 @@ object NekoIcons {
         }
     }
 
+    /** Two overlapping sheets: copy. */
+    val Copy: ImageVector by lazy {
+        icon("Copy") {
+            moveTo(9.5f, 8f); lineTo(18.5f, 8f); quadTo(20f, 8f, 20f, 9.5f); lineTo(20f, 19.5f); quadTo(20f, 21f, 18.5f, 21f)
+            lineTo(9.5f, 21f); quadTo(8f, 21f, 8f, 19.5f); lineTo(8f, 9.5f); quadTo(8f, 8f, 9.5f, 8f); close()
+            moveTo(16f, 5f); lineTo(16f, 4.5f); quadTo(16f, 3f, 14.5f, 3f); lineTo(5.5f, 3f); quadTo(4f, 3f, 4f, 4.5f)
+            lineTo(4f, 14.5f); quadTo(4f, 16f, 5.5f, 16f); lineTo(5f, 16f)
+        }
+    }
+
+    /** Terminal prompt: messages sent by scripts. */
+    val Script: ImageVector by lazy {
+        icon("Script") {
+            moveTo(4.5f, 4f); lineTo(19.5f, 4f); quadTo(21f, 4f, 21f, 5.5f); lineTo(21f, 18.5f); quadTo(21f, 20f, 19.5f, 20f)
+            lineTo(4.5f, 20f); quadTo(3f, 20f, 3f, 18.5f); lineTo(3f, 5.5f); quadTo(3f, 4f, 4.5f, 4f); close()
+            moveTo(7f, 9f); lineTo(10f, 12f); lineTo(7f, 15f)
+            moveTo(12.5f, 15f); lineTo(17f, 15f)
+        }
+    }
+
     private fun icon(name: String, filled: Boolean = false, block: PathBuilder.() -> Unit): ImageVector =
         ImageVector.Builder(
             name = "Neko.$name",
