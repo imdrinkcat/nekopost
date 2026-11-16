@@ -29,6 +29,7 @@ type Waker interface{ Wake() }
 
 // Server holds the dependencies of the HTTP handlers.
 type Server struct {
+	WebSessionHash func(*http.Request) string
 	TestPush       func(context.Context, string) error
 	CookieAdmin    func(http.ResponseWriter, *http.Request, bool) (string, bool)
 	SecurityNotify func(context.Context, string)

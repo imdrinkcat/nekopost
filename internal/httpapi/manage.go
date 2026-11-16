@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -44,6 +45,10 @@ func (s *Server) registerManagement(mux *http.ServeMux) {
 	high := func(h controlHandler) http.HandlerFunc { return s.control(store.ScopeAdminWrite, true, h) }
 	mux.HandleFunc("GET /v1/admin/filtered", ro(s.filteredView))
 	mux.HandleFunc("GET /v1/admin/audit", ro(s.auditView))
+	mux.HandleFunc("GET /v1/admin/sessions", ro(s.listWebSessions))
+	mux.HandleFunc("DELETE /v1/admin/sessions/{id}", high(s.revokeWebAccess("session")))
+	mux.HandleFunc("DELETE /v1/admin/trusted-browsers/{id}", high(s.revokeWebAccess("browser")))
+	mux.HandleFunc("POST /v1/admin/sessions/revoke-others", high(s.revokeWebAccess("others")))
 	mux.HandleFunc("GET /v1/admin/devices", ro(func(w http.ResponseWriter, r *http.Request, _ string) { s.listDevices(w, r, store.Device{}) }))
 	mux.HandleFunc("POST /v1/admin/devices/{id}/test-push", rw(s.testDevicePush))
 	mux.HandleFunc("DELETE /v1/admin/devices/{id}", high(s.revokeDevice))
@@ -415,4 +420,41 @@ func (s *Server) decidePairing(w http.ResponseWriter, r *http.Request, actor str
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"approved": ok})
+}
+
+var sessionHashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+func (s *Server) listWebSessions(w http.ResponseWriter, r *http.Request, actor string) {
+	sessions, browsers, err := s.Store.ListWebSessions(r.Context(), s.now())
+	if controlError(w, r, err) {
+		return
+	}
+	writeJSON(w, 200, map[string]any{"sessions": sessions, "trusted_browsers": browsers})
+}
+
+func (s *Server) revokeWebAccess(kind string) controlHandler {
+	return func(w http.ResponseWriter, r *http.Request, actor string) {
+		id := r.PathValue("id")
+		keep := ""
+		if kind != "others" && !sessionHashPattern.MatchString(id) {
+			writeError(w, r, errNotFound)
+			return
+		}
+		if kind == "others" && strings.HasPrefix(actor, "web:") {
+			if s.WebSessionHash == nil {
+				writeError(w, r, errUnauthorized)
+				return
+			}
+			keep = s.WebSessionHash(r)
+			if keep == "" {
+				writeError(w, r, errUnauthorized)
+				return
+			}
+		}
+		if controlError(w, r, s.Store.RevokeWebAccess(r.Context(), actor, kind, id, keep, s.now())) {
+			return
+		}
+		s.highAlert(r.Context(), "网页会话或可信浏览器已吊销")
+		w.WriteHeader(204)
+	}
 }

@@ -17,6 +17,7 @@ import (
 // Service gathers status information on demand. Nothing is collected in the
 // background; every query reads current data.
 type Service struct {
+	PushEnabled   bool
 	Store         *store.Store
 	Health        *health.Tracker
 	Sys           sysinfo.Collector
@@ -70,7 +71,27 @@ func (s *Service) Report(ctx context.Context) health.Report {
 			Ready: cs.Ready, Detail: cs.Detail,
 		}
 	}
-	return health.Evaluate(in)
+	report := health.Evaluate(in)
+	if !s.PushEnabled {
+		return report
+	}
+	push, err := s.Store.PushStatus(ctx)
+	component := health.Component{Key: "push", Name: "App 推送", Level: health.Unknown, Summary: "暂无可用设备注册"}
+	switch {
+	case err != nil:
+		component.Level, component.Summary = health.Degraded, "无法读取 App 推送状态"
+	case push.LastFailure.After(push.LastDelivered):
+		component.Level, component.Summary = health.Degraded, push.Error
+	case push.Registered > 0:
+		component.Level, component.Summary = health.OK, "推送已启用"
+	}
+	if push.LastDelivered.IsZero() && component.Level == health.OK {
+		component.Level = health.Unknown
+		component.Summary = "等待首次投递"
+	}
+	component.Details = []string{fmt.Sprintf("可用 %d · 过期 %d · 失效 %d", push.Registered, push.Stale, push.Invalid)}
+	report.Components = append(report.Components, component)
+	return report
 }
 
 // Range identifies a statistics period.

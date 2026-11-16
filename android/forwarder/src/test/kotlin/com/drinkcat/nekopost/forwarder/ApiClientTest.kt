@@ -98,7 +98,7 @@ class ApiClientTest {
     fun retryAfterAsHttpDate() {
         val now = Instant.parse("2026-11-16T01:20:00Z")
         respond(429, "", "Retry-After" to "Mon, 16 Nov 2026 01:21:30 GMT")
-        val outcome = ApiClient(server.url("/"), token, http) { now }.postMessage("{}", "k")
+        val outcome = ApiClient(server.url("/"), token, http, now = { now }).postMessage("{}", "k")
         assertEquals(UploadOutcome.Retry(FailureReason.RateLimited, 429, Duration.ofSeconds(90), "http_429"), outcome)
     }
 

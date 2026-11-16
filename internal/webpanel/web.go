@@ -174,7 +174,7 @@ func (p *Panel) Handler() http.Handler {
 func headers(w http.ResponseWriter) {
 	h := w.Header()
 	h.Set("Cache-Control", "no-store")
-	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; upgrade-insecure-requests")
+	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; upgrade-insecure-requests")
 	h.Set("Cross-Origin-Opener-Policy", "same-origin")
 	h.Set("Cross-Origin-Embedder-Policy", "require-corp")
 	h.Set("Cross-Origin-Resource-Policy", "same-origin")
@@ -614,4 +614,12 @@ func (p *Panel) AuthorizeAdmin(w http.ResponseWriter, r *http.Request, high bool
 		return "", false
 	}
 	return "web:" + session.Identity, true
+}
+
+func (p *Panel) SessionHash(r *http.Request) string {
+	session, err := p.session(r)
+	if err != nil || session.State != store.WebActive {
+		return ""
+	}
+	return session.Hash
 }

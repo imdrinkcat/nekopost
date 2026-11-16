@@ -155,6 +155,14 @@ async function manage(method, path, data = {}, download = false) {
       display.textContent = "导出已生成";
     } else if (result.short_code) {
       display.textContent = "手动配对码 " + result.short_code + "（5 分钟有效）";
+      if (typeof result.qr_png === "string" && /^[A-Za-z0-9+/=]{1,65536}$/.test(result.qr_png)) {
+        const image = document.createElement("img");
+        image.src = "data:image/png;base64," + result.qr_png;
+        image.alt = "设备配对二维码";
+        image.width = 220;
+        image.height = 220;
+        display.append(document.createElement("br"), image);
+      }
       if (typeof result.qr === "string" && result.qr.startsWith("nekopost://enroll?")) {
         const copy = document.createElement("button");
         copy.type = "button";
@@ -213,6 +221,14 @@ document.addEventListener("click", async event => {
   } else if (action === "revoke-key" && confirm("吊销此管理凭证？")) {
     const id = validSegment(raw ?? "", /^mga_[A-Za-z0-9_-]{6}$/);
     if (id) run = () => manage("DELETE", "/v1/admin/keys/".concat(id));
+  } else if (action === "revoke-others" && confirm("退出其他网页会话？")) {
+    run = () => manage("POST", "/v1/admin/sessions/revoke-others");
+  } else if (action === "revoke-session" && confirm("退出此网页会话？")) {
+    const id = validSegment(raw ?? "", /^[a-f0-9]{64}$/);
+    if (id) run = () => manage("DELETE", "/v1/admin/sessions/".concat(id));
+  } else if (action === "revoke-browser" && confirm("吊销可信浏览器及其网页会话？")) {
+    const id = validSegment(raw ?? "", /^[a-f0-9]{64}$/);
+    if (id) run = () => manage("DELETE", "/v1/admin/trusted-browsers/".concat(id));
   } else if (action === "retry" && message && confirm("重新投递这条消息？")) {
     run = () => manage("POST", "/v1/inbox/".concat(message, "/redeliver"));
   } else if (action === "rescue" && message && confirm("找回并转发这条消息？")) {

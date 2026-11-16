@@ -31,6 +31,7 @@ import com.google.firebase.messaging.RemoteMessage
 import java.util.concurrent.TimeUnit
 
 internal object PushRegistration {
+    @Synchronized
     fun enable(context: Context) {
         if (BuildConfig.FIREBASE_APP_ID.isBlank() || BuildConfig.FIREBASE_PROJECT_ID.isBlank() ||
             BuildConfig.FIREBASE_API_KEY.isBlank() || BuildConfig.FIREBASE_SENDER_ID.isBlank()
@@ -54,6 +55,7 @@ internal object PushRegistration {
             ExistingPeriodicWorkPolicy.KEEP, refresh)
     }
 
+    @Synchronized
     fun disable(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork("nekopost-fcm-refresh")
         if (FirebaseApp.getApps(context).isEmpty()) return
@@ -114,7 +116,8 @@ class DevicePushWorker(context: Context, params: WorkerParameters) : CoroutineWo
                 kotlinx.coroutines.suspendCancellableCoroutine<String> { continuation ->
                     FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                         if (continuation.isActive) {
-                            continuation.resumeWith(if (task.isSuccessful) kotlin.Result.success(task.result)
+                            val value = if (task.isSuccessful) task.result else null
+                            continuation.resumeWith(if (!value.isNullOrBlank()) kotlin.Result.success(value)
                                 else kotlin.Result.failure(task.exception ?: IllegalStateException()))
                         }
                     }

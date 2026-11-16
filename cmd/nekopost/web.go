@@ -76,6 +76,12 @@ func cmdWeb(st *store.Store, args []string) int {
 			return 1
 		}
 		fmt.Println("已解除该身份的网页登录限制")
+	case len(args) == 2 && args[0] == "sessions" && args[1] == "revoke-all":
+		if err := st.RevokeWebAccess(ctx, "cli", "others", "", "", time.Now()); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println("已退出所有网页会话")
 	case len(args) == 2 && args[0] == "audit" && args[1] == "verify":
 		_, valid, err := st.ReadAudit(ctx)
 		if err != nil {

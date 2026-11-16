@@ -128,6 +128,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	}
 
 	statusSvc := &status.Service{
+		PushEnabled:   fcm != nil,
 		Store:         st,
 		Health:        tracker,
 		Sys:           sysinfo.Collector{DiskPath: cfg.DataDir, CPUSample: 300 * time.Millisecond, ProcessStart: startedAt},
@@ -220,6 +221,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	api.PairNotify = b.SendPairApproval
 	api.SecurityNotify = b.NotifyWebSecurity
 	api.CookieAdmin = panel.AuthorizeAdmin
+	api.WebSessionHash = panel.SessionHash
 	api.Web = panel.Handler()
 	listener.Handler = api.Handler()
 

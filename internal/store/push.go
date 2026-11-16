@@ -103,3 +103,36 @@ func (s *Store) PushTokenForTest(ctx context.Context, id string, now time.Time) 
 	}
 	return token, err
 }
+
+// PushSkipped is the delivery error for an FCM delivery the device's own
+// settings ruled out. It is expected, so PushStatus does not count it.
+const PushSkipped = "设备已暂停、推送凭证不可用或消息类型已关闭"
+
+type PushStatus struct {
+	Registered, Stale, Invalid int
+	LastDelivered, LastFailure time.Time
+	Error                      string
+}
+
+func (s *Store) PushStatus(ctx context.Context) (PushStatus, error) {
+	var v PushStatus
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FILTER(WHERE push_state='ok'),
+		COUNT(*) FILTER(WHERE push_state='stale'), COUNT(*) FILTER(WHERE push_state='invalid')
+		FROM devices WHERE revoked_at IS NULL`).Scan(&v.Registered, &v.Stale, &v.Invalid)
+	if err != nil {
+		return v, err
+	}
+	var delivered sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, "SELECT MAX(delivered_at) FROM deliveries WHERE channel='fcm'").Scan(&delivered); err != nil {
+		return v, err
+	}
+	v.LastDelivered = fromMs(delivered)
+	var failure sql.NullInt64
+	err = s.db.QueryRowContext(ctx, `SELECT last_attempt_at,last_error FROM deliveries
+		WHERE channel='fcm' AND last_error NOT IN ('',?) ORDER BY last_attempt_at DESC LIMIT 1`, PushSkipped).Scan(&failure, &v.Error)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = nil
+	}
+	v.LastFailure = fromMs(failure)
+	return v, err
+}

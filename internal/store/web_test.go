@@ -113,3 +113,75 @@ func TestMigrateV3AndRotateAudit(t *testing.T) {
 		t.Fatal(ok, err)
 	}
 }
+
+func TestListAndRevokeWebAccess(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	const identity = "google:123"
+	login := func(pending, active, browser string, trust bool) {
+		t.Helper()
+		// One identity per login keeps clear of the three-per-hour approval limit.
+		if _, err := s.StartWebSession(ctx, WebSession{Hash: pending, Identity: identity + pending, CSRF: "test", Browser: "Chrome"},
+			WebApproval{ID: "approval-" + pending, Code: "42", Choices: []string{"21", "42", "33"}, Expires: now.Add(5 * time.Minute)}, "", now); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := s.DecideWebApproval(ctx, "approval-"+pending, "42", "cli", trust, now); !ok || err != nil {
+			t.Fatal(ok, err)
+		}
+		session, err := s.WebSession(ctx, pending, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.ActivateWebSession(ctx, session, active, "csrf", browser, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	login("p1", "a1", "b1", true)
+	login("p2", "a2", "", false)
+	login("p3", "a3", "", false)
+
+	sessions, browsers, err := s.ListWebSessions(ctx, now)
+	if err != nil || len(sessions) != 3 || len(browsers) != 1 || browsers[0].Hash != "b1" {
+		t.Fatal(sessions, browsers, err)
+	}
+	if err := s.RevokeWebAccess(ctx, "web:"+identity, "session", "missing", "", now); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	if err := s.RevokeWebAccess(ctx, "web:"+identity, "session", "a2", "", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WebSession(ctx, "a2", now); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	// Revoking a trusted browser also ends the sessions it carries.
+	if err := s.RevokeWebAccess(ctx, "web:"+identity, "browser", "b1", "", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WebSession(ctx, "a1", now); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	if err := s.RevokeWebAccess(ctx, "web:"+identity, "browser", "b1", "", now); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+
+	// From the web, "others" keeps the caller's session and trusted browsers.
+	login("p4", "a4", "b4", true)
+	if err := s.RevokeWebAccess(ctx, "web:"+identity, "others", "", "a4", now); err != nil {
+		t.Fatal(err)
+	}
+	sessions, browsers, err = s.ListWebSessions(ctx, now)
+	if err != nil || len(sessions) != 1 || sessions[0].Hash != "a4" || len(browsers) != 1 {
+		t.Fatal(sessions, browsers, err)
+	}
+	// From the CLI nothing is kept.
+	if err := s.RevokeWebAccess(ctx, "cli", "others", "", "", now); err != nil {
+		t.Fatal(err)
+	}
+	sessions, browsers, err = s.ListWebSessions(ctx, now)
+	if err != nil || len(sessions) != 0 || len(browsers) != 0 {
+		t.Fatal(sessions, browsers, err)
+	}
+	if _, valid, err := s.ReadAudit(ctx); !valid || err != nil {
+		t.Fatal(valid, err)
+	}
+}

@@ -72,7 +72,7 @@ func (f *FCM) Deliver(ctx context.Context, job store.Job, progress func(int, int
 		return Result{Outcome: RetrySafe, FailKind: health.FailOther, Err: "无法读取推送设置"}
 	}
 	if !allowed {
-		return Result{Outcome: Permanent, Err: "设备已暂停、推送凭证不可用或消息类型已关闭"}
+		return Result{Outcome: Permanent, Err: store.PushSkipped}
 	}
 	priority := "HIGH"
 	if job.Message.Priority == model.PriorityLow {

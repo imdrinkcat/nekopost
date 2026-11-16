@@ -20,6 +20,8 @@ import (
 )
 
 type pageData struct {
+	Sessions   []store.WebSessionInfo
+	Trusted    []store.TrustedBrowserInfo
 	DeviceRows []store.Device
 	KeyRows    []store.AdminKey
 
@@ -135,6 +137,9 @@ func (p *Panel) dashboard(w http.ResponseWriter, r *http.Request) {
 		data.KeyRows, err = p.Store.ListAdminKeys(ctx)
 	case "security":
 		data.Audit, data.ChainOK, err = p.Store.ReadAudit(ctx)
+		if err == nil {
+			data.Sessions, data.Trusted, err = p.Store.ListWebSessions(ctx, p.now())
+		}
 	case "settings":
 	default:
 		http.NotFound(w, r)
