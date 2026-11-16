@@ -397,10 +397,11 @@ func TestChromiumPanel(t *testing.T) {
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/v1/inbox/") {
-			// Management routes live in httpapi; the real browser check
-			// shows the panel's re-authentication prompt.
-			if _, ok := f.panel.AuthorizeAdmin(w, r, true); ok {
-				w.WriteHeader(204)
+			// Management routes live in httpapi. A fresh login counts as a
+			// recent re-authentication, so answer as httpapi does once that
+			// window has passed to exercise the panel's re-auth prompt.
+			if _, ok := f.panel.AuthorizeAdmin(w, r, false); ok {
+				reply(w, 403, map[string]string{"code": "reauth_required", "message": "请先重新认证"})
 			}
 			return
 		}
