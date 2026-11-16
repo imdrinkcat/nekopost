@@ -1,0 +1,13 @@
+# Exported components allowed in the merged manifest (checked in CI by
+# tools/check_exported_components.py). Format: <class> <permission or ->.
+# Every line needs a reason.
+
+# Our launcher activity: ignores all Intent extras and data.
+com.drinkcat.nekopost.MainActivity -
+
+# WorkManager (androidx.work): job scheduler binding, only the system can bind.
+androidx.work.impl.background.systemjob.SystemJobService android.permission.BIND_JOB_SERVICE
+# WorkManager diagnostics: requires DUMP (adb shell only).
+androidx.work.impl.diagnostics.DiagnosticsReceiver android.permission.DUMP
+# Baseline profile installer (androidx.profileinstaller): requires DUMP.
+androidx.profileinstaller.ProfileInstallReceiver android.permission.DUMP

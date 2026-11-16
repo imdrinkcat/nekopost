@@ -1,0 +1,20 @@
+# Gradle / Android build outputs
+.gradle/
+.kotlin/
+build/
+/local.properties
+/captures/
+*.iml
+.idea/
+.cxx/
+.externalNativeBuild/
+
+# Signing material: only the public, throw-away debug keystore is tracked.
+*.jks
+*.keystore
+*.p12
+!/keystore/debug.p12
+
+# Roborazzi comparison output (reference images live in app/src/test/screenshots)
+*_compare.png
+*_actual.png

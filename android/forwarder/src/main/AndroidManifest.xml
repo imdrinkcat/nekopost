@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Components (SmsReceiver, NotificationListener, BootReceiver) and permissions
+  are added here in M1. Every exported component must also be added to
+  android/config/exported-components.txt, which CI checks against the merged
+  manifest.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

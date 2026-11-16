@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon silhouette: cat head and letter outline. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FF000000" android:pathData="M35,47 L37,26 L51,38 Z" />
+    <path android:fillColor="#FF000000" android:pathData="M73,47 L71,26 L57,38 Z" />
+    <path android:fillColor="#FF000000" android:pathData="M33,53 a21,19 0,1 0,42 0 a21,19 0,1 0,-42 0 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2.2"
+        android:pathData="M40,62 L68,62 L68,80 L40,80 Z" />
+</vector>

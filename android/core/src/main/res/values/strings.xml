@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Forwarded item status (local outbox), see ForwardStatus. -->
+    <string name="neko_status_queued">排队中</string>
+    <string name="neko_status_sending">正在发送</string>
+    <string name="neko_status_retrying">等待重试</string>
+    <string name="neko_status_accepted">服务器已接收</string>
+    <string name="neko_status_duplicate">服务器已有，未重复转发</string>
+    <string name="neko_status_failed">发送失败</string>
+    <string name="neko_status_paused">已暂停</string>
+    <string name="neko_status_skipped">按规则跳过</string>
+</resources>

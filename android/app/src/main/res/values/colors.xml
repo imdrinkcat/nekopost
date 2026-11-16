@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors NekoTokens.Light.surface / Dark.surface. -->
+    <color name="window_background">#FFFFF8F5</color>
+    <color name="ic_launcher_background">#FFFDF1E6</color>
+</resources>
