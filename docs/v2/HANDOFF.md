@@ -8,7 +8,7 @@
 ## 当前状态（2026-11-16 15:00 UTC 更新）
 
 - **代码**：`v2` 分支 `f0b58c2`，`VERSION` 0.9.0，工作区干净。M3（网页面板）、M4（网页管理 + 设备后端：DPoP、配对、`/v1/inbox*`、`/v1/sync`）、M5 服务端（FCM 通道、`push` 组件）和 App 端收件箱、配对、折叠屏交互的代码都已提交。`ci`、`web-checks`、`android` 三个 CI 全绿。
-- **生产**：仍是 **0.7.0**（13:35:30 UTC 启动，数据库 v4）。0.8.0／0.9.0 **没有上线**。回滚备份 `/root/nekopost-backup-before-0.7.0-20261116T133124Z-vG5QiM`。
+- **生产**：**0.9.0**，2026-11-16 15:02:39 UTC 上线，数据库 v5。过程和回滚见 [`upgrade-0.9.0.md`](upgrade-0.9.0.md)，回滚备份 `/root/nekopost-backup-before-0.9.0-20261116T150226Z`。下一次重启或升级仍要单独问用户。
 - **用户侧未完成**：Firebase 项目与 4 个仓库变量、FCM 服务账号凭证（`nekopost-fcm-sa`）、Android 正式签名密钥（仓库 secrets），三者都还没有（`gh variable list`、`gh secret list` 为空）。没有它们，App 只能手动刷新／前台事件流，也出不了正式 APK。
 - **15:00 的复查修复**：BiometricPrompt 缺 `USE_BIOMETRIC` 权限（真机会抛异常，lint 报错）；`ApiClientTest` 把时钟传成了 `sourceId`；「App 推送」健康项把设备自己关掉的消息类型算成故障。网页会话管理补了 store 与 HTTP 测试。
 
@@ -111,7 +111,7 @@
 ## 5. 下一步
 
 **当前顺序（覆盖下面的旧清单）**：
-1. 0.7.0 → 0.9.0 升级：在生产库副本上演练 v5 及之后的迁移，写 `docs/v2/upgrade-0.9.0.md`，把停机时间和回滚方法给用户，**得到同意后**再升级。
+1. ~~0.7.0 → 0.9.0 升级~~ 已完成。
 2. 等用户配好 Firebase、FCM 服务账号和正式签名密钥后，打 `app-v*` tag 出正式 APK，按 `docs/android.md` 和 `docs/foldables.md` 在 Fold8 上验收。
 3. M7 加固（design §13）。
 
