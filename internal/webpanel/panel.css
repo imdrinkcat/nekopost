@@ -127,7 +127,7 @@ img { max-width: 100%; height: auto; }
   border-radius: var(--r-item);
 }
 .brand .logo { width: 36px; height: 36px; }
-.brand-name { font-size: 1.25rem; font-weight: 700; line-height: 1; }
+.brand-name { font-size: 1.25rem; font-weight: 700; line-height: 1; white-space: nowrap; }
 .brand-sub {
   font: 500 .75rem/1 var(--mono);
   color: var(--on-surface-variant);
@@ -184,7 +184,15 @@ button:disabled { opacity: .55; cursor: progress; box-shadow: none; }
 .btn-danger:hover { background: var(--error-container); color: var(--on-error-container); box-shadow: none; }
 .btn-sm { padding-inline: 16px; font-size: .875rem; }
 .btn-block { width: 100%; }
-#logout { padding-inline: 12px; color: var(--on-surface-variant); }
+#logout { padding-inline: 12px; color: var(--on-surface-variant); white-space: nowrap; flex: none; }
+@media (max-width: 599px) {
+  .brand-sub { display: none; }
+  .identity { padding: 4px; }
+  .identity-text {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+}
 
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .actions .btn-danger { margin-inline-start: auto; }
@@ -258,7 +266,8 @@ button:disabled { opacity: .55; cursor: progress; box-shadow: none; }
 
 /* ---------- Entry pages (login, approval, errors) ---------- */
 .entry-wrap {
-  display: grid; place-items: center;
+  display: grid; place-items: start center;
+  padding-top: clamp(24px, 9vh, 96px) !important;
   min-height: calc(100vh - var(--topbar));
   min-height: calc(100dvh - var(--topbar));
   padding: 24px var(--gutter) 48px;
@@ -310,7 +319,7 @@ button:disabled { opacity: .55; cursor: progress; box-shadow: none; }
   border-radius: var(--r-large);
   background: var(--primary-container); color: var(--on-primary-container);
   font: 500 clamp(3.5rem, 18vw, 4.5rem)/1.15 var(--mono);
-  font-variant-numeric: tabular-nums; letter-spacing: .12em; text-indent: .12em;
+  font-variant-numeric: tabular-nums; letter-spacing: .06em; text-indent: .06em;
 }
 .spinner {
   width: 48px; height: 48px; border-radius: 50%;

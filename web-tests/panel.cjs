@@ -87,7 +87,11 @@ async function run(browser, viewport, label, full) {
 
   if (full) {
     await page.getByRole("button", { name: "重新投递" }).click();
-    await page.locator("#reauth-link").waitFor({ state: "visible" });
+    try {
+      await page.locator("#reauth-link").waitFor({ state: "visible", timeout: 10000 });
+    } catch (error) {
+      throw new Error("re-auth prompt missing; result: " + await page.locator("#management-result").textContent() + "; " + issues.join(" | "));
+    }
     await capture(page, label, "13-message-reauth");
     for (const [i, id] of messages.entries()) {
       await page.goto(url + "/panel/message/" + id);
