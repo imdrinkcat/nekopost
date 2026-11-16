@@ -199,7 +199,7 @@
     <string name="enrollment_token">凭证</string>
     <string name="enroll_error_not_link">这不是猫邮局的配对二维码。</string>
     <string name="enroll_error_version">配对链接的版本比这个应用新，请先更新应用。</string>
-    <string name="enroll_error_kind">这是设备配对码，不是消息来源的二维码。仅转发模式请扫描 nekopost source add --qr 的二维码。</string>
+    <string name="enroll_error_kind">这是设备配对二维码，请在「收件箱」页里扫描它。这里要扫的是 nekopost source add（或 rotate）--qr 打印的来源二维码。</string>
     <string name="enroll_error_malformed">配对链接不完整或被改动过，请重新复制或扫码。</string>
     <string name="enroll_error_url">配对链接里的服务器地址无效。</string>
     <string name="enroll_error_insecure">服务器地址必须使用 https。</string>

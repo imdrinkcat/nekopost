@@ -118,6 +118,9 @@ class EnrollmentLinkTest {
         assertEquals(EnrollmentError.UnsupportedVersion, error(goLink.replace("v=1&", "v=01&")))
         assertEquals(EnrollmentError.MissingParameter, error(goLink.replace("v=1&", "")))
         assertEquals(EnrollmentError.UnsupportedKind, error(goLink.replace("kind=source", "kind=device")))
+        // As printed by `nekopost device pair` (server internal/enroll.DeviceLink).
+        assertEquals(EnrollmentError.UnsupportedKind,
+            error("nekopost://enroll?v=1&kind=device&url=https%3A%2F%2Fexample.com&code=AAAAAAAAAAAAAAAAAAAAAA"))
         assertEquals(EnrollmentError.MissingParameter, error(goLink.replace("kind=source&", "")))
     }
 

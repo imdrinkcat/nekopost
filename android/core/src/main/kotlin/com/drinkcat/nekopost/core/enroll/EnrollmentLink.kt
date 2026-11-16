@@ -90,9 +90,11 @@ class EnrollmentLink private constructor(
             // The version decides how everything else is read, so check it first.
             val version = params["v"] ?: return invalid(EnrollmentError.MissingParameter)
             if (version != VERSION) return invalid(EnrollmentError.UnsupportedVersion)
-            if (params.keys.any { it !in KNOWN_KEYS }) return invalid(EnrollmentError.UnknownParameter)
+            // Kind before unknown parameters: a device pairing link carries `code`
+            // and must be reported as such, not as a broken link.
             val kind = params["kind"] ?: return invalid(EnrollmentError.MissingParameter)
             if (kind != KIND_SOURCE) return invalid(EnrollmentError.UnsupportedKind)
+            if (params.keys.any { it !in KNOWN_KEYS }) return invalid(EnrollmentError.UnknownParameter)
 
             val url = params["url"] ?: return invalid(EnrollmentError.MissingParameter)
             val id = params["id"] ?: return invalid(EnrollmentError.MissingParameter)

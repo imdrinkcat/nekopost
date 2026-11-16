@@ -32,6 +32,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -102,6 +103,20 @@ internal fun InboxScreen(controller: DeviceInbox, fold: FoldState, mode: PaneMod
         }
     }
 
+    // Nothing to protect before pairing, and the QR scanner is a separate
+    // activity: locking on its onStop would drop the scan result. state.server
+    // is only filled in after unlocking, so ask the vault whether a session exists.
+    val paired by produceState<Boolean?>(null, controller, state.server) { value = controller.paired() }
+    if (paired == false && state.server == null) {
+        val pane: @Composable () -> Unit = { PairPane(state) { input, name -> scope.launch { controller.pair(input, name) } } }
+        if (mode == PaneMode.TopBottom) {
+            HingeAwareSplit(fold, SplitAxis.Vertical, Modifier.fillMaxSize(), first = {
+                Text("设备配对", Modifier.padding(16.dp), style = MaterialTheme.typography.headlineSmall)
+            }, second = pane)
+        } else pane()
+        return
+    }
+
     if (!unlocked) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("收件箱已锁定", style = MaterialTheme.typography.headlineSmall)
@@ -132,16 +147,6 @@ internal fun InboxScreen(controller: DeviceInbox, fold: FoldState, mode: PaneMod
                 }
             }) { Text("解锁") }
         }
-        return
-    }
-
-    if (state.server == null) {
-        val pane: @Composable () -> Unit = { PairPane(state) { input, name -> scope.launch { controller.pair(input, name) } } }
-        if (mode == PaneMode.TopBottom) {
-            HingeAwareSplit(fold, SplitAxis.Vertical, Modifier.fillMaxSize(), first = {
-                Text("设备配对", Modifier.padding(16.dp), style = MaterialTheme.typography.headlineSmall)
-            }, second = pane)
-        } else pane()
         return
     }
 
