@@ -56,8 +56,10 @@ func testProof(t *testing.T, key *ecdsa.PrivateKey, method, target, token, nonce
 }
 
 func deviceSetup(t *testing.T) *env {
-	return setup(t, func(e *env) { e.api.DPoP = auth.NewDPoP(); e.api.PublicURL = "https://fixture.invalid" })
+	return setup(t, func(e *env) { e.api.DPoP = deviceSetupDPoP(); e.api.PublicURL = "https://fixture.invalid" })
 }
+
+func deviceSetupDPoP() *auth.DPoP { return auth.NewDPoP() }
 
 func TestDevicePairSubmitReadAndRevoke(t *testing.T) {
 	e := deviceSetup(t)

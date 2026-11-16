@@ -319,6 +319,7 @@ func (s *Server) shredMessage(w http.ResponseWriter, r *http.Request, actor stri
 		return
 	}
 	s.highAlert(r.Context(), "已销毁一条消息的正文")
+	s.signal("gone", []string{id}, strings.TrimPrefix(actor, "device:"))
 	w.WriteHeader(204)
 }
 

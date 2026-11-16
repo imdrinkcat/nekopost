@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -95,8 +96,28 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	method := strings.TrimPrefix(r.URL.Path, prefix)
 	var params map[string]any
-	body, _ := io.ReadAll(r.Body)
-	_ = json.Unmarshal(body, &params)
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		// Uploads (sendPhoto): form fields as strings, files as their bytes.
+		params = map[string]any{}
+		if err := r.ParseMultipartForm(1 << 20); err == nil {
+			for k, v := range r.MultipartForm.Value {
+				params[k] = v[0]
+				if n, err := strconv.ParseInt(v[0], 10, 64); err == nil && k == "chat_id" {
+					params[k] = float64(n)
+				}
+			}
+			for k, fs := range r.MultipartForm.File {
+				if f, err := fs[0].Open(); err == nil {
+					data, _ := io.ReadAll(f)
+					f.Close()
+					params[k] = data
+				}
+			}
+		}
+	} else {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &params)
+	}
 
 	s.mu.Lock()
 	s.calls = append(s.calls, Call{Method: method, Params: params})
@@ -160,7 +181,7 @@ func (s *Server) defaultResponse(r *http.Request, method string, params map[stri
 		case <-r.Context().Done():
 			return &Response{Result: []any{}}
 		}
-	case "sendMessage":
+	case "sendMessage", "sendPhoto":
 		s.mu.Lock()
 		s.nextID++
 		id := s.nextID

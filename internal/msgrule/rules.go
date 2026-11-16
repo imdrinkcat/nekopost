@@ -65,6 +65,21 @@ func Preview(title, body string) string {
 	return s
 }
 
+// Sender returns a message title for a conversation list: the SMS address
+// or "<app> · <title>" as submitted, clipped to 64 runes. Unlike Preview it
+// keeps digit runs and names, so sender numbers such as 95555 stay
+// readable; only a token right after a code keyword is masked.
+func Sender(title string) string {
+	s := strings.Join(strings.Fields(title), " ")
+	if keyword := keywordToken(s); keyword != "" {
+		s = strings.ReplaceAll(s, keyword, "******")
+	}
+	if r := []rune(s); len(r) > 64 {
+		s = string(r[:64])
+	}
+	return s
+}
+
 // Late classifies a delay between the client timestamp and receipt.
 // otp_hold is the Android 17 verification-code hold window.
 func Late(received, occurred time.Time, hasCode bool) string {

@@ -43,9 +43,25 @@ type env struct {
 
 var bg = context.Background()
 
+// preSetup configures what setup builds before options run: the store and
+// the delivery channels (the worker starts inside setup).
+type preSetup struct {
+	storeOpts *store.Options
+	channels  map[string]delivery.Channel
+}
+
 func setup(t *testing.T, opts ...func(*env)) *env {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), store.TestingOptions())
+	return setupWith(t, preSetup{}, opts...)
+}
+
+func setupWith(t *testing.T, pre preSetup, opts ...func(*env)) *env {
+	t.Helper()
+	storeOpts := store.TestingOptions()
+	if pre.storeOpts != nil {
+		storeOpts = *pre.storeOpts
+	}
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), storeOpts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +82,9 @@ func setup(t *testing.T, opts ...func(*env)) *env {
 	w := &delivery.Worker{Store: st, Health: e.tracker, Notifier: notifier, Log: log, MaxAge: time.Hour,
 		Channels: map[string]delivery.Channel{"telegram": &delivery.TelegramChannel{
 			Client: telegram.New(e.tg.URL, faketg.Token), Targets: map[string]int64{"default": 42}, Location: time.UTC}}}
+	for name, ch := range pre.channels {
+		w.Channels[name] = ch
+	}
 	ctx, cancel := context.WithCancel(bg)
 	t.Cleanup(cancel)
 	go w.Run(ctx)

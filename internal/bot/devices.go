@@ -19,7 +19,7 @@ func (b *Bot) viewDevices(ctx context.Context) view {
 		return view{text: "设备列表暂时不可用", rows: [][]telegram.InlineKeyboardButton{navRow("dv")}}
 	}
 	lines := []string{"<b>📱 配对设备</b>"}
-	var rows [][]telegram.InlineKeyboardButton
+	rows := [][]telegram.InlineKeyboardButton{{btn("➕ 添加设备", "dvn")}}
 	for _, d := range list {
 		if d.Revoked {
 			continue
@@ -28,14 +28,14 @@ func (b *Bot) viewDevices(ctx context.Context) view {
 		if d.Suspended {
 			state = "暂停读取"
 		}
-		lines = append(lines, "<code>"+e(d.ID)+"</code> · "+state)
-		rows = append(rows, []telegram.InlineKeyboardButton{btn("吊销 "+d.ID[len(d.ID)-6:], "dva:"+d.ID)})
-		if len(rows) >= 12 {
+		lines = append(lines, "• "+e(d.Name)+" · "+state+"\n  <code>"+e(d.ID)+"</code>")
+		rows = append(rows, []telegram.InlineKeyboardButton{btn("吊销 "+d.Name+" ("+d.ID[len(d.ID)-6:]+")", "dva:"+d.ID)})
+		if len(rows) > 12 {
 			break
 		}
 	}
-	if len(rows) == 0 {
-		lines = append(lines, "暂无配对设备")
+	if len(rows) == 1 {
+		lines = append(lines, "暂无配对设备。点「➕ 添加设备」生成配对码，新手机在猫邮局里扫码或粘贴即可。")
 	}
 	rows = append(rows, navRow("dv"))
 	return view{text: strings.Join(lines, "\n"), rows: rows}
@@ -53,6 +53,9 @@ func (b *Bot) deviceAction(ctx context.Context, user int64, parts []string) (vie
 		seconds, err := strconv.ParseInt(raw, 10, 64)
 		age := b.now().Sub(time.Unix(seconds, 0))
 		return err == nil && age >= 0 && age < 5*time.Minute
+	}
+	if v, toast, ok := b.addDeviceAction(ctx, user, parts, validTime); ok {
+		return v, toast, true
 	}
 	switch parts[0] {
 	case "dv":

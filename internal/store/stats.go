@@ -130,6 +130,9 @@ func (s *Store) LastMessages(ctx context.Context) (map[string]LastMessage, error
 type RecentDelivery struct {
 	MessageID string
 	SourceID  string
+	Channel   string
+	Target    string
+	Aux       bool
 	State     model.DeliveryState
 	LastError string
 	At        time.Time
@@ -139,9 +142,10 @@ type RecentDelivery struct {
 
 // RecentDeliveries returns the most recently attempted deliveries.
 func (s *Store) RecentDeliveries(ctx context.Context, limit int) ([]RecentDelivery, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT d.message_id, m.source_id, d.state, d.last_error, d.last_attempt_at,
-		d.attempts, d.uncertain FROM deliveries d JOIN messages m ON m.id = d.message_id
-		WHERE d.last_attempt_at IS NOT NULL ORDER BY d.last_attempt_at DESC, d.id DESC LIMIT ?`, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT d.message_id, m.source_id, d.channel, d.target, d.aux, d.state, d.last_error,
+		d.last_attempt_at, d.attempts, d.uncertain FROM deliveries d JOIN messages m ON m.id = d.message_id
+		WHERE d.last_attempt_at IS NOT NULL AND d.state <> 'skipped' AND NOT (d.channel = 'fcm' AND d.last_error = ?)
+		ORDER BY d.last_attempt_at DESC, d.id DESC LIMIT ?`, PushSkipped, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -151,13 +155,14 @@ func (s *Store) RecentDeliveries(ctx context.Context, limit int) ([]RecentDelive
 		var r RecentDelivery
 		var st string
 		var at int64
-		var unc int
-		if err := rows.Scan(&r.MessageID, &r.SourceID, &st, &r.LastError, &at, &r.Attempts, &unc); err != nil {
+		var unc, aux int
+		if err := rows.Scan(&r.MessageID, &r.SourceID, &r.Channel, &r.Target, &aux, &st, &r.LastError, &at, &r.Attempts, &unc); err != nil {
 			return nil, err
 		}
 		r.State = model.DeliveryState(st)
 		r.At = time.UnixMilli(at)
 		r.Uncertain = unc == 1
+		r.Aux = aux == 1
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -170,17 +175,18 @@ type DeliveryHistory struct {
 	LastProblemErr string
 }
 
-// LastDeliveryHistory reads the latest success and problem times.
+// LastDeliveryHistory reads the latest Telegram success and problem times.
+// App pushes have their own health (PushStatus).
 func (s *Store) LastDeliveryHistory(ctx context.Context) (DeliveryHistory, error) {
 	var h DeliveryHistory
 	var ok sql.NullInt64
-	if err := s.db.QueryRowContext(ctx, "SELECT MAX(delivered_at) FROM deliveries").Scan(&ok); err != nil {
+	if err := s.db.QueryRowContext(ctx, "SELECT MAX(delivered_at) FROM deliveries WHERE channel = 'telegram'").Scan(&ok); err != nil {
 		return h, err
 	}
 	h.LastDelivered = fromMs(ok)
 	var at int64
 	err := s.db.QueryRowContext(ctx, `SELECT last_attempt_at, last_error FROM deliveries
-		WHERE state IN ('failed', 'uncertain', 'retrying') AND last_attempt_at IS NOT NULL
+		WHERE channel = 'telegram' AND state IN ('failed', 'uncertain', 'retrying') AND last_attempt_at IS NOT NULL
 		ORDER BY last_attempt_at DESC LIMIT 1`).Scan(&at, &h.LastProblemErr)
 	if err == sql.ErrNoRows {
 		return h, nil

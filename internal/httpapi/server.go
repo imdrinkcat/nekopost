@@ -33,6 +33,10 @@ type Server struct {
 	TestPush       func(context.Context, string) error
 	CookieAdmin    func(http.ResponseWriter, *http.Request, bool) (string, bool)
 	SecurityNotify func(context.Context, string)
+	// PushSignal, when set, tells the other App devices that messages were
+	// read ("read") or removed ("gone") so they clear notifications. It
+	// must not block; the caller does not wait for it.
+	PushSignal func(kind string, ids []string, exceptDevice string)
 
 	DPoP       *auth.DPoP
 	PublicURL  string
@@ -40,7 +44,9 @@ type Server struct {
 	Web        http.Handler
 	Store      *store.Store
 	Router     router.Router
-	Worker     Waker
+	// TelegramTypes mirrors NEKOPOST_TELEGRAM_TYPES (nil = all types).
+	TelegramTypes map[string]bool
+	Worker        Waker
 	// Filter, when set, receives messages whose type is in FilterTypes
 	// before they are delivered.
 	Filter       Waker
@@ -77,6 +83,12 @@ func (s *Server) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+func (s *Server) signal(kind string, ids []string, except string) {
+	if s.PushSignal != nil {
+		s.PushSignal(kind, ids, except)
+	}
 }
 
 // Handler builds the HTTP handler with all routes and middleware.

@@ -204,7 +204,9 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		code = http.StatusOK
 		warnings = append(warnings, "重复提交：已返回先前消息的状态，未再次转发")
 	}
-	summary := st.Label()
+	// Telegram-routed messages keep the V1 text ("已送达 Telegram") that
+	// iPhone Shortcuts show; App-only messages say where they went.
+	summary := st.LabelVia(res.AppOnly)
 	if res.Duplicate {
 		summary += "（重复提交，未再次转发）"
 	}
@@ -213,7 +215,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		"message":     summary,
 		"id":          res.ID,
 		"status":      st,
-		"status_text": st.Label(),
+		"status_text": st.LabelVia(res.AppOnly),
 		"delivered":   st == model.StatusDelivered,
 		"duplicate":   res.Duplicate,
 		"received_at": res.ReceivedAt.In(s.Location).Format(time.RFC3339),
@@ -515,7 +517,8 @@ func (s *Server) messageJSON(mi store.MessageInfo) map[string]any {
 		"type":                  m.Kind,
 		"priority":              m.Priority,
 		"status":                m.Status,
-		"status_text":           m.Status.Label(),
+		"status_text":           m.Status.LabelVia(mi.AppOnly),
+		"app_only":              mi.AppOnly,
 		"delivered":             m.Status == model.StatusDelivered,
 		"category":              nullIfEmpty(string(m.Category)),
 		"category_text":         nullIfEmpty(m.Category.Label()),

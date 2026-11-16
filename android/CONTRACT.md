@@ -181,6 +181,22 @@ The server is never looser than the app: it also refuses names the app would
 reject, links over 2048 characters, hosts that are not ASCII DNS names / IP
 literals (punycode for IDN), and ports with leading zeros or out of range.
 
+### 2.1 Device pairing link and pasted input
+
+```
+nekopost://enroll?v=1&kind=device&url=<base>&code=<22-char base64url pairing code>
+```
+
+Built by the server's `enroll.DeviceLink` (web panel / `POST /v1/admin/pairings`
+`qr`, the Telegram bot's 「➕ 添加设备」, `nekopost device pair`). The Telegram bot
+sends it as text inside a `<code>` block (tap to copy) next to the QR photo,
+because the phone being paired is often the phone showing Telegram. The app's
+pairing screen therefore accepts pasted text: either this link, or the manual
+short code `XXXX-XXXX-XX` (10 characters of `0-9A-HJKMNP-TV-Z`, hyphens and
+case ignored; the server URL is then entered separately or prefilled from the
+source enrollment). The setup wizard routes a pasted or scanned `kind=device`
+link to device pairing instead of rejecting it as an unsupported kind.
+
 ## 3. Fold model and layout (`core.ui.fold`)
 
 ```kotlin
@@ -290,3 +306,13 @@ ignore gestures that passed through another app's window
 (`TouchSecurity`), the unenroll sheet filters obscured touches on its
 window, and the enrollment link field is a password-type field so keyboards
 do not learn the token.
+
+## 6. Server inbox and push additions (server 0.10.0, all additive)
+
+| Where | Addition |
+|---|---|
+| `GET /v1/inbox`, `POST /v1/inbox/search`, `GET /v1/sync` items | `sender`: unmasked title (SMS address as submitted, or `"<app> · <title>"`), whitespace collapsed, ≤ 64 code points, only a token right after a code keyword masked; `null` when the body is gone. `title` / `preview` stay masked. `app_only` (bool): Telegram is not part of this message; the App push decides `status`. `status_text` uses「已推送到 App」/「部分设备已收到推送」for app-only messages. `deliveries[].aux` (bool); `deliveries[].state` may be `skipped` (this device's push settings or it is the source device; not a failure). |
+| `GET /v1/inbox` | `unread_count` (all retained unread messages); filters `?unread=1`, `?has_code=1` (combinable with the `before`/`before_id` cursor). |
+| `GET /v1/inbox/{id}` | `?via=push` audits as `message.push_fetch` instead of `message.view`; `&ack=1` also acknowledges the push (same as `POST /v1/devices/self/acks` for that ID) before the item is built. |
+| `GET /v1/devices/self` | `telegram_types`: `null` = Telegram receives every type, otherwise the sorted list it receives (empty = none); other types reach the user only through the App. `push_enabled`: the server has FCM configured. |
+| FCM data | `{v:"1", t:"read", ids:"m_…,m_…"}` when a message is marked read on another device (never sent to the device that marked it); `{v:"1", t:"gone", ids}` when a message is deleted (bot) or its body destroyed. NORMAL priority, ttl 1 h, ≤ 50 IDs per push, best effort (reconcile on sync as well). Existing `msg` / `ping` / `revoked` unchanged. |

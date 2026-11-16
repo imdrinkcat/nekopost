@@ -67,6 +67,16 @@ type Bot struct {
 	Settings Settings
 	Delivery Waker // woken after a filtered message is rescued
 	Now      func() time.Time
+	// PublicURL is the HTTPS base URL that pairing links point to.
+	PublicURL string
+	// PushSignal, when set, tells App devices about messages removed here.
+	PushSignal func(kind string, ids []string, exceptDevice string)
+	// PairPoll is how often a pairing code message is checked for use or
+	// expiry (default 2 s).
+	PairPoll time.Duration
+
+	runMu  sync.Mutex
+	runCtx context.Context
 
 	unauthMu      sync.Mutex
 	unauthReplied map[int64]time.Time
@@ -90,6 +100,7 @@ var commands = []telegram.BotCommand{
 	{Command: "settings", Description: "系统设置"},
 	{Command: "help", Description: "帮助"},
 	{Command: "devices", Description: "配对设备"},
+	{Command: "adddevice", Description: "添加设备"},
 	{Command: "lockdown", Description: "紧急锁定"},
 }
 
@@ -130,6 +141,9 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 
 // Run identifies the bot and long-polls for updates until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) {
+	b.runMu.Lock()
+	b.runCtx = ctx
+	b.runMu.Unlock()
 	backoff := 2 * time.Second
 	for {
 		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -263,6 +277,8 @@ func (b *Bot) handleMessage(ctx context.Context, m *telegram.Message) {
 		v = b.viewHelp()
 	case "/devices":
 		v = b.viewDevices(ctx)
+	case "/adddevice":
+		v = b.viewAddDevice()
 	case "/lockdown":
 		v = b.viewLockdown()
 	default:
@@ -322,6 +338,10 @@ func (b *Bot) handleCallback(ctx context.Context, cq *telegram.CallbackQuery) {
 	}
 	if data, ok := strings.CutPrefix(cq.Data, pairPrefix); ok {
 		b.handlePairApproval(ctx, cq, data)
+		return
+	}
+	if id, ok := strings.CutPrefix(cq.Data, cancelPairPrefix); ok {
+		b.handleCancelPairing(ctx, cq, id)
 		return
 	}
 	if data, ok := strings.CutPrefix(cq.Data, webApprovalPrefix); ok {
@@ -483,7 +503,7 @@ func (b *Bot) messageInfo(ctx context.Context, id string) string {
 	if !m.OccurredAt.IsZero() {
 		sb.WriteString("设备时间：" + b.fmtTime(m.OccurredAt) + "\n")
 	}
-	sb.WriteString("状态：" + m.Status.Label() + "\nID：" + m.ID)
+	sb.WriteString("状态：" + m.Status.LabelVia(mi.AppOnly) + "\nID：" + m.ID)
 	return sb.String()
 }
 

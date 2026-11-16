@@ -94,8 +94,18 @@ func deliveryIcon(st model.DeliveryState) string {
 		return "📤"
 	case model.DeliveryUncertain:
 		return "❔"
+	case model.DeliverySkipped:
+		return "⏭"
 	}
 	return "❌"
+}
+
+// channelTag prefixes a delivery line with where it went.
+func channelTag(channel string) string {
+	if channel == "fcm" {
+		return "App"
+	}
+	return "TG"
 }
 
 func deliveryLabel(st model.DeliveryState) string {
@@ -110,6 +120,8 @@ func deliveryLabel(st model.DeliveryState) string {
 		return "发送中"
 	case model.DeliveryUncertain:
 		return "结果不确定"
+	case model.DeliverySkipped:
+		return "设备设置已跳过"
 	}
 	return "失败"
 }
@@ -219,7 +231,7 @@ func (b *Bot) viewBot(ctx context.Context) view {
 	if recent, err := b.Store.RecentDeliveries(ctx, 5); err == nil && len(recent) > 0 {
 		sb.WriteString("\n<b>最近投递</b>\n")
 		for _, r := range recent {
-			line := deliveryIcon(r.State) + " " + b.fmtShort(r.At) + " " + e(b.sourceLabel(ctx, r.SourceID)) + " · " + deliveryLabel(r.State)
+			line := deliveryIcon(r.State) + " " + b.fmtShort(r.At) + " " + channelTag(r.Channel) + " " + e(b.sourceLabel(ctx, r.SourceID)) + " · " + deliveryLabel(r.State)
 			if r.Attempts > 1 {
 				line += fmt.Sprintf("（第 %d 次尝试）", r.Attempts)
 			}
@@ -446,7 +458,7 @@ func (b *Bot) viewStats(ctx context.Context, r status.Range) view {
 		sb.WriteString("\n")
 	}
 	if t.NotRouted > 0 {
-		fmt.Fprintf(&sb, "🚫 未转发：%d\n", t.NotRouted)
+		fmt.Fprintf(&sb, "🚫 无投递目标：%d\n", t.NotRouted)
 	}
 	if t.Filtered > 0 {
 		fmt.Fprintf(&sb, "🗑 已过滤（未推送）：%d\n", t.Filtered)

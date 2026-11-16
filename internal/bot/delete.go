@@ -85,6 +85,9 @@ func (b *Bot) commitDelete(ctx context.Context, cq *telegram.CallbackQuery, id s
 		b.eraseTelegram(ctx, chatID, tgID, sentAt)
 	}
 	b.Log.Info("message deleted via telegram", "message", id, "admin", cq.From.ID, "parts", len(targets))
+	if b.PushSignal != nil {
+		b.PushSignal("gone", []string{id}, "")
+	}
 	_ = b.Client.AnswerCallbackQuery(ctx, cq.ID, "已删除", false)
 }
 

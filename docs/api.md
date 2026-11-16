@@ -108,6 +108,7 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 
 - `ok: true` 只表示**服务器已接受**，不代表已送达。是否送达请看 `delivered`（只有 `status == "delivered"` 时为 `true`）。
 - `message` 是给人看的一句话总结，简单客户端（例如快捷指令）直接显示它即可。重复提交时会附加“（重复提交，未再次转发）”。
+- 发往 Telegram 的消息，`message` / `status_text` 与以前完全一致（例如 `已送达 Telegram`）。Telegram 不接收的类型（见 `NEKOPOST_TELEGRAM_TYPES`）改由 App 推送决定状态，送达时为 `已推送到 App`，部分设备成功为 `部分设备已收到推送`；既不发 Telegram 又没有可推送的设备时为 `not_routed`，文字会说明原因。`status`、`delivered`、`duplicate` 字段的含义不变。
 - 时间使用配置的时区（默认 `Asia/Tokyo`），格式为 RFC 3339。
 - `warnings` 仅在有警告时出现。
 
@@ -133,6 +134,7 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
   "occurred_at": "2026-10-25T10:20:00+09:00",
   "finished_at": "2026-10-25T10:20:02+09:00",
   "duplicate_submissions": 0,
+  "app_only": false,
   "deliveries": [
     {
       "channel": "telegram",
@@ -151,7 +153,8 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 }
 ```
 
-- `state` 的取值：`pending`、`sending`、`retrying`、`delivered`、`failed`、`uncertain`；启用短信过滤时还有 `held`、`filtered`。
+- `state` 的取值：`pending`、`sending`、`retrying`、`delivered`、`failed`、`uncertain`、`skipped`；启用短信过滤时还有 `held`、`filtered`。`skipped`（0.10.0 新增）表示该 App 设备自己的推送设置排除了这条消息（关闭了该类型、低于最低优先级，或它就是消息的来源设备），不算失败，也不影响 `status`。
+- `channel` 为 `telegram` 或 `fcm`（App 推送）。`app_only`（0.10.0 新增）为 `true` 时，这条消息不发 Telegram，`status` 由 App 推送决定；App 推送的 `delivered` 表示 FCM 已接受，设备是否收到见收件箱接口的 `acked`。
 - `category` / `category_text`：短信过滤的分类结果，未分类时为 `null`。
 - `uncertain: true` 表示某次尝试的结果未知，这条消息在 Telegram 里可能出现了两次。
 - 未设置的时间字段为 `null`。

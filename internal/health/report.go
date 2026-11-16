@@ -93,6 +93,9 @@ type Inputs struct {
 	TLSMode  string
 	Cert     CertInfo
 	Crypto   *CryptoInfo
+	// TelegramMode is which message types Telegram receives: "" or "all",
+	// "some", or "none" (the bot only administers; messages go to the App).
+	TelegramMode string
 }
 
 // Thresholds used by Evaluate.
@@ -173,6 +176,9 @@ func Evaluate(in Inputs) Report {
 		dv.Level, dv.Summary = Degraded, "最近一次投递未成功："+st.SendFailMsg
 	default:
 		dv.Level, dv.Summary = OK, "最近一次投递成功（"+Ago(now, st.SendOK)+"）"
+	}
+	if in.TelegramMode == "none" {
+		dv.Level, dv.Summary = OK, "Telegram 仅用于管理与审批，消息只推送到 App"
 	}
 	if !st.SendOK.IsZero() {
 		dv.Details = append(dv.Details, "最近成功："+Ago(now, st.SendOK))
@@ -295,6 +301,13 @@ func Evaluate(in Inputs) Report {
 		r.Components = append(r.Components, cr)
 	}
 
+	return Recompute(r)
+}
+
+// Recompute derives the overall level and text from the components, e.g.
+// after a caller appended one.
+func Recompute(r Report) Report {
+	r.Overall = OK
 	unknown := false
 	for _, c := range r.Components {
 		if c.Level == Unknown {

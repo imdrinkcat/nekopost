@@ -89,6 +89,44 @@ func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "nekopost.db"
 // ACMECacheDir stores Let's Encrypt account keys and certificates.
 func (c *Config) ACMECacheDir() string { return filepath.Join(c.DataDir, "acme") }
 
+// TelegramAll reports whether Telegram receives every message type.
+func (c *Config) TelegramAll() bool { return c.TelegramTypes == nil }
+
+// parseTelegramTypes reads NEKOPOST_TELEGRAM_TYPES: "*" (or unset/empty)
+// means every type (nil); "none" or "-" means no type, so messages go only
+// to the App while the bot keeps working for administration and approvals
+// (an empty, non-nil map); otherwise a comma-separated list of types.
+func parseTelegramTypes(raw string) (map[string]bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "*" {
+		return nil, nil
+	}
+	types := map[string]bool{}
+	none := false
+	for _, kind := range strings.Split(raw, ",") {
+		kind = strings.TrimSpace(kind)
+		switch {
+		case kind == "":
+			continue
+		case strings.EqualFold(kind, "none") || kind == "-":
+			none = true
+		case kind == "*":
+			return nil, errors.New("NEKOPOST_TELEGRAM_TYPES 的 * 不能与其他类型同时使用")
+		case !model.ValidKind(kind):
+			return nil, errors.New("NEKOPOST_TELEGRAM_TYPES 包含无效的消息类型")
+		default:
+			types[kind] = true
+		}
+	}
+	if none && len(types) > 0 {
+		return nil, errors.New("NEKOPOST_TELEGRAM_TYPES 的 none 不能与其他类型同时使用")
+	}
+	if !none && len(types) == 0 {
+		return nil, nil
+	}
+	return types, nil
+}
+
 // IsAdmin reports whether the Telegram user id is an administrator.
 func (c *Config) IsAdmin(id int64) bool {
 	for _, a := range c.AdminIDs {
@@ -145,17 +183,11 @@ func Load(getenv func(string) string) (*Config, error) {
 			c.AdminIDs = append(c.AdminIDs, id)
 		}
 	}
-	if raw := get("NEKOPOST_TELEGRAM_TYPES", "*"); raw != "*" {
-		c.TelegramTypes = make(map[string]bool)
-		for _, kind := range strings.Split(raw, ",") {
-			kind = strings.TrimSpace(kind)
-			if !model.ValidKind(kind) {
-				errs = append(errs, errors.New("NEKOPOST_TELEGRAM_TYPES 包含无效的消息类型"))
-				continue
-			}
-			c.TelegramTypes[kind] = true
-		}
+	types, err := parseTelegramTypes(get("NEKOPOST_TELEGRAM_TYPES", "*"))
+	if err != nil {
+		errs = append(errs, err)
 	}
+	c.TelegramTypes = types
 	if v := get("NEKOPOST_TELEGRAM_CHAT_ID", ""); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id == 0 {

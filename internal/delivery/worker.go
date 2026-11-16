@@ -188,9 +188,16 @@ func (w *Worker) process(ctx context.Context, job store.Job) {
 	now := w.Now()
 	d := job.Delivery
 	maxAge := w.MaxAge
-	if d.Aux {
+	switch {
+	case d.Aux:
 		maxAge = time.Hour
+	case d.Channel == "fcm":
+		// FCM keeps an accepted push for at most a day (ttl 86400 s).
+		maxAge = min(maxAge, 24*time.Hour)
 	}
+	// Only channels other than the App push feed the "Telegram 转发" health
+	// component; App push health comes from the store (PushStatus).
+	tracked := !d.Aux && d.Channel != "fcm"
 	deadline := d.CreatedAt.Add(maxAge)
 	final := func(msg string) store.AttemptResult {
 		st := model.DeliveryFailed
@@ -236,19 +243,21 @@ func (w *Worker) process(ctx context.Context, job store.Job) {
 	switch res.Outcome {
 	case Delivered:
 		r.State = model.DeliveryDelivered
-		if !d.Aux {
+		if tracked {
 			w.Health.DeliveryOK(after)
 		}
+	case Skipped:
+		r.State = model.DeliverySkipped
 	case Permanent:
 		r.State = model.DeliveryFailed
 		if d.Uncertain || res.PartsSent > 0 {
 			r.State = model.DeliveryUncertain
 		}
-		if !d.Aux {
+		if tracked {
 			w.Health.DeliveryFailed(after, res.FailKind, res.Err)
 		}
 	default:
-		if !d.Aux {
+		if tracked {
 			w.Health.DeliveryFailed(after, res.FailKind, res.Err)
 		}
 		delay := w.backoff(d.Attempts + 1)

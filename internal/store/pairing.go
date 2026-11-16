@@ -251,3 +251,34 @@ func PairingCodeHash(code string) string { return auth.Hash("nekopost/pairing/v1
 func (s *Store) PairingOwned(ctx context.Context, id, actor string) (Pairing, error) {
 	return scanPairing(s.db.QueryRowContext(ctx, "SELECT "+pairingFields+" FROM pairings WHERE id=? AND created_by=?", id, actor).Scan)
 }
+
+// RecentPairings counts pairings created since a time by actors whose name
+// starts with prefix (e.g. "bot:tg:"), to rate-limit their creation.
+func (s *Store) RecentPairings(ctx context.Context, actorPrefix string, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pairings WHERE substr(created_by, 1, ?) = ? AND created_at >= ?`,
+		len(actorPrefix), actorPrefix, since.UnixMilli()).Scan(&n)
+	return n, err
+}
+
+// CancelPairing voids a pairing nobody has claimed yet.
+func (s *Store) CancelPairing(ctx context.Context, id, actor string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, "UPDATE pairings SET state='cancelled' WHERE id=? AND state='open'", id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNotFound
+	}
+	if err := s.appendAudit(ctx, tx, now, actor, "pairing.cancel", id, "ok"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

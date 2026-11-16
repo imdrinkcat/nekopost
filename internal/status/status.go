@@ -17,7 +17,10 @@ import (
 // Service gathers status information on demand. Nothing is collected in the
 // background; every query reads current data.
 type Service struct {
-	PushEnabled   bool
+	PushEnabled bool
+	// TelegramMode is "all" (or ""), "some" or "none": which message types
+	// Telegram receives. The others depend on the App push alone.
+	TelegramMode  string
 	Store         *store.Store
 	Health        *health.Tracker
 	Sys           sysinfo.Collector
@@ -56,7 +59,7 @@ func (s *Service) System() sysinfo.Snapshot {
 
 // Report evaluates the health of every component.
 func (s *Service) Report(ctx context.Context) health.Report {
-	in := health.Inputs{Now: s.now(), State: s.Health.Snapshot(), TLSMode: s.TLSMode}
+	in := health.Inputs{Now: s.now(), State: s.Health.Snapshot(), TLSMode: s.TLSMode, TelegramMode: s.TelegramMode}
 	in.DBErr = s.Store.Ping(ctx)
 	in.Queue, in.QueueErr = s.Store.Queue(ctx)
 	in.Sources, _ = s.Store.ListSources(ctx)
@@ -72,7 +75,13 @@ func (s *Service) Report(ctx context.Context) health.Report {
 		}
 	}
 	report := health.Evaluate(in)
+	appOnly := s.TelegramMode == "some" || s.TelegramMode == "none"
 	if !s.PushEnabled {
+		if appOnly {
+			report.Components = append(report.Components, health.Component{Key: "push", Name: "App 推送", Level: health.ConfigError,
+				Summary: "部分消息类型只发往 App，但未配置 FCM 推送，这些消息不会送达"})
+			report = health.Recompute(report)
+		}
 		return report
 	}
 	push, err := s.Store.PushStatus(ctx)
@@ -84,6 +93,8 @@ func (s *Service) Report(ctx context.Context) health.Report {
 		component.Level, component.Summary = health.Degraded, push.Error
 	case push.Registered > 0:
 		component.Level, component.Summary = health.OK, "推送已启用"
+	case appOnly:
+		component.Level, component.Summary = health.ConfigError, "部分消息类型只发往 App，但没有可用的推送设备"
 	}
 	if push.LastDelivered.IsZero() && component.Level == health.OK {
 		component.Level = health.Unknown
@@ -91,6 +102,11 @@ func (s *Service) Report(ctx context.Context) health.Report {
 	}
 	component.Details = []string{fmt.Sprintf("可用 %d · 过期 %d · 失效 %d", push.Registered, push.Stale, push.Invalid)}
 	report.Components = append(report.Components, component)
+	if appOnly {
+		// Some types reach the user only through the App, so its push
+		// health counts towards the overall state.
+		report = health.Recompute(report)
+	}
 	return report
 }
 

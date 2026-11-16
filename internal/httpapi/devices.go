@@ -247,7 +247,22 @@ func (s *Server) handlePairToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deviceSelf(w http.ResponseWriter, r *http.Request, d store.Device) {
-	writeJSON(w, 200, d)
+	// telegram_types tells the App which message types Telegram receives
+	// (null = all). Types missing from it reach the user only through the
+	// App push.
+	var types []string
+	if s.TelegramTypes != nil {
+		types = make([]string, 0, len(s.TelegramTypes))
+		for t := range s.TelegramTypes {
+			types = append(types, t)
+		}
+		slices.Sort(types)
+	}
+	writeJSON(w, 200, struct {
+		store.Device
+		TelegramTypes []string `json:"telegram_types"`
+		PushEnabled   bool     `json:"push_enabled"`
+	}{d, types, s.TestPush != nil})
 }
 
 func (s *Server) devicePush(w http.ResponseWriter, r *http.Request, d store.Device) {

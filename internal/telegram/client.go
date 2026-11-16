@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -81,6 +83,10 @@ func (c *Client) Call(ctx context.Context, method string, params any, out any) e
 	if err != nil {
 		return err
 	}
+	return c.post(ctx, method, "application/json", body, out)
+}
+
+func (c *Client) post(ctx context.Context, method, contentType string, body []byte, out any) error {
 	var written atomic.Bool
 	trace := &httptrace.ClientTrace{WroteRequest: func(i httptrace.WroteRequestInfo) {
 		if i.Err == nil {
@@ -92,7 +98,7 @@ func (c *Client) Call(ctx context.Context, method string, params any, out any) e
 	if err != nil {
 		return &NetError{Method: method, Msg: "invalid request"}
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return c.netErr(method, written.Load(), err)
@@ -201,6 +207,67 @@ type SendMessageParams struct {
 	DisableNotification bool                  `json:"disable_notification,omitempty"`
 	ReplyMarkup         *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 	LinkPreviewOptions  *linkPreview          `json:"link_preview_options,omitempty"`
+}
+
+// SendPhotoParams are the arguments of sendPhoto with an uploaded PNG.
+type SendPhotoParams struct {
+	ChatID      int64
+	PNG         []byte
+	Caption     string
+	ParseMode   string
+	ReplyMarkup *InlineKeyboardMarkup
+	// ProtectContent asks clients not to allow forwarding or saving.
+	ProtectContent bool
+}
+
+// SendPhoto uploads a PNG image as a photo message (multipart/form-data).
+func (c *Client) SendPhoto(ctx context.Context, p SendPhotoParams) (Message, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fields := map[string]string{"chat_id": strconv.FormatInt(p.ChatID, 10), "caption": p.Caption}
+	if p.ParseMode != "" {
+		fields["parse_mode"] = p.ParseMode
+	}
+	if p.ProtectContent {
+		fields["protect_content"] = "true"
+	}
+	if p.ReplyMarkup != nil {
+		kb, err := json.Marshal(p.ReplyMarkup)
+		if err != nil {
+			return Message{}, err
+		}
+		fields["reply_markup"] = string(kb)
+	}
+	for k, v := range fields {
+		if err := w.WriteField(k, v); err != nil {
+			return Message{}, err
+		}
+	}
+	part, err := w.CreateFormFile("photo", "qr.png")
+	if err != nil {
+		return Message{}, err
+	}
+	if _, err := part.Write(p.PNG); err != nil {
+		return Message{}, err
+	}
+	if err := w.Close(); err != nil {
+		return Message{}, err
+	}
+	var m Message
+	err = c.post(ctx, "sendPhoto", w.FormDataContentType(), buf.Bytes(), &m)
+	return m, err
+}
+
+// EditMessageCaption replaces a media message's caption and keyboard.
+func (c *Client) EditMessageCaption(ctx context.Context, chatID, messageID int64, caption, parseMode string, kb *InlineKeyboardMarkup) error {
+	params := map[string]any{"chat_id": chatID, "message_id": messageID, "caption": caption}
+	if parseMode != "" {
+		params["parse_mode"] = parseMode
+	}
+	if kb != nil {
+		params["reply_markup"] = kb
+	}
+	return c.Call(ctx, "editMessageCaption", params, nil)
 }
 
 // GetMe returns the bot's identity.

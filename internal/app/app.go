@@ -127,7 +127,20 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		Log:    log.With("component", "http"),
 	}
 
+	telegramMode := "all"
+	switch {
+	case cfg.TelegramAll():
+	case len(cfg.TelegramTypes) == 0:
+		telegramMode = "none"
+	default:
+		telegramMode = "some"
+	}
+	if telegramMode != "all" && fcm == nil {
+		log.Warn("some message types are excluded from Telegram but App push (FCM) is not configured; those messages will not be delivered",
+			"telegram_types", telegramMode)
+	}
 	statusSvc := &status.Service{
+		TelegramMode:  telegramMode,
 		PushEnabled:   fcm != nil,
 		Store:         st,
 		Health:        tracker,
@@ -151,6 +164,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		PublicURL:      publicURL,
 		Store:          st,
 		Router:         router.Default{Channel: "telegram", Target: "default", Types: cfg.TelegramTypes},
+		TelegramTypes:  cfg.TelegramTypes,
 		Worker:         worker,
 		Notifier:       notifier,
 		Health:         tracker,
@@ -191,7 +205,8 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			Filter: bot.FilterSettings{Enabled: cfg.FilterEnabled(), Model: cfg.DeepSeekModel, Types: cfg.FilterTypes,
 				Drop: cfg.FilterDrop, KeepDays: cfg.FilterKeepDays},
 		},
-		Delivery: worker,
+		Delivery:  worker,
+		PublicURL: publicURL,
 	}
 
 	panel := &webpanel.Panel{
@@ -217,6 +232,15 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	}
 	if fcm != nil {
 		api.TestPush = fcm.TestPush
+		signal := func(kind string, ids []string, except string) {
+			go func() {
+				sctx, scancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer scancel()
+				fcm.Signal(sctx, kind, ids, except)
+			}()
+		}
+		api.PushSignal = signal
+		b.PushSignal = signal
 	}
 	api.PairNotify = b.SendPairApproval
 	api.SecurityNotify = b.NotifyWebSecurity

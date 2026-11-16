@@ -197,7 +197,16 @@ func TestRecoverInFlight(t *testing.T) {
 }
 
 func TestNotRoutedHasNoPayload(t *testing.T) {
-	s := openTest(t)
+	// V1 mode (no body retention) keeps nothing for a message without any
+	// target. With a retention period the App inbox still shows it; see
+	// TestNoPushTargetsStillStoresBodyWithRetention.
+	opts := TestingOptions()
+	opts.BodyRetention, opts.CodeRetention = 0, 0
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
 	res, _ := s.InsertMessage(ctx, newMsg("a", "x", "", time.Now()), nil, 0)
 	if res.Status != model.StatusNotRouted {
 		t.Errorf("status %s", res.Status)

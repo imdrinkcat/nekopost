@@ -29,35 +29,37 @@ func (s *Store) InboxState(ctx context.Context, id string) (InboxState, error) {
 	return state, err
 }
 
-func (s *Store) SetMessageRead(ctx context.Context, id string, read bool, now time.Time) error {
+// SetMessageRead marks a message read or unread. changed is false when it
+// already was in that state.
+func (s *Store) SetMessageRead(ctx context.Context, id string, read bool, now time.Time) (changed bool, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 	var wasRead bool
 	err = tx.QueryRowContext(ctx, "SELECT read_at IS NOT NULL FROM messages WHERE id=?", id).Scan(&wasRead)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
+		return false, ErrNotFound
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if wasRead == read {
-		return nil
+		return false, nil
 	}
 	seq, err := nextSeq(ctx, tx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var at any
 	if read {
 		at = now.UnixMilli()
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE messages SET seq=?,read_at=? WHERE id=?", seq, at, id); err != nil {
-		return err
+		return false, err
 	}
-	return tx.Commit()
+	return true, tx.Commit()
 }
 
 func (s *Store) ChangesSince(ctx context.Context, since int64, limit int) (events.Page, error) {

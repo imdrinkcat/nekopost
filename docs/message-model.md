@@ -90,15 +90,17 @@
 | `classifying` | 已接收，正在识别是否为广告 | 否（仅启用[短信过滤](sms-filter.md)时） |
 | `filtered` | 已过滤（不需要推送的短信），未转发 | 是（可在 Bot 中找回，找回后回到 `queued`） |
 
-“服务器已接收”和“Telegram 已收到”是两个不同的阶段：只有 `delivered` 表示 Telegram 确认收到了消息。`uncertain` 表示至少有一次尝试结果未知，服务端已经放弃重试，Telegram 可能收到了，也可能没收到。
+状态由**主通道**决定。默认主通道是 Telegram，同时给已配对的 App 设备发一份辅助推送（`aux`，不影响状态，最长重试 1 小时）。`NEKOPOST_TELEGRAM_TYPES` 不包含的类型没有 Telegram 投递，App 推送成为主通道（`app_only: true`）：FCM 接受推送即为 `delivered`，`status_text` 为「已推送到 App」（`partial` 为「部分设备已收到推送」），最长重试 24 小时；既不发 Telegram 又没有可推送的设备时为 `not_routed`，文字会说明原因。发往 Telegram 的消息文字不变，快捷指令显示的「已送达 Telegram」保持兼容。
 
-单个投递记录的状态（`deliveries[].state`）：`pending`、`sending`、`retrying`、`delivered`、`failed`、`uncertain`，启用短信过滤时还有 `held`（等待分类）和 `filtered`。状态转换见 [architecture.md](architecture.md#4-投递语义与状态机)。
+“服务器已接收”和“已送达”是两个不同的阶段：只有 `delivered` 表示主通道确认收到了消息。`uncertain` 表示至少有一次尝试结果未知，服务端已经放弃重试，Telegram 可能收到了，也可能没收到。
+
+单个投递记录的状态（`deliveries[].state`）：`pending`、`sending`、`retrying`、`delivered`、`failed`、`uncertain`、`skipped`，启用短信过滤时还有 `held`（等待分类）和 `filtered`。`skipped`（0.10.0）是终态，表示 App 设备自己的推送设置排除了这条消息（类型已关闭、低于最低优先级、类别已关闭，或它就是转发这条消息的设备），聚合状态时忽略：全部被跳过即 `not_routed`。App 推送因服务重启中断时直接重推（设备按消息 ID 去重），不会标为 `uncertain`。状态转换见 [architecture.md](architecture.md#4-投递语义与状态机)。
 
 ## 数据保留
 
 | 数据 | 保留时长 |
 |---|---|
-| 标题、正文、meta（`payloads` 表） | 只保留到消息进入终态，之后立即删除（磁盘页会被覆盖，WAL 每小时截断）。被短信过滤拦下的消息例外：保留 `NEKOPOST_FILTER_KEEP_DAYS`（默认 7 天）以便找回 |
+| 标题、正文、meta（`bodies` 表，加密） | 设置了 `NEKOPOST_BODY_RETENTION_DAYS` 时保留到期为止（没有投递目标的消息也保留，供 App 收件箱查看）。V1 模式（保留天数为 0）只保留到消息进入终态，之后立即删除（磁盘页会被覆盖，WAL 每小时截断）。例外：被短信过滤拦下的消息和推送过 App 的消息保留 `NEKOPOST_FILTER_KEEP_DAYS`（默认 7 天），前者以便找回，后者以便设备在推送后取回正文 |
 | 元数据（`messages`、`deliveries` 表，不含正文） | `NEKOPOST_RETENTION_DAYS`（默认 30 天） |
 | 幂等键 | 随元数据一起保留，保留期内有效 |
 

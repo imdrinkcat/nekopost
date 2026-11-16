@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -67,12 +68,12 @@ func NewFCM(ctx context.Context, st *store.Store, path, override string) (*FCM, 
 func (f *FCM) Name() string { return "fcm" }
 
 func (f *FCM) Deliver(ctx context.Context, job store.Job, progress func(int, int, int64)) Result {
-	registration, allowed, err := f.Store.PushRegistration(ctx, job.Delivery.Target, job.Message, f.Now())
+	registration, skip, err := f.Store.PushRegistration(ctx, job.Delivery.Target, job.Message, f.Now())
 	if err != nil {
 		return Result{Outcome: RetrySafe, FailKind: health.FailOther, Err: "无法读取推送设置"}
 	}
-	if !allowed {
-		return Result{Outcome: Permanent, Err: store.PushSkipped}
+	if skip != "" {
+		return Result{Outcome: Skipped, Err: skip}
 	}
 	priority := "HIGH"
 	if job.Message.Priority == model.PriorityLow {
@@ -148,6 +149,35 @@ func (f *FCM) send(ctx context.Context, registration string, data map[string]str
 			return Result{Outcome: RetrySafe, Err: "FCM 服务端错误"}, false
 		}
 		return Result{Outcome: Permanent, FailKind: health.FailConfig, Err: "FCM 拒绝了请求"}, false
+	}
+}
+
+// Signal kinds sent to devices besides new-message pushes.
+const (
+	SignalRead = "read" // read on another device or in Telegram
+	SignalGone = "gone" // deleted, or its body was destroyed
+)
+
+// Signal tells every App device except one that messages changed elsewhere,
+// so it can clear their notifications. Data-only, IDs only, normal priority.
+// It is best effort: nothing is stored or retried, and the App also
+// reconciles its notifications when it syncs.
+func (f *FCM) Signal(ctx context.Context, kind string, ids []string, except string) {
+	if len(ids) == 0 {
+		return
+	}
+	devices, err := f.Store.PushDevices(ctx, except, f.Now())
+	if err != nil {
+		return
+	}
+	for start := 0; start < len(ids); start += 50 {
+		chunk := ids[start:min(start+50, len(ids))]
+		data := map[string]string{"v": "1", "t": kind, "ids": strings.Join(chunk, ",")}
+		for _, d := range devices {
+			if _, invalid := f.send(ctx, d.Token, data, "NORMAL", "3600s"); invalid {
+				_ = f.Store.RejectPushRegistration(ctx, d.ID, d.Token)
+			}
+		}
 	}
 }
 

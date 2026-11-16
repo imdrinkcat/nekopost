@@ -45,13 +45,20 @@ func (s *Server) inboxItem(ctx context.Context, id string, detail bool) (map[str
 	m := info.Message
 	deliveries := make([]map[string]any, 0, len(info.Deliveries))
 	for _, d := range info.Deliveries {
-		deliveries = append(deliveries, map[string]any{"channel": d.Channel, "state": d.State, "acked": !d.AckedAt.IsZero(),
+		deliveries = append(deliveries, map[string]any{"channel": d.Channel, "aux": d.Aux, "state": d.State, "acked": !d.AckedAt.IsZero(),
 			"attempts": d.Attempts, "parts_sent": d.PartsSent, "parts_total": d.PartsTotal, "uncertain": d.Uncertain})
+	}
+	// sender is the unmasked title for a conversation list (SMS address or
+	// "<app> · <title>"); title and preview stay masked for compatibility.
+	var sender any
+	if ok {
+		sender = msgrule.Sender(t)
 	}
 	item := map[string]any{"id": m.ID, "seq": st.Seq, "source": map[string]string{"id": src.ID, "name": src.Name, "icon": src.Icon},
 		"type": m.Kind, "priority": m.Priority, "category": m.Category, "category_text": m.Category.Label(),
-		"title": filter.Preview(t, ""), "preview": filter.Preview(t, b), "has_code": st.HasCode, "received_at": s.ts(m.ReceivedAt),
-		"occurred_at": s.ts(m.OccurredAt), "late": st.Late, "status": m.Status, "status_text": m.Status.Label(), "read": st.Read,
+		"title": filter.Preview(t, ""), "preview": filter.Preview(t, b), "sender": sender, "has_code": st.HasCode, "received_at": s.ts(m.ReceivedAt),
+		"occurred_at": s.ts(m.OccurredAt), "late": st.Late, "status": m.Status, "status_text": m.Status.LabelVia(info.AppOnly),
+		"app_only": info.AppOnly, "read": st.Read,
 		"deliveries": deliveries, "body_state": st.BodyState, "body_expires_at": s.ts(st.BodyExpires), "redacted": !detail}
 	if detail && ok {
 		item["title"], item["body"], item["meta"] = t, b, meta
@@ -74,7 +81,13 @@ func (s *Server) inboxList(w http.ResponseWriter, r *http.Request, d store.Devic
 		}
 		at = time.UnixMilli(ms)
 	}
-	list, err := s.Store.InboxPage(r.Context(), at, id, 31)
+	f := store.InboxFilter{Unread: q.Get("unread") == "1", HasCode: q.Get("has_code") == "1"}
+	list, err := s.Store.InboxPageFiltered(r.Context(), at, id, 31, f)
+	if err != nil {
+		writeError(w, r, errInternal)
+		return
+	}
+	unread, err := s.Store.UnreadCount(r.Context())
 	if err != nil {
 		writeError(w, r, errInternal)
 		return
@@ -97,7 +110,7 @@ func (s *Server) inboxList(w http.ResponseWriter, r *http.Request, d store.Devic
 		}
 		items = append(items, item)
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "next_cursor": next})
+	writeJSON(w, 200, map[string]any{"items": items, "next_cursor": next, "unread_count": unread})
 }
 
 func (s *Server) inboxGet(w http.ResponseWriter, r *http.Request, d store.Device) {
@@ -105,6 +118,19 @@ func (s *Server) inboxGet(w http.ResponseWriter, r *http.Request, d store.Device
 	if !inboxID.MatchString(id) {
 		writeError(w, r, errNotFound)
 		return
+	}
+	// A fetch triggered by a push is not a person viewing the message:
+	// audit it separately and let it acknowledge the push in the same trip.
+	q := r.URL.Query()
+	action := "message.view"
+	if q.Get("via") == "push" {
+		action = "message.push_fetch"
+		if q.Get("ack") == "1" {
+			if err := s.Store.AckDevice(r.Context(), d.ID, []string{id}, s.now()); err != nil {
+				writeError(w, r, errInternal)
+				return
+			}
+		}
 	}
 	item, err := s.inboxItem(r.Context(), id, true)
 	if errors.Is(err, store.ErrNotFound) {
@@ -115,7 +141,7 @@ func (s *Server) inboxGet(w http.ResponseWriter, r *http.Request, d store.Device
 		writeError(w, r, errInternal)
 		return
 	}
-	if err := s.Store.Audit(r.Context(), s.now(), "device:"+d.ID, "message.view", id, "ok"); err != nil {
+	if err := s.Store.Audit(r.Context(), s.now(), "device:"+d.ID, action, id, "ok"); err != nil {
 		writeError(w, r, errInternal)
 		return
 	}
@@ -167,7 +193,7 @@ func (s *Server) inboxRead(w http.ResponseWriter, r *http.Request, d store.Devic
 		deviceError(w, r, 400, "invalid_body", "需要已读状态")
 		return
 	}
-	err := s.Store.SetMessageRead(r.Context(), id, *body.Read, s.now())
+	changed, err := s.Store.SetMessageRead(r.Context(), id, *body.Read, s.now())
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, r, errNotFound)
 		return
@@ -175,6 +201,9 @@ func (s *Server) inboxRead(w http.ResponseWriter, r *http.Request, d store.Devic
 	if err != nil {
 		writeError(w, r, errInternal)
 		return
+	}
+	if changed && *body.Read {
+		s.signal("read", []string{id}, d.ID)
 	}
 	w.WriteHeader(204)
 }

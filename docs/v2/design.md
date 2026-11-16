@@ -700,6 +700,7 @@ unit 增量：`ImportCredential=nekopost-*`（从 `/etc/credstore.encrypted/` �
 - FCM 的「已投递」= FCM 已接受；端到端证据是设备 ack（界面分开显示「推送：已交给 FCM」→「✓✓ 已在 Fold8 取回」）。
 - **Worker 按通道拆分**：每个 channel 一个协程，共享 `DueJobs(ctx, now, channel, limit)`；Telegram 的 1.1 秒节流只作用于 Telegram。FCM 最长重试 `NEKOPOST_FCM_MAX_AGE=1h`。
 - 默认两边都发；M6 增加 `NEKOPOST_TELEGRAM_TYPES`。App 按消息 ID 去重（通知 tag = 消息 ID）。
+- **0.10.0 起 App 推送可作主通道**（用户要求「不用 Telegram 也应该能收到消息」）：`NEKOPOST_TELEGRAM_TYPES` 不包含的类型（`none` = 全部不发）没有 Telegram 投递，FCM 投递不再是 aux，由它决定状态（「已推送到 App」），最长重试 min(`MaxAge`, 24 h)；Telegram 主通道时 FCM 仍是 aux（1 h）。设备推送偏好在入库时就判定，排除的设备记 `skipped`（终态，不计入聚合）；来源设备在 App 主通道时也记 `skipped`。V1 模式下推送过 App 的正文保留到 `exp`，以便设备取回。Bot 仍用于管理与审批。
 
 ### 6.5 失败处理（映射到现有 `Outcome`）
 
@@ -1263,7 +1264,7 @@ M3 首发按用户决定只接 Google。浏览器使用服务端渲染的只读�
 | `NEKOPOST_FCM_CREDENTIALS_FILE` / `_PROJECT_ID` | `$CREDENTIALS_DIRECTORY/nekopost-fcm-sa` / 从 JSON 读取 | 文件不存在则推送关闭 |
 | `NEKOPOST_FCM_MAX_AGE` / `NEKOPOST_FCM_TTL` | `1h` / `24h` | FCM 最长重试时间 / `msg` 的 `android.ttl` |
 | `NEKOPOST_FCM_INCLUDE_ID` | `true` | `false` 时只发 `sync` |
-| `NEKOPOST_TELEGRAM_TYPES` | `*` | M6：哪些消息类型发到 Telegram |
+| `NEKOPOST_TELEGRAM_TYPES` | `*` | 哪些消息类型发到 Telegram（`*` 全部；`none`/`-` 都不发，只推 App；或逗号分隔的类型）。0.10.0 实现 |
 | `NEKOPOST_MIN_APP_VERSION` | 空 | `/v1/meta` 返回 |
 
 ## 附录 B：新增 Go 依赖

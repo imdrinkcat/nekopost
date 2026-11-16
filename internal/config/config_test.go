@@ -124,3 +124,58 @@ func TestTrustedProxies(t *testing.T) {
 		t.Errorf("hostname should be rejected: %v", err)
 	}
 }
+
+func TestTelegramTypes(t *testing.T) {
+	cases := []struct {
+		raw     string
+		want    []string // nil = all types
+		none    bool     // empty, non-nil map
+		wantErr bool
+	}{
+		{raw: ""},
+		{raw: "*"},
+		{raw: " * "},
+		{raw: "none", none: true},
+		{raw: "NONE", none: true},
+		{raw: "-", none: true},
+		{raw: " none , ", none: true},
+		{raw: "sms", want: []string{"sms"}},
+		{raw: "sms, notification,", want: []string{"sms", "notification"}},
+		{raw: "sms,,notification", want: []string{"sms", "notification"}},
+		{raw: "none,sms", wantErr: true},
+		{raw: "*,sms", wantErr: true},
+		{raw: "Bad Type", wantErr: true},
+	}
+	for _, c := range cases {
+		cfg, err := Load(env(map[string]string{"NEKOPOST_TELEGRAM_TYPES": c.raw}))
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("%q: want error", c.raw)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%q: %v", c.raw, err)
+			continue
+		}
+		switch {
+		case c.none:
+			if cfg.TelegramTypes == nil || len(cfg.TelegramTypes) != 0 || cfg.TelegramAll() {
+				t.Errorf("%q: want none, got %v", c.raw, cfg.TelegramTypes)
+			}
+		case c.want == nil:
+			if cfg.TelegramTypes != nil || !cfg.TelegramAll() {
+				t.Errorf("%q: want all, got %v", c.raw, cfg.TelegramTypes)
+			}
+		default:
+			if len(cfg.TelegramTypes) != len(c.want) {
+				t.Errorf("%q: got %v", c.raw, cfg.TelegramTypes)
+			}
+			for _, k := range c.want {
+				if !cfg.TelegramTypes[k] {
+					t.Errorf("%q: missing %s", c.raw, k)
+				}
+			}
+		}
+	}
+}

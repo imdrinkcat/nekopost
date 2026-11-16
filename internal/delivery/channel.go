@@ -23,6 +23,9 @@ const (
 	RetryUncertain
 	// Permanent: the target rejected the message; retrying will not help.
 	Permanent
+	// Skipped: the target's own settings exclude the message. Nothing was
+	// sent and nothing failed; it does not count towards the status.
+	Skipped
 )
 
 // Result is what a channel reports for one attempt.

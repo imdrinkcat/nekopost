@@ -9,13 +9,17 @@ import (
 
 // InboxMeta is a message without its body.
 type InboxMeta struct {
-	ID         string
-	SourceID   string
-	Kind       string
-	Status     model.Status
-	BodyState  string
-	Late       string
-	HasCode    bool
+	ID        string
+	SourceID  string
+	Kind      string
+	Status    model.Status
+	BodyState string
+	Late      string
+	HasCode   bool
+	Read      bool
+	// AppOnly: Telegram is not part of this message's delivery; the App
+	// push decides its status (see model.Status.LabelVia).
+	AppOnly    bool
 	Seq        int64
 	ReceivedAt time.Time
 	Title      string
@@ -30,15 +34,35 @@ func (s *Store) ListInbox(ctx context.Context, limit int) ([]InboxMeta, error) {
 	return s.InboxPage(ctx, time.Time{}, "", limit)
 }
 
+const inboxCols = `m.id, m.source_id, m.kind, m.status, m.body_state, m.late, m.has_code, m.read_at IS NOT NULL,
+	` + appOnlySQL + `, m.seq, m.received_at`
+
+// InboxFilter narrows an inbox page.
+type InboxFilter struct {
+	Unread  bool
+	HasCode bool
+}
+
 // InboxPage lists metadata before an optional (received_at, id) cursor.
 func (s *Store) InboxPage(ctx context.Context, at time.Time, id string, limit int) ([]InboxMeta, error) {
-	query := `SELECT id, source_id, kind, status, body_state, late, has_code, seq, received_at FROM messages`
+	return s.InboxPageFiltered(ctx, at, id, limit, InboxFilter{})
+}
+
+// InboxPageFiltered is InboxPage restricted to unread and/or code messages.
+func (s *Store) InboxPageFiltered(ctx context.Context, at time.Time, id string, limit int, f InboxFilter) ([]InboxMeta, error) {
+	query := `SELECT ` + inboxCols + ` FROM messages m WHERE 1=1`
 	var args []any
 	if !at.IsZero() {
-		query += " WHERE (received_at, id) < (?, ?)"
+		query += " AND (m.received_at, m.id) < (?, ?)"
 		args = append(args, at.UnixMilli(), id)
 	}
-	query += " ORDER BY received_at DESC, id DESC LIMIT ?"
+	if f.Unread {
+		query += " AND m.read_at IS NULL"
+	}
+	if f.HasCode {
+		query += " AND m.has_code = 1"
+	}
+	query += " ORDER BY m.received_at DESC, m.id DESC LIMIT ?"
 	rows, err := s.db.QueryContext(ctx, query, append(args, limit)...)
 	if err != nil {
 		return nil, err
@@ -49,7 +73,7 @@ func (s *Store) InboxPage(ctx context.Context, at time.Time, id string, limit in
 
 // SearchCandidates returns stored messages older than the cursor, newest first.
 func (s *Store) SearchCandidates(ctx context.Context, before time.Time, beforeID string, limit int) ([]InboxMeta, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.source_id,m.kind,m.status,m.body_state,m.late,m.has_code,m.seq,m.received_at
+	rows, err := s.db.QueryContext(ctx, `SELECT `+inboxCols+`
 		FROM messages m JOIN bodies b ON b.message_id=m.id
 		WHERE (m.received_at,m.id)<(?,?) AND m.body_state='stored' AND b.expires_at>?
 		ORDER BY m.received_at DESC,m.id DESC LIMIT ?`, before.UnixMilli(), beforeID, s.now().UnixMilli(), limit)
@@ -71,7 +95,7 @@ func scanInbox(rows interface {
 		var st, late string
 		var has int
 		var at int64
-		if err := rows.Scan(&m.ID, &m.SourceID, &m.Kind, &st, &m.BodyState, &late, &has, &m.Seq, &at); err != nil {
+		if err := rows.Scan(&m.ID, &m.SourceID, &m.Kind, &st, &m.BodyState, &late, &has, &m.Read, &m.AppOnly, &m.Seq, &at); err != nil {
 			return nil, err
 		}
 		m.Status = model.Status(st)
@@ -86,4 +110,11 @@ func scanInbox(rows interface {
 // ReadBody decrypts one message. ok is false when the body is gone.
 func (s *Store) ReadBody(ctx context.Context, id string) (title, body string, meta map[string]string, ok bool, err error) {
 	return s.readBody(ctx, id)
+}
+
+// UnreadCount is the number of retained messages nobody has read yet.
+func (s *Store) UnreadCount(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM messages WHERE read_at IS NULL").Scan(&n)
+	return n, err
 }

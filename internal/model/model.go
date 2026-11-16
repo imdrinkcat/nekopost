@@ -5,6 +5,7 @@ package model
 import (
 	"crypto/rand"
 	"regexp"
+	"slices"
 	"time"
 )
 
@@ -80,6 +81,25 @@ func (s Status) Label() string {
 	return string(s)
 }
 
+// LabelVia is Label for a message whose primary channel may be the App
+// push instead of Telegram. appOnly means no Telegram delivery is part of
+// the message's status. Telegram-routed messages keep Label's exact text,
+// which iPhone Shortcuts display verbatim.
+func (s Status) LabelVia(appOnly bool) string {
+	if !appOnly {
+		return s.Label()
+	}
+	switch s {
+	case StatusDelivered:
+		return "已推送到 App"
+	case StatusPartial:
+		return "部分设备已收到推送"
+	case StatusNotRouted:
+		return "未转发：Telegram 不接收此类消息，也没有可推送的 App 设备"
+	}
+	return s.Label()
+}
+
 // DeliveryState is the state of one message towards one target.
 type DeliveryState string
 
@@ -92,15 +112,24 @@ const (
 	DeliveryUncertain DeliveryState = "uncertain"
 	DeliveryHeld      DeliveryState = "held"     // waiting for the content filter
 	DeliveryFiltered  DeliveryState = "filtered" // dropped by the content filter
+	// DeliverySkipped: the target's own settings exclude this message (an
+	// App device that turned the type off, or the device it came from).
+	// It is final and does not count towards the message status.
+	DeliverySkipped DeliveryState = "skipped"
 )
 
 // Terminal reports whether the delivery is finished.
 func (d DeliveryState) Terminal() bool {
-	return d == DeliveryDelivered || d == DeliveryFailed || d == DeliveryUncertain || d == DeliveryFiltered
+	return d == DeliveryDelivered || d == DeliveryFailed || d == DeliveryUncertain || d == DeliveryFiltered || d == DeliverySkipped
 }
 
 // AggregateStatus derives a message status from its delivery states.
+// Skipped deliveries are ignored; if nothing else remains the message was
+// not routed.
 func AggregateStatus(states []DeliveryState) Status {
+	if slices.Contains(states, DeliverySkipped) {
+		states = slices.DeleteFunc(slices.Clone(states), func(s DeliveryState) bool { return s == DeliverySkipped })
+	}
 	if len(states) == 0 {
 		return StatusNotRouted
 	}

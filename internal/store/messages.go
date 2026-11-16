@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"nekopost/internal/model"
@@ -18,6 +19,9 @@ type NewDelivery struct {
 	Target  string
 	Silent  bool
 	Held    bool // wait for the content filter before delivering
+	// Skip, when set, records the target as skipped with this reason
+	// instead of delivering to it.
+	Skip string
 }
 
 // InsertResult reports what happened to a submitted message.
@@ -26,6 +30,21 @@ type InsertResult struct {
 	Status     model.Status
 	Duplicate  bool
 	ReceivedAt time.Time
+	// AppOnly: no Telegram (or other non-App) delivery is part of the
+	// status; the App push is the message's primary channel.
+	AppOnly bool
+}
+
+// appOnlySQL is true for a message with no primary non-App delivery.
+const appOnlySQL = `NOT EXISTS(SELECT 1 FROM deliveries d WHERE d.message_id = m.id AND d.aux = 0 AND d.channel <> 'fcm')`
+
+func appOnly(ds []model.Delivery) bool {
+	for _, d := range ds {
+		if !d.Aux && d.Channel != "fcm" {
+			return false
+		}
+	}
+	return true
 }
 
 // InsertMessage persists a message, its payload and its deliveries in one
@@ -62,17 +81,26 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 		if _, err := tx.ExecContext(ctx, "UPDATE messages SET dup_count = dup_count + 1 WHERE id = ?", dupID); err != nil {
 			return InsertResult{}, err
 		}
+		var dupApp bool
+		if err := tx.QueryRowContext(ctx, "SELECT "+appOnlySQL+" FROM messages m WHERE m.id = ?", dupID).Scan(&dupApp); err != nil {
+			return InsertResult{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return InsertResult{}, err
 		}
-		return InsertResult{ID: dupID, Status: model.Status(dupStatus), Duplicate: true, ReceivedAt: time.UnixMilli(dupReceived)}, nil
+		return InsertResult{ID: dupID, Status: model.Status(dupStatus), Duplicate: true, ReceivedAt: time.UnixMilli(dupReceived), AppOnly: dupApp}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return InsertResult{}, err
 	}
 
+	// When routing gave no primary target (Telegram does not take this
+	// type), the App push becomes the primary channel and decides the
+	// status. Otherwise it stays an auxiliary, best-effort copy.
+	appPrimary := !slices.ContainsFunc(targets, func(t NewDelivery) bool { return !t.Aux })
 	if s.enablePush {
-		push, err := pushTargets(ctx, tx, m.OriginDevice, m.ReceivedAt, (m.NeedsClassification || len(targets) > 0 && targets[0].Held))
+		held := m.NeedsClassification || len(targets) > 0 && targets[0].Held
+		push, err := pushTargets(ctx, tx, m, m.ReceivedAt, held, appPrimary)
 		if err != nil {
 			return InsertResult{}, err
 		}
@@ -82,7 +110,10 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 	var primary []model.DeliveryState
 	for i, t := range targets {
 		states[i] = model.DeliveryPending
-		if t.Held {
+		switch {
+		case t.Skip != "":
+			states[i] = model.DeliverySkipped
+		case t.Held:
 			states[i] = model.DeliveryHeld
 		}
 		if !t.Aux {
@@ -90,9 +121,6 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 		}
 	}
 	m.Status = model.AggregateStatus(primary)
-	if len(primary) == 0 && len(states) > 0 && states[0] == model.DeliveryHeld {
-		m.Status = model.StatusClassifying
-	}
 	var finished any
 	if m.Status.Terminal() {
 		finished = m.ReceivedAt.UnixMilli()
@@ -102,8 +130,12 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 	if err != nil {
 		return InsertResult{}, err
 	}
+	// The body is kept for the App inbox whenever bodies are retained, even
+	// if nothing could be pushed (e.g. only the source device reads it).
+	// V1 mode without any target stores nothing, as before.
+	keepBody := len(targets) > 0 || s.bodyRetention > 0
 	bodyState := "none"
-	if len(targets) > 0 {
+	if keepBody {
 		bodyState = "stored"
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO messages(id, source_id, idem_key, content_hash, kind, priority,
@@ -114,7 +146,7 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 		seq, bodyState, boolInt(hasCode), late, m.OriginDevice); err != nil {
 		return InsertResult{}, err
 	}
-	if len(targets) > 0 {
+	if keepBody {
 		exp := s.expiresAt(m.ReceivedAt, hasCode, string(m.Category))
 		if s.bodyRetention == 0 {
 			keep := s.filteredKeep
@@ -128,22 +160,26 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 		}
 	}
 	for i, t := range targets {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO deliveries(message_id, channel, target, silent, state, next_attempt_at, created_at, aux)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, m.ID, t.Channel, t.Target, boolInt(t.Silent), string(states[i]),
-			m.ReceivedAt.UnixMilli(), m.ReceivedAt.UnixMilli(), boolInt(t.Aux)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO deliveries(message_id, channel, target, silent, state, next_attempt_at, created_at, aux, last_error)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`, m.ID, t.Channel, t.Target, boolInt(t.Silent), string(states[i]),
+			m.ReceivedAt.UnixMilli(), m.ReceivedAt.UnixMilli(), boolInt(t.Aux), t.Skip); err != nil {
 			return InsertResult{}, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return InsertResult{}, err
 	}
-	return InsertResult{ID: m.ID, Status: m.Status, ReceivedAt: m.ReceivedAt}, nil
+	return InsertResult{ID: m.ID, Status: m.Status, ReceivedAt: m.ReceivedAt, AppOnly: !slices.ContainsFunc(targets, func(t NewDelivery) bool {
+		return !t.Aux && t.Channel != "fcm"
+	})}, nil
 }
 
 // MessageInfo is a message's metadata (no payload) plus its deliveries.
 type MessageInfo struct {
 	Message    model.Message
 	Deliveries []model.Delivery
+	// AppOnly: the App push, not Telegram, decides the status.
+	AppOnly bool
 }
 
 // GetMessage returns message metadata and deliveries; the payload is never
@@ -190,6 +226,7 @@ func getMessage(ctx context.Context, db interface {
 		}
 		info.Deliveries = append(info.Deliveries, d)
 	}
+	info.AppOnly = appOnly(info.Deliveries)
 	return info, rows.Err()
 }
 
@@ -291,7 +328,8 @@ func (s *Store) DueJobs(ctx context.Context, now time.Time, channel string, limi
 		j.Message.OccurredAt = fromMs(occurred)
 		j.Message.ReceivedAt = time.UnixMilli(received)
 		j.Source.ID = j.Message.SourceID
-		if !d.Aux {
+		// App pushes carry only IDs; the device fetches the body itself.
+		if d.Channel != "fcm" {
 			title, body, meta, ok, err := s.readBody(ctx, d.MessageID)
 			if err != nil {
 				return nil, err
@@ -445,7 +483,16 @@ func (s *Store) updateAggregate(ctx context.Context, tx *sql.Tx, msgID string, n
 		// V1 mode deletes the body as soon as delivery finishes. Filtered
 		// messages stay until ExpireBodies, so they can still be rescued.
 		// With a retention period the body stays until it expires.
+		// Messages pushed to the App keep it until the exp set at insert,
+		// because the device fetches the body after the push.
+		var pushed bool
 		if s.bodyRetention == 0 && status != model.StatusFiltered {
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM deliveries
+				WHERE message_id = ? AND channel = 'fcm' AND state <> 'skipped')`, msgID).Scan(&pushed); err != nil {
+				return "", err
+			}
+		}
+		if s.bodyRetention == 0 && status != model.StatusFiltered && !pushed {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM bodies WHERE message_id = ?", msgID); err != nil {
 				return "", err
 			}
@@ -487,8 +534,12 @@ func (s *Store) RecoverInFlight(ctx context.Context, now time.Time) (int, error)
 		ids = append(ids, id)
 	}
 	rows.Close()
-	res, err := tx.ExecContext(ctx, `UPDATE deliveries SET state = 'retrying', uncertain = 1, next_attempt_at = ?,
-		last_error = 'interrupted: 服务在投递过程中重启，结果未知' WHERE state = 'sending'`, now.UnixMilli())
+	// A repeated App push is harmless (the device dedupes by message ID),
+	// so only other channels are flagged uncertain.
+	res, err := tx.ExecContext(ctx, `UPDATE deliveries SET state = 'retrying',
+		uncertain = CASE WHEN channel = 'fcm' THEN uncertain ELSE 1 END, next_attempt_at = ?,
+		last_error = CASE WHEN channel = 'fcm' THEN 'interrupted: 服务在推送过程中重启，将重新推送'
+			ELSE 'interrupted: 服务在投递过程中重启，结果未知' END WHERE state = 'sending'`, now.UnixMilli())
 	if err != nil {
 		return 0, err
 	}

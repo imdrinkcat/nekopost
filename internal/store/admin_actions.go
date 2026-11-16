@@ -135,9 +135,12 @@ func (s *Store) RetryMessage(ctx context.Context, id, actor string, rescue bool,
 			return ErrNotRescuable
 		}
 		// Retain old Telegram message IDs so a later deletion can erase the older copies too.
+		// Redeliver over the channels that decide the status: Telegram, or
+		// the App push for App-only messages. The device re-acks.
 		res, err := tx.ExecContext(ctx, `UPDATE deliveries SET state='pending',next_attempt_at=?,created_at=?,
-			parts_total=0,parts_sent=0,attempts=0,last_error='',delivered_at=NULL,uncertain=0
-			WHERE message_id=? AND channel='telegram'`, now.UnixMilli(), now.UnixMilli(), id)
+			parts_total=0,parts_sent=0,attempts=0,last_error='',delivered_at=NULL,uncertain=0,
+			acked_at=CASE WHEN channel='fcm' THEN NULL ELSE acked_at END
+			WHERE message_id=? AND aux=0 AND state<>'skipped'`, now.UnixMilli(), now.UnixMilli(), id)
 		if err != nil {
 			return err
 		}
