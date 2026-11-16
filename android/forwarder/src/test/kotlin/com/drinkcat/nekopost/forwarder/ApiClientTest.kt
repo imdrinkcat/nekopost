@@ -17,6 +17,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.net.InetAddress
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -139,26 +140,38 @@ class ApiClientTest {
 
     @Test
     fun pinningRejectsCertificatesOutsideTheIsrgRoots() {
-        val cert = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val localhost = InetAddress.getByName("localhost")
+        val cert = HeldCertificate.Builder()
+            .addSubjectAlternativeName("localhost")
+            .addSubjectAlternativeName(localhost.canonicalHostName)
+            .addSubjectAlternativeName(localhost.hostAddress!!)
+            .build()
         val serverCerts = HandshakeCertificates.Builder().heldCertificate(cert).build()
         val clientCerts = HandshakeCertificates.Builder().addTrustedCertificate(cert.certificate).build()
-        server.useHttps(serverCerts.sslSocketFactory())
-        val base = OkHttpClient.Builder()
-            .sslSocketFactory(clientCerts.sslSocketFactory(), clientCerts.trustManager)
-            .callTimeout(10, TimeUnit.SECONDS)
-            .build()
-        val url = server.url("/").newBuilder().host("localhost").build()
+        val tls = MockWebServer()
+        tls.useHttps(serverCerts.sslSocketFactory())
+        tls.start()
+        try {
+            val base = OkHttpClient.Builder()
+                .sslSocketFactory(clientCerts.sslSocketFactory(), clientCerts.trustManager)
+                .callTimeout(10, TimeUnit.SECONDS)
+                .build()
+            val url = tls.url("/")
+            assertTrue(url.isHttps)
 
-        // Before expiry: the self-signed (trusted!) certificate is still refused.
-        val pinned = HttpClients(base, MutableClock(Instant.parse("2026-11-16T00:00:00Z"))).forServer(url)
-        val refused = ApiClient(url, token, pinned).postMessage("{}", "k")
-        assertEquals(UploadOutcome.Retry(FailureReason.CertificatePinning, null, null, "certificate_pinning"), refused)
-        // (No response is consumed: the client gives up right after the handshake.)
-        assertEquals(ProbeOutcome.Failed(EnrollFailure.CertificatePinning, null), ApiClient(url, token, pinned).probe())
+            // Before expiry: the self-signed (trusted!) certificate is still refused.
+            val pinned = HttpClients(base, MutableClock(Instant.parse("2026-11-16T00:00:00Z"))).forServer(url)
+            val refused = ApiClient(url, token, pinned).postMessage("{}", "k")
+            assertEquals(UploadOutcome.Retry(FailureReason.CertificatePinning, null, null, "certificate_pinning"), refused)
+            // (No response is consumed: the client gives up right after the handshake.)
+            assertEquals(ProbeOutcome.Failed(EnrollFailure.CertificatePinning, null), ApiClient(url, token, pinned).probe())
 
-        // After expiry pinning fails open to normal certificate validation.
-        val expired = HttpClients(base, MutableClock(Instant.parse("2028-01-01T00:00:00Z"))).forServer(url)
-        respond(202, """{"ok":true,"id":"m_P","duplicate":false}""")
-        assertEquals(UploadOutcome.Accepted("m_P", false, 202), ApiClient(url, token, expired).postMessage("{}", "k"))
+            // After expiry pinning fails open to normal certificate validation.
+            val expired = HttpClients(base, MutableClock(Instant.parse("2028-01-01T00:00:00Z"))).forServer(url)
+            tls.enqueue(MockResponse.Builder().code(202).body("""{"ok":true,"id":"m_P","duplicate":false}""").build())
+            assertEquals(UploadOutcome.Accepted("m_P", false, 202), ApiClient(url, token, expired).postMessage("{}", "k"))
+        } finally {
+            tls.close()
+        }
     }
 }
