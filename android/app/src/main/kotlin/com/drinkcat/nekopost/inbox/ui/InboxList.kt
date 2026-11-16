@@ -343,16 +343,35 @@ private fun Banners(state: InboxUiState, actions: InboxActions) {
     }
 }
 
+/** First load: a few still placeholder rows (no spinner), so the list does not jump when it arrives. */
 @Composable
 private fun LoadingState() {
+    val bar = MaterialTheme.colorScheme.surfaceContainerHigh
     Column(
-        Modifier.fillMaxSize().padding(NekoTokens.Spacing.xxl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.m),
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = NekoTokens.Spacing.s)
+            .testTag("inbox_loading"),
     ) {
-        Spacer(Modifier.height(NekoTokens.Spacing.xxl))
-        CircularProgressIndicator()
-        Text(stringResource(R.string.inbox_loading), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            stringResource(R.string.inbox_loading),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = NekoTokens.Spacing.m, vertical = NekoTokens.Spacing.s),
+        )
+        repeat(6) { i ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = NekoTokens.Spacing.m),
+            ) {
+                Box(Modifier.size(48.dp).background(bar, CircleShape))
+                Spacer(Modifier.width(NekoTokens.Spacing.m))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.s)) {
+                    Box(Modifier.fillMaxWidth(if (i % 2 == 0) 0.45f else 0.6f).height(14.dp).background(bar, MaterialTheme.shapes.extraSmall))
+                    Box(Modifier.fillMaxWidth(if (i % 3 == 0) 0.9f else 0.75f).height(12.dp).background(bar, MaterialTheme.shapes.extraSmall))
+                }
+            }
+        }
     }
 }
 
