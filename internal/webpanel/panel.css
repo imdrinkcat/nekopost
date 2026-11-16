@@ -481,18 +481,20 @@ a.row:active { background: var(--surface-highest); }
 .card.item > * { margin: 0; }
 
 /* ---------- Forms ---------- */
+/* Each field spans three shared rows (label, control, hint) so controls and
+   the submit button line up across columns whatever hints a field has. */
 .form {
-  display: grid; gap: 16px;
+  display: grid; gap: 6px 16px;
   grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
   align-items: start;
 }
-.field { display: grid; gap: 6px; min-width: 0; }
+.field, .form-end {
+  display: grid; grid-row: span 3; grid-template-rows: subgrid;
+  gap: 6px; min-width: 0; margin-bottom: 10px;
+}
 .field label { font-weight: 500; font-size: .875rem; color: var(--on-surface-variant); }
 .field small { color: var(--on-surface-variant); font-size: .8125rem; line-height: 1.45; }
-.form-end { display: grid; gap: 6px; align-self: start; }
-.form-end::before { content: "\00a0"; font-size: .875rem; font-weight: 500; }
-.form-end .btn { width: 100%; min-height: 52px; }
-@media (max-width: 567px) { .form-end::before { display: none; } }
+.form-end .btn { grid-row: 2; width: 100%; min-height: 52px; }
 input, select {
   width: 100%; min-width: 0; min-height: 52px;
   padding: 12px 14px;
@@ -671,7 +673,7 @@ pre {
   .nav a .i { box-sizing: border-box; width: 56px; height: 32px; padding: 4px 16px; }
   .nav-group:not(:first-child) { display: block; height: 1px; margin: 6px 16px; background: var(--outline-variant); font-size: 0; overflow: hidden; }
   .content { padding: 32px 32px 64px; }
-  .form-end .btn { width: auto; }
+  .form-end .btn { width: auto; justify-self: start; }
 }
 
 /* ---------- Large: desktop = navigation drawer ---------- */
