@@ -32,14 +32,16 @@ internal class AndroidKeyManager(private val context: Context) : KeyManager {
 
     override fun aead(): Aead = cached ?: synchronized(this) { cached ?: create().also { cached = it } }
 
-    override fun destroy() = synchronized(this) {
-        cached = null
-        context.deleteSharedPreferences(KEYSET_PREFS)
-        try {
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-            if (keyStore.containsAlias(MASTER_ALIAS)) keyStore.deleteEntry(MASTER_ALIAS)
-        } catch (e: Exception) {
-            Log.w(TAG, "cannot delete the Keystore key: ${e.javaClass.simpleName}")
+    override fun destroy() {
+        synchronized(this) {
+            cached = null
+            context.deleteSharedPreferences(KEYSET_PREFS)
+            try {
+                val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+                if (keyStore.containsAlias(MASTER_ALIAS)) keyStore.deleteEntry(MASTER_ALIAS)
+            } catch (e: Exception) {
+                Log.w(TAG, "cannot delete the Keystore key: ${e.javaClass.simpleName}")
+            }
         }
     }
 
