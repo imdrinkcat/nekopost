@@ -43,7 +43,8 @@ async function run(browser, viewport, label, full) {
   page.on("console", message => {
     if (/content security policy|trusted type|refused to/i.test(message.text())) issues.push(message.text());
   });
-  page.on("dialog", dialog => dialog.accept());
+  const dialogs = [];
+  page.on("dialog", dialog => { dialogs.push(dialog.type() + ":" + dialog.message()); return dialog.accept(); });
 
   await page.goto(url);
   await page.getByRole("link", { name: "使用 Google 登录" }).waitFor();
@@ -90,7 +91,12 @@ async function run(browser, viewport, label, full) {
     try {
       await page.locator("#reauth-link").waitFor({ state: "visible", timeout: 10000 });
     } catch (error) {
-      throw new Error("re-auth prompt missing; result: " + await page.locator("#management-result").textContent() + "; " + issues.join(" | "));
+      const state = await page.evaluate(() => {
+        const b = document.querySelector('button[data-action="retry"]');
+        return [b?.disabled, b?.closest("[data-row]")?.dataset.row, document.body.dataset.csrf?.length].join(",");
+      });
+      throw new Error("re-auth prompt missing; result: " + await page.locator("#management-result").textContent() +
+        "; dialogs: " + dialogs.join(" | ") + "; state: " + state + "; " + issues.join(" | "));
     }
     await capture(page, label, "13-message-reauth");
     for (const [i, id] of messages.entries()) {
