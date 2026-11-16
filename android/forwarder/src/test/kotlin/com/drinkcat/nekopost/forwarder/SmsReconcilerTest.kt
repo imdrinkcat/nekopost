@@ -1,6 +1,11 @@
 package com.drinkcat.nekopost.forwarder
 
 import androidx.test.core.app.ApplicationProvider
+import com.drinkcat.nekopost.core.forwarder.ForwardKind
+import com.drinkcat.nekopost.core.forwarder.ForwardStatus
+import com.drinkcat.nekopost.core.rules.RuleAction
+import com.drinkcat.nekopost.core.rules.SmsSenderRule
+import com.drinkcat.nekopost.forwarder.outbox.toItem
 import com.drinkcat.nekopost.forwarder.sms.IncomingSms
 import com.drinkcat.nekopost.forwarder.sms.InboxSms
 import com.drinkcat.nekopost.forwarder.sms.ReconcileResult
@@ -169,6 +174,52 @@ class SmsReconcilerTest {
         enrollThenWait()
         repeat(50) { inbox("短信 $it", Duration.ofMinutes(60L - it)) }
         assertEquals(50, (reconciler.run() as ReconcileResult.Done).queued)
+    }
+
+    @Test
+    fun senderRulesSkipAndLogWithoutQueueing() = runBlocking {
+        enrollThenWait()
+        env.prefs.setSmsSenderRules(
+            listOf(SmsSenderRule("+81 80-1111-2222", RuleAction.Forward), SmsSenderRule("+8180*", RuleAction.Skip)),
+        )
+        inbox("广告短信", Duration.ofMinutes(5), address = "+818099998888")
+        inbox("白名单", Duration.ofMinutes(4), address = "+818011112222")
+        val last = inbox("其他", Duration.ofMinutes(3))
+
+        assertEquals(ReconcileResult.Done(2, last.id), reconciler.run())
+        assertEquals(2, env.db.dao().all().size)
+        val log = env.db.dao().latestLog(10).map { it.toItem() }
+        val skipped = log.single { it.status == ForwardStatus.Skipped }
+        assertEquals(ForwardKind.Sms, skipped.kind)
+        assertEquals("+818099998888", skipped.title)
+
+        // Live broadcast path applies the same rules; a skipped SMS is still "seen".
+        assertEquals(
+            0,
+            env.graph.smsIngest.onBroadcast(listOf(IncomingSms("+818077776666", 1, "又一条广告", env.clock.millis())), env.clock.instant()),
+        )
+        assertEquals(2, env.db.dao().all().size)
+        assertEquals(ReconcileResult.Done(0, last.id), reconciler.run())
+    }
+
+    @Test
+    fun skippedSendersDoNotCountTowardsTheBacklog() = runBlocking {
+        enrollThenWait()
+        env.prefs.setSmsSenderRules(listOf(SmsSenderRule("SPAM*", RuleAction.Skip)))
+        repeat(60) { inbox("广告 $it", Duration.ofMinutes(60L - it), address = "SPAM$it") }
+        inbox("正常短信", Duration.ofMinutes(1))
+        assertEquals(1, (reconciler.run() as ReconcileResult.Done).queued)
+        assertNull(env.prefs.current().smsBacklog)
+    }
+
+    @Test
+    fun senderRulesSurviveUnenroll() = runBlocking {
+        enrollThenWait()
+        val rules = listOf(SmsSenderRule("CMBCHINA", RuleAction.Skip))
+        env.prefs.setSmsSenderRules(rules)
+        env.prefs.clear()
+        assertNull(env.prefs.current().enrollment)
+        assertEquals(rules, env.prefs.current().smsSenderRules)
     }
 
     @Test

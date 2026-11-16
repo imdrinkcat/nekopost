@@ -10,6 +10,8 @@ import android.provider.Telephony
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.drinkcat.nekopost.core.forwarder.SmsBacklog
+import com.drinkcat.nekopost.core.rules.RuleAction
+import com.drinkcat.nekopost.core.rules.SmsSenderRules
 import com.drinkcat.nekopost.forwarder.store.ForwarderPrefs
 import java.time.Clock
 import java.time.Duration
@@ -161,15 +163,18 @@ internal class SmsReconciler(
         val candidates = rows.filter { it.dateMillis >= lookbackStart && it.address.isNotEmpty() }
             .filterNot { ingest.isKnown(it.address, it.body, it.smscMillis) }
 
-        if (candidates.size > SmsBacklog.Threshold && !confirmBacklog) {
+        // Only SMS the sender rules would forward count towards the backlog;
+        // skipped ones still go through ingest so they are logged as Skipped.
+        val toForward = candidates.filter { SmsSenderRules.decide(settings.smsSenderRules, it.address) == RuleAction.Forward }
+        if (toForward.size > SmsBacklog.Threshold && !confirmBacklog) {
             prefs.setBacklog(
                 SmsBacklog(
-                    count = candidates.size,
-                    oldestAt = Instant.ofEpochMilli(candidates.minOf { it.dateMillis }),
+                    count = toForward.size,
+                    oldestAt = Instant.ofEpochMilli(toForward.minOf { it.dateMillis }),
                     detectedAt = now,
                 ),
             )
-            return ReconcileResult.NeedsConfirmation(candidates.size)
+            return ReconcileResult.NeedsConfirmation(toForward.size)
         }
 
         val queued = ingest.onReconciled(candidates, now)

@@ -30,6 +30,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -69,9 +70,6 @@ import com.drinkcat.nekopost.ui.shell.ShellMemory
 import com.drinkcat.nekopost.ui.shell.ShellUiState
 import com.drinkcat.nekopost.ui.shell.TestSendState
 
-/** Backlog size from which the reconciler's catch-up needs the user's go-ahead (design §8.4). */
-const val BACKLOG_CONFIRM_THRESHOLD = 50
-
 /**
  * 转发 (home): forwarding health at a glance.
  *  - Single (cover): one column, large targets.
@@ -85,21 +83,22 @@ fun ForwardScreen(
     mode: PaneMode,
     actions: ShellActions,
     memory: ShellMemory,
-    onShowLog: () -> Unit = {},
 ) {
     val f = state.forwarder
-    val showBacklog = f.isEnrolled && f.queue.pending > BACKLOG_CONFIRM_THRESHOLD &&
-        f.queue.pending > memory.backlogDismissedAt
+    // SMS held by the reconciler (more than SmsBacklog.Threshold) until the user decides.
+    val backlog = f.smsBacklog?.takeIf { f.isEnrolled }
+    val showBacklog = backlog != null && backlog.count > memory.backlogDismissedAt
+    // A resolved backlog resets "稍后", so the next one is shown whatever its size.
+    LaunchedEffect(backlog == null, f.isEnrolled) {
+        if (backlog == null && f.isEnrolled) memory.backlogDismissedAt = 0
+    }
     val banners: @Composable () -> Unit = {
-        if (showBacklog) {
+        if (showBacklog && backlog != null) {
             BacklogBanner(
-                pending = f.queue.pending,
-                onSubmitAll = {
-                    actions.onRetryNow()
-                    memory.backlogDismissedAt = f.queue.pending
-                },
-                onLater = { memory.backlogDismissedAt = f.queue.pending },
-                onShowLog = onShowLog,
+                pending = backlog.count,
+                onSubmitAll = { actions.onResolveSmsBacklog(true) },
+                onSkipAll = { actions.onResolveSmsBacklog(false) },
+                onLater = { memory.backlogDismissedAt = backlog.count },
             )
         }
         if (state.setupPending > 0) SetupBanner(state.setupPending, actions.onOpenSetup)
@@ -219,7 +218,7 @@ private fun HeroCard(state: ShellUiState, compact: Boolean) {
 }
 
 @Composable
-private fun BacklogBanner(pending: Int, onSubmitAll: () -> Unit, onLater: () -> Unit, onShowLog: () -> Unit) {
+private fun BacklogBanner(pending: Int, onSubmitAll: () -> Unit, onSkipAll: () -> Unit, onLater: () -> Unit) {
     val tone = NekopostTheme.colors.warning
     Surface(shape = MaterialTheme.shapes.medium, color = tone.container, contentColor = tone.content, modifier = Modifier.fillMaxWidth().testTag("backlog_banner")) {
         Column(Modifier.padding(NekoTokens.Spacing.l), verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.s)) {
@@ -233,8 +232,8 @@ private fun BacklogBanner(pending: Int, onSubmitAll: () -> Unit, onLater: () -> 
                 Button(onClick = onSubmitAll, modifier = Modifier.heightIn(min = NekoTokens.Touch.minTarget)) {
                     Text(stringResource(R.string.backlog_submit_all, pending))
                 }
-                TextButton(onClick = onShowLog, modifier = Modifier.heightIn(min = NekoTokens.Touch.minTarget)) {
-                    Text(stringResource(R.string.backlog_show_log))
+                TextButton(onClick = onSkipAll, modifier = Modifier.heightIn(min = NekoTokens.Touch.minTarget)) {
+                    Text(stringResource(R.string.backlog_skip_all))
                 }
                 TextButton(onClick = onLater, modifier = Modifier.heightIn(min = NekoTokens.Touch.minTarget)) {
                     Text(stringResource(R.string.backlog_later))

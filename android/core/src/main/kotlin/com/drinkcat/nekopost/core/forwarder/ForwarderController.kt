@@ -1,6 +1,7 @@
 package com.drinkcat.nekopost.core.forwarder
 
 import com.drinkcat.nekopost.core.enroll.EnrollmentLink
+import com.drinkcat.nekopost.core.rules.SmsSenderRule
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -54,6 +55,13 @@ interface ForwarderController {
      * ("补交 N 条短信"), false skips them for good ("全部跳过").
      */
     fun resolveSmsBacklog(upload: Boolean)
+
+    /**
+     * Replaces the SMS sender rules ([com.drinkcat.nekopost.core.rules.SmsSenderRules]).
+     * An SMS whose sender hits a Skip rule is logged as Skipped and never
+     * queued. The rules survive [unenroll].
+     */
+    fun setSmsSenderRules(rules: List<SmsSenderRule>)
 
     /** Called by the UI whenever it (re)checks permissions, e.g. in onResume. */
     fun reportPermissions(status: PermissionStatus)

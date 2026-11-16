@@ -20,6 +20,8 @@ import com.drinkcat.nekopost.core.forwarder.NotificationAppPolicy
 import com.drinkcat.nekopost.core.forwarder.NotificationRule
 import com.drinkcat.nekopost.core.forwarder.PauseReason
 import com.drinkcat.nekopost.core.forwarder.SmsBacklog
+import com.drinkcat.nekopost.core.rules.SmsSenderRule
+import com.drinkcat.nekopost.core.rules.SmsSenderRules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
@@ -52,6 +54,7 @@ internal data class ForwarderSettings(
     val lastSuccess: DeliveryEvent? = null,
     val lastFailure: FailureEvent? = null,
     val smsBacklog: SmsBacklog? = null,
+    val smsSenderRules: List<SmsSenderRule> = emptyList(),
 )
 
 /** DataStore-backed settings (file `nekopost_forwarder.preferences_pb`). */
@@ -74,8 +77,17 @@ internal class ForwarderPrefs(private val store: DataStore<Preferences>) {
         it.setSmsStart(smsStartId, now)
     }
 
+    /** Unenroll: forgets everything except the SMS sender rules (user configuration, no secrets). */
     suspend fun clear() {
-        store.edit { it.clear() }
+        store.edit {
+            val rules = it[SMS_RULES]
+            it.clear()
+            if (rules != null) it[SMS_RULES] = rules
+        }
+    }
+
+    suspend fun setSmsSenderRules(rules: List<SmsSenderRule>) = store.edit {
+        it[SMS_RULES] = SmsSenderRules.encode(rules.take(SmsSenderRules.MAX_RULES))
     }
 
     suspend fun setSmsEnabled(enabled: Boolean, smsStartId: Long?, now: Instant) = store.edit {
@@ -189,6 +201,7 @@ internal class ForwarderPrefs(private val store: DataStore<Preferences>) {
             lastSuccess = success,
             lastFailure = failure,
             smsBacklog = backlog,
+            smsSenderRules = SmsSenderRules.decode(this[SMS_RULES].orEmpty()),
         )
     }
 
@@ -215,6 +228,7 @@ internal class ForwarderPrefs(private val store: DataStore<Preferences>) {
         private val BACKLOG_COUNT = intPreferencesKey("backlog_count")
         private val BACKLOG_OLDEST = longPreferencesKey("backlog_oldest")
         private val BACKLOG_DETECTED = longPreferencesKey("backlog_detected")
+        private val SMS_RULES = stringPreferencesKey("sms_sender_rules")
 
         private inline fun <reified E : Enum<E>> enumOrNull(name: String?): E? =
             name?.let { n -> enumValues<E>().firstOrNull { it.name == n } }

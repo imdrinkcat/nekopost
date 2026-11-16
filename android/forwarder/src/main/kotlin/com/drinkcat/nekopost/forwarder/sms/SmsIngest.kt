@@ -2,6 +2,8 @@ package com.drinkcat.nekopost.forwarder.sms
 
 import com.drinkcat.nekopost.core.forwarder.ForwardKind
 import com.drinkcat.nekopost.core.forwarder.MessagePriority
+import com.drinkcat.nekopost.core.rules.RuleAction
+import com.drinkcat.nekopost.core.rules.SmsSenderRules
 import com.drinkcat.nekopost.forwarder.crypto.Hashing
 import com.drinkcat.nekopost.forwarder.crypto.IdempotencyKeys
 import com.drinkcat.nekopost.forwarder.outbox.NewItem
@@ -86,7 +88,13 @@ internal class SmsIngest(
                         isCode = OtpDetector.looksLikeCode(sms.body),
                     ),
                 )
+                // Remember skipped bodies too, so the SMS app's notification
+                // of a skipped SMS is not forwarded as a notification either.
                 rememberBody(sms.body, observedAt)
+                if (SmsSenderRules.decide(settings.smsSenderRules, sms.address) == RuleAction.Skip) {
+                    outbox.logSkipped(ForwardKind.Sms, sms.address, null, "rule")
+                    continue
+                }
                 val meta = buildMap<String, Any> {
                     simLabeler.label(sms.subId)?.let { put("sim", it) }
                     if (sms.parts > 1) put("parts", sms.parts)

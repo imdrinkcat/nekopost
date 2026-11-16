@@ -48,9 +48,9 @@
     <string name="test_result_rejected">服务器拒收：%1$s</string>
     <string name="test_result_not_enrolled">还没有配对服务器</string>
     <string name="backlog_title">补漏扫描发现 %1$d 条积压消息</string>
-    <string name="backlog_body">这些短信是在应用没有运行或被系统延迟时收到的。确认后会全部补交到服务器，并照常推送。</string>
+    <string name="backlog_body">这些短信是在应用没有运行或被系统延迟时收到的。补交会全部上传并照常推送；跳过则不再上传（短信仍保留在手机上）。</string>
     <string name="backlog_submit_all">全部补交 %1$d 条</string>
-    <string name="backlog_show_log">查看记录</string>
+    <string name="backlog_skip_all">全部跳过</string>
     <string name="backlog_later">稍后</string>
     <string name="setup_banner">还有 %1$d 项设置未完成</string>
     <string name="setup_banner_action">继续设置</string>

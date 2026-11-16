@@ -1,5 +1,6 @@
 package com.drinkcat.nekopost.core.forwarder
 
+import com.drinkcat.nekopost.core.rules.SmsSenderRule
 import java.time.Duration
 import java.time.Instant
 
@@ -118,6 +119,8 @@ data class ForwarderState(
      * waits for the user ([ForwarderController.resolveSmsBacklog]). null = nothing waiting.
      */
     val smsBacklog: SmsBacklog? = null,
+    /** SMS sender allow/deny rules in evaluation order (first match wins; no match = forward). */
+    val smsSenderRules: List<SmsSenderRule> = emptyList(),
 ) {
     val isEnrolled: Boolean get() = enrollment != null
 

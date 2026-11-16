@@ -113,6 +113,8 @@ data class ShellActions(
     val onOpenSetup: () -> Unit = {},
     val onSendTest: () -> Unit = {},
     val onRetryNow: () -> Unit = {},
+    /** Answers the held SMS backlog: true = upload all, false = skip all. */
+    val onResolveSmsBacklog: (Boolean) -> Unit = {},
     val onClearFailed: () -> Unit = {},
     val onUnenroll: () -> Unit = {},
     val onCopy: (String) -> Unit = {},
@@ -153,7 +155,7 @@ fun NekopostShell(
             ) {
                 val mode = paneModeFor(fold, maxWidth)
                 when (destination) {
-                    Destination.Forward -> ForwardScreen(state, fold, mode, actions, memory, onShowLog = { onDestinationChange(Destination.Log) })
+                    Destination.Forward -> ForwardScreen(state, fold, mode, actions, memory)
                     Destination.Log -> LogScreen(state, fold, mode, memory, onCopy = actions.onCopy)
                     Destination.Settings -> SettingsScreen(state, fold, mode, actions, memory)
                 }

@@ -117,7 +117,7 @@ fun NekopostRoot(container: AppContainer, fold: FoldState) {
             testSend = testSend,
             setupPending = snapshot.pendingRequired().size,
             apps = apps,
-            smsRules = prefs.smsRules,
+            smsRules = forwarderState.smsSenderRules,
             debugPanelAvailable = debugAvailable,
             foldDebug = foldDebug,
         ),
@@ -129,7 +129,7 @@ fun NekopostRoot(container: AppContainer, fold: FoldState) {
             onSmsEnabledChange = controller::setSmsEnabled,
             onNotificationsEnabledChange = controller::setNotificationsEnabled,
             onNotificationAppsChange = controller::setNotificationApps,
-            onSmsRulesChange = container.uiPrefs::setSmsRules,
+            onSmsRulesChange = controller::setSmsSenderRules,
             onOpenSetup = {
                 wizardStep = if (snapshot.enrollment == null) {
                     SetupStep.Enroll
@@ -143,6 +143,7 @@ fun NekopostRoot(container: AppContainer, fold: FoldState) {
                 scope.launch { testSend = TestSendState.Done(controller.sendTest()) }
             },
             onRetryNow = controller::retryNow,
+            onResolveSmsBacklog = controller::resolveSmsBacklog,
             onClearFailed = controller::clearFailed,
             onUnenroll = {
                 controller.unenroll()

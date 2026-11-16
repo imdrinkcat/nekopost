@@ -1,6 +1,7 @@
 package com.drinkcat.nekopost.core.forwarder
 
 import com.drinkcat.nekopost.core.enroll.EnrollmentLink
+import com.drinkcat.nekopost.core.rules.SmsSenderRule
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,7 +34,10 @@ class FakeForwarderController(
     }
 
     override fun unenroll() {
-        _state.value = ForwarderState.Initial.copy(permissions = _state.value.permissions)
+        _state.value = ForwarderState.Initial.copy(
+            permissions = _state.value.permissions,
+            smsSenderRules = _state.value.smsSenderRules,
+        )
         _log.value = emptyList()
     }
 
@@ -49,6 +53,8 @@ class FakeForwarderController(
     }
 
     override fun resolveSmsBacklog(upload: Boolean) = _state.update { it.copy(smsBacklog = null) }
+
+    override fun setSmsSenderRules(rules: List<SmsSenderRule>) = _state.update { it.copy(smsSenderRules = rules) }
 
     override fun reportPermissions(status: PermissionStatus) = _state.update { it.copy(permissions = status) }
 

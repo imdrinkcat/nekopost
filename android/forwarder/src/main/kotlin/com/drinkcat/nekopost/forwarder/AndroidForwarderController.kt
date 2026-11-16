@@ -19,6 +19,7 @@ import com.drinkcat.nekopost.core.forwarder.PauseReason
 import com.drinkcat.nekopost.core.forwarder.PermissionStatus
 import com.drinkcat.nekopost.core.forwarder.QueueStats
 import com.drinkcat.nekopost.core.forwarder.SendTestResult
+import com.drinkcat.nekopost.core.rules.SmsSenderRule
 import com.drinkcat.nekopost.forwarder.crypto.IdempotencyKeys
 import com.drinkcat.nekopost.forwarder.outbox.NewItem
 import com.drinkcat.nekopost.forwarder.outbox.OutgoingMessage
@@ -76,6 +77,7 @@ class AndroidForwarderController internal constructor(
                 paused = s.paused,
                 notificationRules = s.notificationRules,
                 smsBacklog = s.smsBacklog,
+                smsSenderRules = s.smsSenderRules,
             )
         }.stateIn(scope, SharingStarted.Eagerly, ForwarderState.Initial)
 
@@ -143,6 +145,10 @@ class AndroidForwarderController internal constructor(
         graph.mutations.withLock {
             if (upload) graph.reconciler.run(confirmBacklog = true) else graph.reconciler.skipBacklog()
         }
+    }
+
+    override fun setSmsSenderRules(rules: List<SmsSenderRule>) = background {
+        graph.mutations.withLock { graph.prefs.setSmsSenderRules(rules) }
     }
 
     override fun reportPermissions(status: PermissionStatus) {

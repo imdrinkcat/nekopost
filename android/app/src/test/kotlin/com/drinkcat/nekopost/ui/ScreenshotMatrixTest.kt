@@ -15,6 +15,7 @@ import com.drinkcat.nekopost.core.forwarder.OtpHealth
 import com.drinkcat.nekopost.core.forwarder.PermissionStatus
 import com.drinkcat.nekopost.core.forwarder.QueueStats
 import com.drinkcat.nekopost.core.forwarder.SendTestResult
+import com.drinkcat.nekopost.core.forwarder.SmsBacklog
 import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.ui.settings.SettingsItem
 import com.drinkcat.nekopost.ui.settings.UnenrollSheetContent
@@ -88,11 +89,12 @@ class ScreenshotMatrixTest(private val case: Case) {
             debugPanelAvailable = true,
         )
 
-        /** Backlog over the confirmation threshold, OTP delays, a missing permission, a queued test. */
+        /** SMS backlog held for confirmation, OTP delays, a missing permission, a queued test. */
         private val attention = enrolled.copy(
             forwarder = FakeForwarderData.enrolledState.copy(
                 permissions = PermissionStatus.All.copy(notificationListener = false, ignoringBatteryOptimizations = false),
                 queue = QueueStats(pending = 63, failed = 2, oldestPendingAt = FakeForwarderData.Now.minus(Duration.ofHours(3))),
+                smsBacklog = SmsBacklog(63, oldestAt = FakeForwarderData.Now.minus(Duration.ofHours(30)), detectedAt = FakeForwarderData.Now),
                 lastFailure = FailureEvent(FakeForwarderData.Now.minusSeconds(40), FailureReason.RateLimited, httpStatus = 429),
             ),
             otp = FakeForwarderData.otpDelayed,
