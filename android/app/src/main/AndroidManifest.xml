@@ -2,6 +2,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- SMS forwarding works on Wi-Fi-only devices too; never filter the app out. -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <!-- Requested by the setup wizard (design §8.6); the forwarder module uses them. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Only to show the system "ignore battery optimizations?" dialog for this app. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!--
+      Package visibility for the notification app picker: launcher apps only,
+      no QUERY_ALL_PACKAGES (design §8.5).
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <!--
       Security baseline (design §8.3): no backups, no cleartext, the launcher
       activity is the only exported component of our own. It ignores every

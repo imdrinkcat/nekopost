@@ -14,7 +14,7 @@
     <string name="health_idle">未开启转发</string>
     <string name="health_idle_detail">短信和通知转发都已关闭。</string>
     <string name="health_needs_permission">缺少权限</string>
-    <string name="health_needs_permission_detail">授予下面标出的权限后才能转发。</string>
+    <string name="health_needs_permission_detail">有转发开关缺少系统权限，打开设置向导逐项补上。</string>
     <string name="health_paused">已暂停</string>
     <string name="health_paused_unauthorized">服务器拒绝了这台手机的凭证，请重新配对。消息仍在手机上排队，不会丢失。</string>
     <string name="health_paused_disabled">这个来源已在服务器上停用。消息仍在手机上排队，不会丢失。</string>
@@ -34,17 +34,13 @@
     <string name="enrollment_since">配对时间</string>
 
     <!-- Switches -->
-    <string name="switches_title">转发内容</string>
     <string name="switch_sms">短信</string>
-    <string name="switch_sms_detail">收到短信后立即转发，漏掉的由补漏扫描补交</string>
     <string name="switch_notifications">通知</string>
     <string name="switch_notifications_detail">已选择 %1$d 个应用</string>
 
     <!-- Queue -->
-    <string name="queue_title">发送队列</string>
     <string name="queue_pending">待发送</string>
     <string name="queue_failed">发送失败</string>
-    <string name="queue_count">%1$d 条</string>
     <string name="queue_last_success">最近成功</string>
     <string name="queue_last_failure">最近失败</string>
     <string name="queue_none">暂无</string>
@@ -69,8 +65,6 @@
     <string name="otp_no_delay_detail">近 %1$d 天的验证码短信都是实时收到的。</string>
     <string name="otp_delayed">发现系统延迟</string>
     <string name="otp_delayed_detail">有验证码短信没有实时送达，是补漏扫描后来发现的。Android 17 可能会把验证码短信扣留最多 3 小时。</string>
-    <string name="otp_stats">实时 %1$d 条 · 补漏发现 %2$d 条</string>
-    <string name="otp_max_delay">最长延迟 %1$s</string>
 
     <!-- Durations -->
     <string name="duration_seconds">%1$d 秒</string>
@@ -78,7 +72,6 @@
     <string name="duration_hours_minutes">%1$d 小时 %2$d 分钟</string>
 
     <!-- Permissions -->
-    <string name="permissions_title">权限与系统设置</string>
     <string name="perm_receive_sms">接收短信</string>
     <string name="perm_read_sms">读取短信（补漏扫描）</string>
     <string name="perm_notification_listener">通知使用权</string>
@@ -109,12 +102,10 @@
     <string name="settings_server">服务器与来源</string>
     <string name="settings_server_none">尚未配对</string>
     <string name="settings_apps">通知转发应用</string>
-    <string name="settings_apps_detail">已选择 %1$d 个应用。Telegram 系应用和本应用不能选择，否则会形成转发回环。</string>
     <string name="settings_security">应用锁</string>
     <string name="settings_security_detail">生物识别解锁将在后续版本提供。</string>
     <string name="settings_unenroll">解除配对</string>
     <string name="settings_unenroll_detail">删除本机保存的凭证、发送队列和转发记录，转发立即停止，无法撤销。</string>
     <string name="settings_about">关于</string>
     <string name="settings_about_detail">Nekopost %1$s · 自托管消息网关的安卓客户端</string>
-    <string name="settings_select_item">选择左侧的一项</string>
 </resources>
