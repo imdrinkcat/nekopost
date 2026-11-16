@@ -23,6 +23,13 @@ var viewFuncs = map[string]any{
 	"kindLabel":     kindLabel,
 	"channelLabel":  channelLabel,
 	"initial":       initial,
+	"digits":        digits,
+}
+
+// digits spaces out a code so screen readers announce it one digit at a time
+// (§9.6), for example "74" becomes "7 4".
+func digits(code string) string {
+	return strings.Join(strings.Split(code, ""), " ")
 }
 
 func statusBadge(s model.Status) badge {

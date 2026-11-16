@@ -23,6 +23,14 @@ async function capture(page, label, name) {
   await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
 }
 
+// Check the current page at 360px too, then restore the run's viewport.
+async function narrow(page, label, name) {
+  const size = page.viewportSize();
+  await page.setViewportSize({ width: 360, height: 780 });
+  await capture(page, label + "-360", name);
+  await page.setViewportSize(size);
+}
+
 async function tab(page, label, link, heading, name) {
   await page.getByRole("navigation", { name: "面板" }).getByRole("link", { name: link, exact: true }).click();
   await page.getByRole("heading", { name: heading, exact: true }).waitFor();
@@ -65,11 +73,13 @@ async function run(browser, viewport, label, full, sweep = false) {
   await page.getByRole("link", { name: "使用 Google 登录" }).click();
   await page.getByRole("heading", { name: "正在完成 Google 登录" }).waitFor();
   if (full) await capture(page, label, "03-finish");
+  if (sweep) await narrow(page, label, "03-finish");
   release();
   await page.waitForURL("**/panel/confirm");
   await page.unroute("**/auth/finish");
   await page.getByRole("heading", { name: "确认新浏览器" }).waitFor();
   await capture(page, label, "04-confirm");
+  if (sweep) await narrow(page, label, "04-confirm");
   const pending = await context.request.get(url + "/panel");
   assert.equal(pending.status(), 403);
   assert.equal((await context.request.post(url + "/__test/approve")).status(), 204);
@@ -79,9 +89,11 @@ async function run(browser, viewport, label, full, sweep = false) {
 
   await page.getByLabel("搜索正文").fill("浏览器演练");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
-  await page.locator("#results a").first().waitFor();
+  // Strict locator: the search must return exactly this one message.
+  await page.locator("#results a").waitFor();
+  await page.getByRole("heading", { name: "搜索结果" }).waitFor();
   await capture(page, label, "11-inbox-search");
-  await page.locator("#results a").first().click();
+  await page.locator("#results a").click();
   const text = await page.locator("pre").textContent();
   assert.match(text, /<script>bad\(\)<\/script>⟨U\+202E⟩/);
   assert.equal(await page.locator("pre script").count(), 0);
@@ -99,6 +111,9 @@ async function run(browser, viewport, label, full, sweep = false) {
       throw new Error("re-auth prompt missing; result: " + await page.locator("#management-result").textContent() +
         "; dialogs: " + dialogs.join(" | ") + "; state: " + state + "; " + issues.join(" | "));
     }
+    // Only the re-auth card shows; it is scrolled into view and focused.
+    assert.equal(await page.locator("#management-result").isVisible(), false);
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "reauth-link");
     await capture(page, label, "13-message-reauth");
     for (const [i, id] of messages.entries()) {
       await page.goto(url + "/panel/message/" + id);
@@ -117,7 +132,22 @@ async function run(browser, viewport, label, full, sweep = false) {
   await tab(page, label, "统计", "统计", "31-stats");
   await tab(page, label, "来源", "来源", "40-sources");
   await tab(page, label, "设备", "设备", "41-devices");
+  if (full) {
+    // Pairing result: text, QR code and copy button stack in the banner.
+    await page.getByLabel("设备名称").fill("演示平板");
+    await page.getByRole("button", { name: "创建配对" }).click();
+    await page.getByText(/手动配对码 /).waitFor();
+    await page.getByRole("img", { name: "设备配对二维码" }).waitFor();
+    await capture(page, label, "41-devices-pairing");
+  }
   await tab(page, label, "管理凭证", "管理凭证", "42-keys");
+  if (full) {
+    await page.getByLabel("凭证名称").fill("演示脚本");
+    await page.getByRole("button", { name: "创建凭证" }).click();
+    await page.getByText("请现在保存凭证，页面只显示一次").waitFor();
+    await page.locator("#management-result code").waitFor();
+    await capture(page, label, "42-keys-created");
+  }
   await tab(page, label, "安全", "安全", "50-security");
   await tab(page, label, "设置", "设置", "51-settings");
 
@@ -133,6 +163,14 @@ async function run(browser, viewport, label, full, sweep = false) {
 
   await page.getByRole("button", { name: "退出", exact: true }).click();
   await page.getByRole("link", { name: "使用 Google 登录" }).waitFor();
+  if (sweep) {
+    // Signed-out entry pages at 360px, reusing this context (no extra login).
+    await page.setViewportSize({ width: 360, height: 780 });
+    await capture(page, label + "-360", "01-login");
+    await page.goto(url + "/auth/google/callback");
+    await page.getByRole("heading", { name: "登录已过期或无效，请重新开始" }).waitFor();
+    await capture(page, label + "-360", "02-error");
+  }
   assert.deepEqual(issues, []);
   await context.close();
 }

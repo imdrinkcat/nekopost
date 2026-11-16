@@ -87,7 +87,9 @@ document.getElementById("search")?.addEventListener("submit", async event => {
   const button = event.currentTarget.querySelector("button");
   button.disabled = true;
   const list = document.getElementById("results");
+  const card = document.getElementById("results-card");
   list.replaceChildren();
+  card.hidden = true;
   notice.textContent = "搜索中";
   try {
     const response = await post("/panel/search", { query: document.getElementById("query").value });
@@ -124,6 +126,7 @@ document.getElementById("search")?.addEventListener("submit", async event => {
       item.append(link);
       list.append(item);
     }
+    card.hidden = list.childElementCount === 0;
     notice.textContent = "找到 " + data.hits.length + " 条，已扫描 " + data.scanned + " 条。" +
       (data.exhausted ? "" : " 搜索达到本次上限，可缩小搜索范围。");
   } catch {
@@ -133,21 +136,53 @@ document.getElementById("search")?.addEventListener("submit", async event => {
   }
 });
 
+document.getElementById("clear-search")?.addEventListener("click", () => {
+  document.getElementById("results").replaceChildren();
+  document.getElementById("results-card").hidden = true;
+  notice.textContent = "";
+  const query = document.getElementById("query");
+  query.value = "";
+  query.focus();
+});
+
 function validSegment(value, pattern) {
   return pattern.test(value) ? encodeURIComponent(value) : null;
 }
 
-function tone(display, name) {
+const toneIcons = { info: "i-info", ok: "i-check", err: "i-warn" };
+const motion = matchMedia("(prefers-reduced-motion: reduce)");
+
+// A result banner is always icon + text + colour. Extra nodes (QR code, copy
+// button, one-time token) stack in the body column under the text.
+function tone(display, name, text, ...extras) {
   display.classList.remove("tone-info", "tone-ok", "tone-err");
   display.classList.add("tone-" + name);
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("class", "i");
+  icon.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", "#" + toneIcons[name]);
+  icon.append(use);
+  const body = document.createElement("div");
+  body.className = "banner-body";
+  const message = document.createElement("span");
+  message.textContent = text;
+  body.append(message, ...extras);
+  display.replaceChildren(icon, body);
+}
+
+// Action buttons sit far below the banners on small screens: bring the
+// feedback into view and move focus to it so the tap visibly did something.
+function reveal(element) {
+  element.scrollIntoView({ block: "nearest", behavior: motion.matches ? "auto" : "smooth" });
+  element.focus({ preventScroll: true });
 }
 
 async function manage(method, path, data = {}, download = false) {
   const display = document.getElementById("management-result");
   const reauthLink = document.getElementById("reauth-link");
   display.hidden = false;
-  tone(display, "info");
-  display.textContent = "正在处理";
+  tone(display, "info", "正在处理");
   reauthLink.hidden = true;
   try {
     const response = await fetch(path, {
@@ -161,12 +196,17 @@ async function manage(method, path, data = {}, download = false) {
     }
     const result = await response.json();
     if (!response.ok) {
-      tone(display, "err");
-      display.textContent = result.error?.message ?? result.message ?? "操作未完成";
-      reauthLink.hidden = (result.error?.code ?? result.code) !== "reauth_required";
+      if ((result.error?.code ?? result.code) === "reauth_required") {
+        // The re-auth card says the same thing with the way forward.
+        display.hidden = true;
+        reauthLink.hidden = false;
+        reveal(reauthLink);
+        return;
+      }
+      tone(display, "err", result.error?.message ?? result.message ?? "操作未完成");
+      reveal(display);
       return;
     }
-    tone(display, "ok");
     if (download) {
       const uri = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: "application/json" }));
       const link = document.createElement("a");
@@ -174,16 +214,16 @@ async function manage(method, path, data = {}, download = false) {
       link.download = "nekopost-export.json";
       link.click();
       setTimeout(() => URL.revokeObjectURL(uri), 1000);
-      display.textContent = "导出已生成";
+      tone(display, "ok", "导出已生成");
     } else if (result.short_code) {
-      display.textContent = "手动配对码 " + result.short_code + "（5 分钟有效）";
+      const extras = [];
       if (typeof result.qr_png === "string" && /^[A-Za-z0-9+/=]{1,65536}$/.test(result.qr_png)) {
         const image = document.createElement("img");
         image.src = "data:image/png;base64," + result.qr_png;
         image.alt = "设备配对二维码";
         image.width = 220;
         image.height = 220;
-        display.append(document.createElement("br"), image);
+        extras.push(image);
       }
       if (typeof result.qr === "string" && result.qr.startsWith("nekopost://enroll?")) {
         const copy = document.createElement("button");
@@ -191,17 +231,18 @@ async function manage(method, path, data = {}, download = false) {
         copy.className = "btn btn-tonal";
         copy.textContent = "复制配对链接";
         copy.addEventListener("click", () => navigator.clipboard.writeText(result.qr));
-        display.append(document.createElement("br"), copy);
+        extras.push(copy);
       }
+      tone(display, "ok", "手动配对码 " + result.short_code + "（5 分钟有效）", ...extras);
     } else if (result.token) {
-      display.textContent = "请现在保存凭证，页面只显示一次";
       const token = document.createElement("code");
       token.textContent = result.token;
-      display.append(token);
-    } else display.textContent = "操作已完成";
+      tone(display, "ok", "请现在保存凭证，页面只显示一次", token);
+    } else tone(display, "ok", "操作已完成");
+    reveal(display);
   } catch {
-    tone(display, "err");
-    display.textContent = "无法确认操作结果，请刷新后检查。";
+    tone(display, "err", "无法确认操作结果，请刷新后检查。");
+    reveal(display);
   }
 }
 
@@ -273,8 +314,12 @@ document.addEventListener("click", async event => {
 document.getElementById("reauth-number")?.addEventListener("click", async event => {
   const button = event.currentTarget;
   const display = document.getElementById("management-result");
+  const fail = text => {
+    tone(display, "err", text);
+    reveal(display);
+  };
   display.hidden = false;
-  tone(display, "info");
+  tone(display, "info", "正在发起重新认证");
   button.disabled = true;
   try {
     const r = await post("/v1/session/reauth", {});
@@ -282,7 +327,7 @@ document.getElementById("reauth-number")?.addEventListener("click", async event 
     const request = await r.json();
     const path = approvalEndpoint(request.id);
     if (!path) throw new Error("id");
-    display.textContent = "请在 Telegram 或 CLI 选择数字 " + request.short_code;
+    tone(display, "info", "请在 Telegram 或 CLI 选择数字 " + request.short_code);
     for (let n = 0; n < 150; n++) {
       const response = await fetch(path);
       if (!response.ok) throw new Error("poll");
@@ -290,24 +335,21 @@ document.getElementById("reauth-number")?.addEventListener("click", async event 
       if (state === "approved") {
         const finish = await post("/v1/session/reauth/finish", {});
         if (!finish.ok) throw new Error("finish");
-        tone(display, "ok");
-        display.textContent = "已重新认证，请再次执行刚才的操作。";
+        tone(display, "ok", "已重新认证，请再次执行刚才的操作。");
         document.getElementById("reauth-link").hidden = true;
+        reveal(display);
         return;
       }
       if (state !== "pending") break;
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
-    tone(display, "err");
-    display.textContent = "确认已结束，请重新发起。";
+    fail("确认已结束，请重新发起。");
   } catch {
-    tone(display, "err");
-    display.textContent = "重新认证未完成，请重试。";
+    fail("重新认证未完成，请重试。");
   } finally {
     button.disabled = false;
   }
 });
-
 
 // On narrow screens the navigation is a horizontal strip: keep the current
 // destination in view without moving the page itself.

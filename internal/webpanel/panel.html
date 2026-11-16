@@ -91,7 +91,7 @@
 <h1 id="entry-title">确认新浏览器</h1>
 {{if or (eq .Approval.State "pending") (eq .Approval.State "approved")}}
 <p class="entry-lede">请在 Telegram 或服务器上选择这个数字。</p>
-<p class="code">{{.Approval.Code}}</p>
+<p class="code"><span aria-hidden="true">{{.Approval.Code}}</span><span class="sr-only">{{digits .Approval.Code}}</span></p>
 <p id="notice" class="entry-status waiting" role="status">等待确认</p>
 <p class="entry-note">{{template "icon" "i-clock"}}<span>确认窗口为 5 分钟。如果不是你本人在登录，请在 Telegram 中拒绝。</span></p>
 {{else}}<p class="banner tone-neutral" role="status">{{template "icon" "i-info"}}<span>确认已结束，请重新登录。</span></p>{{end}}
@@ -103,8 +103,8 @@
 <nav class="nav" aria-label="面板">
 <div class="nav-scroll">
 <p class="nav-group">收件</p>
-<a href="/panel" {{if or (eq .Tab "inbox") (eq .Tab "message")}}aria-current="page"{{end}}>{{template "icon" "i-inbox"}}<span>消息</span></a>
-<a href="/panel?tab=filtered" {{if eq .Tab "filtered"}}aria-current="page"{{end}}>{{template "icon" "i-bin"}}<span>已过滤</span></a>
+{{$filteredMsg := and (eq .Tab "message") .Message (eq (print .Message.Message.Status) "filtered")}}<a href="/panel" {{if or (eq .Tab "inbox") (and (eq .Tab "message") (not $filteredMsg))}}aria-current="page"{{end}}>{{template "icon" "i-inbox"}}<span>消息</span></a>
+<a href="/panel?tab=filtered" {{if or (eq .Tab "filtered") $filteredMsg}}aria-current="page"{{end}}>{{template "icon" "i-bin"}}<span>已过滤</span></a>
 <p class="nav-group">运行</p>
 <a href="/panel?tab=status" {{if eq .Tab "status"}}aria-current="page"{{end}}>{{template "icon" "i-pulse"}}<span>总览</span></a>
 <a href="/panel?tab=stats" {{if eq .Tab "stats"}}aria-current="page"{{end}}>{{template "icon" "i-chart"}}<span>统计</span></a>
@@ -118,8 +118,8 @@
 </div>
 </nav>
 <main id="main" class="content">
-<div id="management-result" class="banner tone-info" role="status" hidden></div>
-<div id="reauth-link" class="reauth" hidden>
+<div id="management-result" class="banner tone-info" role="status" tabindex="-1" hidden></div>
+<div id="reauth-link" class="reauth" tabindex="-1" hidden>
 <p class="reauth-text">{{template "icon" "i-lock"}}<span>这项操作需要在 5 分钟内重新认证。</span></p>
 <div class="actions"><button type="button" id="reauth-number" class="btn btn-tonal">用 Telegram 或 CLI 重新认证</button> <a class="btn btn-outlined" href="/auth/google/start?reauth=1">使用 Google 重新认证</a></div>
 </div>
@@ -131,17 +131,20 @@
 <button type="submit" class="btn btn-filled">搜索</button>
 </form>
 <p id="notice" class="notice" role="status"></p>
-<ul class="list card list-hits" id="results"></ul>
+<section id="results-card" class="card hits" aria-labelledby="results-title" hidden>
+<div class="card-head"><h2 class="card-title" id="results-title">{{template "icon" "i-search"}}搜索结果</h2><button type="button" id="clear-search" class="btn btn-text btn-sm">清除</button></div>
+<ul class="list" id="results"></ul>
+</section>
 <section class="card" aria-label="消息列表">
 <ul class="list">{{range .Inbox}}<li><a class="row row-msg" href="/panel/message/{{.ID}}"><span class="avatar" aria-hidden="true">{{initial .SourceID}}</span><span class="row-title"><strong dir="auto">{{visible .SourceID}}</strong><span class="tag">{{kindLabel .Kind}}</span></span><time class="row-time">{{.ReceivedAt.UTC.Format "01-02 15:04"}}<span class="tz"> UTC</span></time><span class="row-sub">{{template "chip" (statusBadge .Status)}}</span></a></li>{{else}}<li class="empty">{{template "sleepycat"}}<p class="empty-title">暂无消息</p><p class="empty-text">猫邮差在打盹。新消息一到，它会第一个跳起来。</p></li>{{end}}</ul>
 </section>
 {{else if eq .Tab "message"}}
-<a class="btn btn-text back" href="/panel">{{template "icon" "i-back"}}<span>返回消息</span></a>
+{{if eq (print .Message.Message.Status) "filtered"}}<a class="btn btn-text back" href="/panel?tab=filtered">{{template "icon" "i-back"}}<span>返回已过滤</span></a>{{else}}<a class="btn btn-text back" href="/panel">{{template "icon" "i-back"}}<span>返回消息</span></a>{{end}}
 <header class="page-head msg-head">
 <h1 dir="auto">{{if .Title}}{{visible .Title}}{{else}}消息详情{{end}}</h1>
 <div class="msg-meta">
 <span class="avatar" aria-hidden="true">{{initial .Message.Message.SourceID}}</span>
-<p class="msg-from"><strong>来源</strong> <bdi>{{visible .Message.Message.SourceID}}</bdi> <span class="tag">{{kindLabel .Message.Message.Kind}}</span><br><time class="mono">{{.Received}}</time></p>
+<p class="msg-from"><strong>来源</strong> <bdi>{{visible .Message.Message.SourceID}}</bdi> <span class="tag">{{kindLabel .Message.Message.Kind}}</span><br><time class="mono">{{.Received}}</time> <span class="msg-id mono"><span class="sr-only">消息 ID </span>{{.Message.Message.ID}}</span></p>
 {{template "chip" (statusBadge .Message.Message.Status)}}
 </div>
 </header>
@@ -150,7 +153,6 @@
 {{else}}<p class="banner tone-neutral">{{template "icon" "i-info"}}<span>正文已过期或已删除。</span></p>{{end}}
 <section class="card">
 <h2 class="card-title">操作</h2>
-<p class="card-sub mono">{{.Message.Message.ID}}</p>
 <div class="management actions" data-row="{{.Message.Message.ID}}">
 {{if .HasBody}}
 {{if eq .Message.Message.Status "filtered"}}<button type="button" class="btn btn-filled" data-action="rescue">{{template "icon" "i-send"}}<span>找回并转发</span></button>{{else}}<button type="button" class="btn btn-filled" data-action="retry">{{template "icon" "i-retry"}}<span>重新投递</span></button>{{end}}
@@ -162,7 +164,7 @@
 </section>
 <section class="card">
 <h2 class="card-title">投递</h2>
-<ul class="list">{{range .Message.Deliveries}}<li class="row row-static delivery"><span class="avatar avatar-icon" aria-hidden="true">{{template "icon" "i-send"}}</span><span class="row-title"><strong>{{channelLabel .Channel}}</strong>{{if .PartsTotal}}<span class="mono muted">{{.PartsSent}} / {{.PartsTotal}} 段</span>{{end}}</span><span class="row-sub">{{template "chip" (deliveryBadge .State)}}{{if not .AckedAt.IsZero}}<span class="chip tone-ok">{{template "icon" "i-paw-check"}}✓✓ 已取回</span>{{end}}</span>{{if .LastError}}<p class="row-error" dir="auto">{{visible .LastError}}</p>{{end}}</li>{{else}}<li class="empty empty-plain"><p class="empty-text">暂无投递记录</p></li>{{end}}</ul>
+<ul class="list">{{range .Message.Deliveries}}<li class="row row-static delivery"><span class="avatar avatar-icon" aria-hidden="true">{{template "icon" "i-send"}}</span><span class="row-title"><strong>{{channelLabel .Channel}}</strong>{{if .PartsTotal}}<span class="mono muted">{{.PartsSent}} / {{.PartsTotal}} 段</span>{{end}}</span><span class="row-sub">{{template "chip" (deliveryBadge .State)}}{{if not .AckedAt.IsZero}}<span class="chip tone-ok">{{template "icon" "i-paw-check"}}已取回</span>{{end}}</span>{{if .LastError}}<p class="row-error" dir="auto">{{visible .LastError}}</p>{{end}}</li>{{else}}<li class="empty empty-plain"><p class="empty-text">暂无投递记录</p></li>{{end}}</ul>
 </section>
 {{else if eq .Tab "filtered"}}
 <header class="page-head"><h1>已过滤</h1><p class="lede">内容过滤判定为不需要推送的消息。保留期内可以打开详情找回并转发。</p></header>

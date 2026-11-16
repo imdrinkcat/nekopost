@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"nekopost/internal/enroll"
 	"nekopost/internal/health"
 	"nekopost/internal/model"
 	"nekopost/internal/sealbox"
@@ -397,12 +398,45 @@ func TestChromiumPanel(t *testing.T) {
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/v1/inbox/") {
-			// Management routes live in httpapi. A fresh login counts as a
-			// recent re-authentication, so answer as httpapi does once that
-			// window has passed to exercise the panel's re-auth prompt.
-			if _, ok := f.panel.AuthorizeAdmin(w, r, false); ok {
-				reply(w, 403, map[string]string{"code": "reauth_required", "message": "请先重新认证"})
+			// Management routes live in httpapi, which is not mounted here. A
+			// fresh login counts as a recent re-authentication, so move this
+			// session's re-auth time back past the 5-minute window and let the
+			// panel's real high-risk check (CSRF, session, window) answer. This
+			// covers the server-side refusal and the client-side prompt; the
+			// httpapi redeliver route itself is tested in httpapi.
+			if hash := f.panel.SessionHash(r); hash != "" {
+				if session, err := st.WebSession(r.Context(), hash, time.Now()); err == nil {
+					_ = st.RefreshWebReauth(r.Context(), session, time.Now().Add(-10*time.Minute))
+				}
 			}
+			if _, ok := f.panel.AuthorizeAdmin(w, r, true); ok {
+				http.Error(w, "re-auth window was not enforced", 500)
+			}
+			return
+		}
+		if r.Method == "POST" && (r.URL.Path == "/v1/admin/pairings" || r.URL.Path == "/v1/admin/keys") {
+			// Stand-ins for the httpapi responses, so the result banner (QR
+			// code, one-time key) is rendered and captured.
+			if _, ok := f.panel.AuthorizeAdmin(w, r, false); !ok {
+				return
+			}
+			if r.URL.Path == "/v1/admin/keys" {
+				reply(w, 201, map[string]string{"token": "mga_DEMO42.browser-test-not-a-real-key", "prefix": "mga_DEMO42"})
+				return
+			}
+			code, short := enroll.NewPairingCodes()
+			link, err := enroll.DeviceLink("https://nekopost.example", code)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			symbol, err := enroll.Encode(link)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			reply(w, 201, map[string]any{"id": "p_demo", "qr": link, "qr_png": base64.StdEncoding.EncodeToString(symbol.PNG()),
+				"short_code": short[:4] + "-" + short[4:8] + "-" + short[8:], "expires_in": 300})
 			return
 		}
 		if r.URL.Path != "/__test/approve" {
