@@ -27,3 +27,6 @@ coverage.*
 
 # Docker deployment data (deploy/docker/data or a copied compose directory)
 /deploy/docker/data/
+
+# Claude Code agent state and worktrees
+.claude/
