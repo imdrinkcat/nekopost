@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -253,12 +254,12 @@ private fun WizardNavBar(snapshot: SetupSnapshot, step: SetupStep, actions: Setu
             when {
                 step == SetupStep.Finish || next == null -> Button(
                     onClick = actions.onFinish,
-                    modifier = Modifier.heightIn(min = height).testTag("setup_finish"),
+                    modifier = Modifier.heightIn(min = height).widthIn(min = 120.dp).testTag("setup_finish"),
                 ) { Text(stringResource(R.string.setup_start_using)) }
 
                 status == StepStatus.NeedsAction -> OutlinedButton(
                     onClick = { actions.onStepChange(next) },
-                    modifier = Modifier.heightIn(min = height).testTag("setup_next"),
+                    modifier = Modifier.heightIn(min = height).widthIn(min = 120.dp).testTag("setup_next"),
                 ) { Text(stringResource(R.string.setup_skip)) }
 
                 else -> Button(
@@ -266,7 +267,7 @@ private fun WizardNavBar(snapshot: SetupSnapshot, step: SetupStep, actions: Setu
                         if (step == SetupStep.Welcome) actions.onAcknowledge(step)
                         actions.onStepChange(next)
                     },
-                    modifier = Modifier.heightIn(min = height).testTag("setup_next"),
+                    modifier = Modifier.heightIn(min = height).widthIn(min = 120.dp).testTag("setup_next"),
                 ) {
                     Text(stringResource(if (step == SetupStep.Welcome) R.string.setup_begin else R.string.setup_next))
                 }

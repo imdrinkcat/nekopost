@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,7 +64,7 @@ import com.drinkcat.nekopost.ui.shell.ShellMemory
 import com.drinkcat.nekopost.ui.shell.ShellUiState
 
 enum class SettingsItem(@param:StringRes val title: Int, val icon: ImageVector, val danger: Boolean = false) {
-    Server(R.string.settings_server, Icons.Filled.Phone),
+    Server(R.string.settings_server, NekoIcons.Server),
     Apps(R.string.settings_apps, Icons.Filled.Notifications),
     SmsRules(R.string.settings_sms_rules, NekoIcons.Sms),
     Setup(R.string.settings_setup, Icons.Filled.Build),

@@ -102,6 +102,20 @@ object NekoIcons {
         }
     }
 
+    /** Two stacked server units with status lights: "your server". */
+    val Server: ImageVector by lazy {
+        icon("Server") {
+            moveTo(5f, 4f); lineTo(19f, 4f); quadTo(20.5f, 4f, 20.5f, 5.5f); lineTo(20.5f, 9f); quadTo(20.5f, 10.5f, 19f, 10.5f)
+            lineTo(5f, 10.5f); quadTo(3.5f, 10.5f, 3.5f, 9f); lineTo(3.5f, 5.5f); quadTo(3.5f, 4f, 5f, 4f); close()
+            moveTo(5f, 13.5f); lineTo(19f, 13.5f); quadTo(20.5f, 13.5f, 20.5f, 15f); lineTo(20.5f, 18.5f); quadTo(20.5f, 20f, 19f, 20f)
+            lineTo(5f, 20f); quadTo(3.5f, 20f, 3.5f, 18.5f); lineTo(3.5f, 15f); quadTo(3.5f, 13.5f, 5f, 13.5f); close()
+            moveTo(7f, 7.25f); lineTo(7f, 7.26f)
+            moveTo(7f, 16.75f); lineTo(7f, 16.76f)
+            moveTo(11f, 7.25f); lineTo(17f, 7.25f)
+            moveTo(11f, 16.75f); lineTo(17f, 16.75f)
+        }
+    }
+
     private fun icon(name: String, filled: Boolean = false, block: PathBuilder.() -> Unit): ImageVector =
         ImageVector.Builder(
             name = "Neko.$name",

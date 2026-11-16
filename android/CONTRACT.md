@@ -160,8 +160,33 @@ App shell (`app/ui/shell`): `paneModeFor(fold, contentWidth)` → `Single`
 (cover / < 600dp), `TwoPane` (≥ 600dp), `TopBottom` (tabletop);
 `navigationTypeFor(fold, windowWidth)` → bottom bar on cover and in tabletop,
 collapsed rail on the open inner display. `NekopostShell(state: ShellUiState,
-fold, destination, onDestinationChange, actions: ShellActions)` is stateless;
-`NekopostRoot(controller, fold, appVersion)` is the stateful wrapper.
+fold, destination, onDestinationChange, actions: ShellActions, memory: ShellMemory)`
+is stateless; `ui.NekopostRoot(container: AppContainer, fold)` is the stateful
+wrapper (collects the controller, re-checks permissions on every onResume and
+reports them via `reportPermissions`, shows the setup wizard or the shell).
+
+- List + detail screens (记录, 设置) use `ui.common.AdaptiveListDetail`, built on
+  material3-adaptive's `ListDetailPaneScaffold` with a hand-made
+  `PaneScaffoldDirective` (1 or 2 partitions from `PaneMode`, a separating hinge
+  passed as `excludedBounds`). It is driven by hoisted state, not a navigator.
+- `ShellMemory` (selected log ID, status/kind filters, settings entry, app
+  search, log scroll position, debug-panel unlock) lives above every
+  posture-dependent layout and is saved with `rememberSaveable` (IDs and enum
+  names only). This is what keeps the selection across cover ⇄ inner ⇄ tabletop.
+- Tabletop: 转发 and 设置 show the read-only forwarding monitor (health ring +
+  conveyor of recent items, sender and category only) above the hinge; 记录
+  shows the selected item there (or the monitor). Nothing clickable lies within
+  ±24dp of the hinge; `ContinuityTest` checks this on the semantics tree.
+- Setup wizard (`ui.setup`): `SetupSnapshot` + `statusOf(step)` are pure logic;
+  `SetupWizard` is stateless; `SetupRoute` wires the system (runtime permission
+  requests, settings deep links, Google code scanner, clipboard). The pasted or
+  scanned enrollment link is kept in memory only and a link pasted from the
+  clipboard is cleared from it after a successful `enroll`.
+- Not yet in the forwarder API (M1 UI works around them): SMS sender rules are
+  stored by the app (`data.UiPrefs`, `core.rules.SmsSenderRules` holds the model
+  and matcher the forwarder should apply before enqueueing); the reconciler's
+  ">50 items" confirmation maps "全部补交" to `retryNow()` because there is no
+  accept/skip call for a held backlog.
 
 ## 4. Theme and components (`core.ui.theme`, `core.ui.token`, `core.ui.component`)
 
@@ -170,15 +195,26 @@ fold, destination, onDestinationChange, actions: ShellActions)` is stateless;
 Tokens: `NekoTokens.{Seed, Light, Dark, Status, Spacing, Radius, Motion, Touch, Hinge, Breakpoint}`
 (hand-written now; generated from `design/tokens.json` later).
 Components: `NekoCard`, `SectionHeader`, `KeyValueRow`, `StatusPill`,
-`ForwardStatusPill`, `SleepingCat`, `EmptyState`. Cats appear only in empty and
-idle states — never on errors, security or danger UI.
+`ForwardStatusPill`, `SleepingCat`, `EmptyState`, `SegmentRing` (health ring),
+`PostmarkStamp` + `StampLanding` (setup finish), `HoldToConfirmButton` (danger
+actions, 1.5 s), `NekoIcons` (line icons the Material core set lacks). Cats
+appear only in empty and idle states — never on errors, security or danger UI.
+Motion: `core.ui.motion.LocalReducedMotion` (set from the system animator scale
+in MainActivity, always true in screenshot tests) switches springs to snaps or
+100 ms fades; there are no infinite animations.
 
 ## 5. Screenshots and CI
 
-`app/src/test/.../ShellScreenshotTest` renders the shell for Fold8 cover
+`app/src/test/.../ScreenshotMatrixTest` renders every screen (shell
+destinations and their detail states, the setup wizard steps) for Fold8 cover
 (`w475dp-h751dp-port-420dpi`), inner landscape flat (`w933dp-h704dp-land-420dpi`)
 and inner portrait tabletop (`w704dp-h933dp-port-420dpi`, injected
-`FoldState.tabletop()`), light and dark, every destination. Reference images
+`FoldState.tabletop()`), light and dark, stored at half resolution.
+`WizardFlowTest` drives `SetupRoute` with `FakeForwarderController`;
+`ContinuityTest` switches postures in place and checks selection, filters,
+state restoration and the hinge keep-out. Compose UI tests register
+`ComponentActivity` with Robolectric (`RegisterComponentActivityRule`) instead of
+depending on `ui-test-manifest`. Reference images
 live in `app/src/test/screenshots/`; CI records them while none are committed
 and verifies afterwards (`./gradlew :app:recordRoborazziDebug` /
 `verifyRoborazziDebug`).

@@ -7,6 +7,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import com.drinkcat.nekopost.core.enroll.EnrollmentError
 import com.drinkcat.nekopost.core.forwarder.FailureEvent
 import com.drinkcat.nekopost.core.forwarder.FailureReason
 import com.drinkcat.nekopost.core.forwarder.FakeForwarderData
@@ -85,7 +86,6 @@ class ScreenshotMatrixTest(private val case: Case) {
             apps = Samples.apps,
             smsRules = Samples.rules,
             debugPanelAvailable = true,
-            foldDebug = Samples.foldDebug,
         )
 
         /** Backlog over the confirmation threshold, OTP delays, a missing permission, a queued test. */
@@ -140,7 +140,9 @@ class ScreenshotMatrixTest(private val case: Case) {
             Screen("settings_apps") { Shell(enrolled, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.Apps) } },
             Screen("settings_rules") { Shell(enrolled, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.SmsRules) } },
             Screen("settings_about") {
-                Shell(enrolled, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.About, debugUnlocked = true) }
+                Shell(enrolled.copy(foldDebug = Samples.foldDebug(it)), it, Destination.Settings) {
+                    ShellMemory(settingsItem = SettingsItem.About, debugUnlocked = true)
+                }
             },
             Screen("settings_unenroll") { Shell(enrolled, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.Unenroll) } },
             Screen("unenroll_sheet", devices = listOf(Fold8.Cover)) {
@@ -152,13 +154,36 @@ class ScreenshotMatrixTest(private val case: Case) {
             Screen("setup_enroll") {
                 Wizard(Samples.snapshot(), SetupStep.Enroll, it, enroll = EnrollUiState.Confirm(Samples.link))
             },
+            Screen("setup_enroll_invalid") {
+                Wizard(Samples.snapshot(), SetupStep.Enroll, it, enroll = EnrollUiState.Invalid(EnrollmentError.InsecureServerUrl))
+            },
+            Screen("setup_restricted") {
+                Wizard(Samples.snapshot(enrolled = true, smsBlocked = true), SetupStep.RestrictedSettings, it)
+            },
             Screen("setup_sms") { Wizard(Samples.snapshot(enrolled = true, smsBlocked = true), SetupStep.SmsPermission, it) },
+            Screen("setup_listener") {
+                Wizard(
+                    Samples.snapshot(enrolled = true, permissions = PermissionStatus.None.copy(receiveSms = true, readSms = true)),
+                    SetupStep.NotificationAccess,
+                    it,
+                )
+            },
+            Screen("setup_post") {
+                Wizard(
+                    Samples.snapshot(enrolled = true, permissions = PermissionStatus.All.copy(postNotifications = false)),
+                    SetupStep.PostNotifications,
+                    it,
+                )
+            },
             Screen("setup_battery") {
                 Wizard(
                     Samples.snapshot(enrolled = true, permissions = PermissionStatus.All.copy(ignoringBatteryOptimizations = false)),
                     SetupStep.Battery,
                     it,
                 )
+            },
+            Screen("setup_cover") {
+                Wizard(Samples.snapshot(enrolled = true, permissions = PermissionStatus.All), SetupStep.CoverScreen, it)
             },
             Screen("setup_otp") {
                 Wizard(

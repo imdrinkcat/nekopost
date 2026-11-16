@@ -284,6 +284,7 @@
     <string name="setup_finish_ready_detail">新短信和通知会立即转发。转发页会一直显示健康状态。</string>
     <string name="setup_finish_partial">差一点就好了</string>
     <string name="setup_finish_partial_detail">还有 %1$d 项没有完成，转发可能不完整。随时可以从转发页或设置里回来继续。</string>
+    <string name="setup_finish_recap_title">已检查</string>
     <string name="setup_stamp_ready">已开通</string>
     <string name="setup_stamp_partial">待完善</string>
 </resources>

@@ -500,7 +500,21 @@ private fun FinishStep(snapshot: SetupSnapshot, actions: SetupActions, showStamp
             }
         }
     }
-    if (pending.isNotEmpty()) {
+    if (pending.isEmpty()) {
+        // A recap of what was checked, so the stamp has something to vouch for.
+        val done = snapshot.visibleSteps().filter {
+            it != SetupStep.Welcome && it != SetupStep.Finish && snapshot.statusOf(it) == StepStatus.Done
+        }
+        if (done.isNotEmpty()) {
+            FadeInOnce(delayMillis = 500) {
+                NekoCard(title = stringResource(R.string.setup_finish_recap_title)) {
+                    done.forEach { s ->
+                        CheckLine(stringResource(stepInfo(s).title), ok = true, okText = stringResource(R.string.step_done))
+                    }
+                }
+            }
+        }
+    } else {
         NekoCard {
             pending.forEach { s ->
                 Row(

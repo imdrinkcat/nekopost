@@ -42,11 +42,17 @@ fun AdaptiveListDetail(
     BoxWithConstraints(modifier.fillMaxSize()) {
         val listWidth = (maxWidth * 0.42f).coerceIn(300.dp, 420.dp)
         val hinge = if (fold.isSeparating) fold.hinge else null
-        val directive = PaneScaffoldDirective.Default.copy(
+        val directive = PaneScaffoldDirective(
             maxHorizontalPartitions = if (twoPane) 2 else 1,
             horizontalPartitionSpacerSize = if (twoPane) NekoTokens.Spacing.s else 0.dp,
+            maxVerticalPartitions = 1,
+            verticalPartitionSpacerSize = 0.dp,
             defaultPanePreferredWidth = listWidth,
+            defaultPanePreferredHeight = PaneScaffoldDirective.Default.defaultPanePreferredHeight,
             excludedBounds = hinge?.let { listOf(it) } ?: emptyList(),
+            // Moving focus into the detail pane would focus its first text field
+            // (app search, rule pattern) and pop up the keyboard on every selection.
+            shouldAutoFocusCurrentDestination = false,
         )
         val destination = ThreePaneScaffoldDestinationItem<Nothing>(
             if (showDetail) ListDetailPaneScaffoldRole.Detail else ListDetailPaneScaffoldRole.List,

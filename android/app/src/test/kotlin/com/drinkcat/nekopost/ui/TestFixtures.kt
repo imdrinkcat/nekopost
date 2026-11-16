@@ -13,6 +13,7 @@ import com.drinkcat.nekopost.core.forwarder.PermissionStatus
 import com.drinkcat.nekopost.core.rules.RuleAction
 import com.drinkcat.nekopost.core.rules.SmsSenderRule
 import com.drinkcat.nekopost.core.ui.fold.FoldState
+import com.drinkcat.nekopost.core.ui.fold.Posture
 import com.drinkcat.nekopost.core.ui.motion.LocalReducedMotion
 import com.drinkcat.nekopost.core.ui.theme.NekopostTheme
 import com.drinkcat.nekopost.system.FoldDebugInfo
@@ -75,20 +76,29 @@ object Samples {
         SmsSenderRule("10690*", RuleAction.Skip),
     )
 
-    val foldDebug = FoldDebugInfo(
-        widthPx = 2448,
-        heightPx = 1848,
-        widthDp = 933,
-        heightDp = 704,
-        density = 2.625f,
-        densityDpi = 420,
-        fontScale = 1.0f,
-        widthClass = "EXPANDED (≥840)",
-        heightClass = "MEDIUM (≥480)",
-        foldingFeature = "state=FLAT orientation=VERTICAL isSeparating=false occlusion=NONE bounds=[1224,0,1224,1848]",
-        posture = "Flat",
-        hingeAngle = 180f,
-    )
+    /** What the debug panel reads on each Fold8 display (see design §10.10). */
+    fun foldDebug(fold: FoldState): FoldDebugInfo = when (fold.posture) {
+        Posture.Cover -> FoldDebugInfo(
+            widthPx = 1247, heightPx = 1971, widthDp = 475, heightDp = 751,
+            density = 2.625f, densityDpi = 420, fontScale = 1.0f,
+            widthClass = "COMPACT", heightClass = "MEDIUM (≥480)",
+            foldingFeature = null, posture = "Cover", hingeAngle = 0f,
+        )
+        Posture.Tabletop -> FoldDebugInfo(
+            widthPx = 1848, heightPx = 2448, widthDp = 704, heightDp = 933,
+            density = 2.625f, densityDpi = 420, fontScale = 1.0f,
+            widthClass = "MEDIUM (≥600)", heightClass = "EXPANDED (≥900)",
+            foldingFeature = "state=HALF_OPENED orientation=HORIZONTAL isSeparating=true occlusion=NONE bounds=[0,1224,1848,1224]",
+            posture = "Tabletop", hingeAngle = 96f,
+        )
+        else -> FoldDebugInfo(
+            widthPx = 2448, heightPx = 1848, widthDp = 933, heightDp = 704,
+            density = 2.625f, densityDpi = 420, fontScale = 1.0f,
+            widthClass = "EXPANDED (≥840)", heightClass = "MEDIUM (≥480)",
+            foldingFeature = "state=FLAT orientation=VERTICAL isSeparating=false occlusion=NONE bounds=[1224,0,1224,1848]",
+            posture = "Flat", hingeAngle = 180f,
+        )
+    }
 
     fun snapshot(
         enrolled: Boolean = false,

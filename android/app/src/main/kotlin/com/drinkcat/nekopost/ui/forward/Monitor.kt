@@ -3,7 +3,6 @@ package com.drinkcat.nekopost.ui.forward
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -14,15 +13,20 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -44,6 +48,7 @@ import com.drinkcat.nekopost.core.ui.component.StatusPill
 import com.drinkcat.nekopost.core.ui.component.labelRes
 import com.drinkcat.nekopost.core.ui.component.tone
 import com.drinkcat.nekopost.core.ui.motion.LocalReducedMotion
+import com.drinkcat.nekopost.core.ui.motion.NekoMotion
 import com.drinkcat.nekopost.core.ui.theme.NekopostTheme
 import com.drinkcat.nekopost.core.ui.theme.StatusTone
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
@@ -83,21 +88,25 @@ fun ForwardingMonitor(state: ShellUiState, modifier: Modifier = Modifier) {
 @Composable
 fun HealthRing(f: ForwarderState, otp: OtpHealth, size: Dp, thickness: Dp) {
     val h = healthText(f.health())
+    // Small rings sit next to the health pill, so they carry only the post box.
+    val withTitle = size >= 140.dp
     SegmentRing(segments = healthSegments(f, otp), size = size, thickness = thickness) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 NekoIcons.PostBox,
                 contentDescription = null,
                 tint = NekopostTheme.colors.tone(h.tone).content,
-                modifier = Modifier.size(size * 0.2f),
+                modifier = Modifier.size(size * if (withTitle) 0.2f else 0.36f),
             )
-            Text(
-                stringResource(h.title),
-                style = if (size >= 140.dp) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelMedium,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                modifier = Modifier.padding(horizontal = thickness + 6.dp),
-            )
+            if (withTitle) {
+                Text(
+                    stringResource(h.title),
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    modifier = Modifier.padding(horizontal = thickness + 6.dp),
+                )
+            }
         }
     }
 }
@@ -138,49 +147,48 @@ fun Dot(tone: StatusTone, size: Dp = 8.dp) {
     Surface(shape = CircleShape, color = color, modifier = Modifier.size(size)) {}
 }
 
-/** The conveyor: latest items, newest at the bottom next to the slot. */
+/**
+ * The conveyor: latest items stacked on the mail slot, newest at the bottom
+ * right above the hinge. A newly arrived item slides up out of the slot
+ * (instantly with reduced motion); the list only changes when the log does,
+ * so nothing animates while idle.
+ */
 @Composable
 private fun Conveyor(log: List<ForwardLogItem>, modifier: Modifier) {
     val reduced = LocalReducedMotion.current
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.s)) {
+    Column(
+        modifier.clipToBounds(),
+        verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xs, Alignment.Bottom),
+    ) {
         Text(
             stringResource(R.string.monitor_conveyor_title),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.semantics { heading() },
+            modifier = Modifier.padding(bottom = NekoTokens.Spacing.xs).semantics { heading() },
         )
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (log.isEmpty()) {
-                Column(
-                    Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    SleepingCat(size = 72.dp)
-                    Text(
-                        stringResource(R.string.monitor_conveyor_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    reverseLayout = true,
-                    userScrollEnabled = false,
-                    contentPadding = PaddingValues(vertical = NekoTokens.Spacing.xs),
-                    verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xs, Alignment.Bottom),
-                ) {
-                    items(log.take(8), key = { it.id }) { item ->
-                        ConveyorCard(
-                            item,
-                            modifier = if (reduced) {
-                                Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
-                            } else {
-                                Modifier.animateItem()
-                            },
-                        )
+        if (log.isEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().padding(vertical = NekoTokens.Spacing.l),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                SleepingCat(size = 72.dp)
+                Text(
+                    stringResource(R.string.monitor_conveyor_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        } else {
+            // Oldest first so the newest lands next to the slot.
+            log.take(CONVEYOR_ITEMS).asReversed().forEach { item ->
+                key(item.id) {
+                    val visible = remember { MutableTransitionState(reduced).apply { targetState = true } }
+                    AnimatedVisibility(
+                        visibleState = visible,
+                        enter = slideInVertically(NekoMotion.spatial(reduced)) { it } + fadeIn(),
+                    ) {
+                        ConveyorCard(item)
                     }
                 }
             }
@@ -194,12 +202,14 @@ private fun Conveyor(log: List<ForwardLogItem>, modifier: Modifier) {
     }
 }
 
+private const val CONVEYOR_ITEMS = 6
+
 @Composable
-private fun ConveyorCard(item: ForwardLogItem, modifier: Modifier = Modifier) {
+private fun ConveyorCard(item: ForwardLogItem) {
     Surface(
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
             Modifier.heightIn(min = 48.dp).padding(horizontal = NekoTokens.Spacing.m, vertical = NekoTokens.Spacing.xs),

@@ -18,6 +18,11 @@ import com.drinkcat.nekopost.core.ui.token.NekoTokens
 import com.drinkcat.nekopost.ui.log.LogKindFilter
 import com.drinkcat.nekopost.ui.log.LogStatusFilter
 import com.drinkcat.nekopost.ui.settings.SettingsItem
+import com.drinkcat.nekopost.ui.setup.EnrollUiState
+import com.drinkcat.nekopost.ui.setup.SetupActions
+import com.drinkcat.nekopost.ui.setup.SetupStep
+import com.drinkcat.nekopost.ui.setup.SetupWizard
+import com.drinkcat.nekopost.ui.setup.visibleSteps
 import com.drinkcat.nekopost.ui.shell.Destination
 import com.drinkcat.nekopost.ui.shell.NekopostShell
 import com.drinkcat.nekopost.ui.shell.ShellActions
@@ -163,20 +168,48 @@ class ContinuityTest {
         show()
         for (d in Destination.entries) {
             destination = d
-            composeRule.waitForIdle()
-            val density = composeRule.activity.resources.displayMetrics.density
-            val windowHeight = composeRule.activity.window.decorView.height
-            val centre = windowHeight / 2f
-            val keepOut = NekoTokens.Hinge.keepOut.value * density
-            val clickable = composeRule
-                .onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-            assertTrue("no clickables found on $d", clickable.isNotEmpty())
-            clickable.forEach { node ->
-                val b = node.boundsInWindow
-                val intersects = b.bottom > centre - keepOut && b.top < centre + keepOut && b.height > 0f
-                assertTrue("clickable ${node.config} at $b crosses the hinge band on $d", !intersects)
+            assertNoClickableOnHinge("$d")
+        }
+    }
+
+    /** The same rule for every wizard step, which has its own tabletop layout. */
+    @Test
+    @Config(qualifiers = "w704dp-h933dp-port-420dpi")
+    fun tabletopWizardKeepsClickablesAwayFromHinge() {
+        var step by mutableStateOf(SetupStep.Welcome)
+        val snapshot = Samples.snapshot(enrolled = true, smsBlocked = true)
+        composeRule.setContent {
+            TestHarness {
+                SetupWizard(
+                    snapshot = snapshot,
+                    step = step,
+                    enroll = EnrollUiState.Idle,
+                    fold = FoldState.tabletop(),
+                    actions = SetupActions(),
+                    canClose = true,
+                )
             }
+        }
+        for (s in snapshot.visibleSteps()) {
+            step = s
+            assertNoClickableOnHinge("wizard $s")
+        }
+    }
+
+    private fun assertNoClickableOnHinge(where: String) {
+        composeRule.waitForIdle()
+        val density = composeRule.activity.resources.displayMetrics.density
+        val windowHeight = composeRule.activity.window.decorView.height
+        val centre = windowHeight / 2f
+        val keepOut = NekoTokens.Hinge.keepOut.value * density
+        val clickable = composeRule
+            .onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick), useUnmergedTree = true)
+            .fetchSemanticsNodes()
+        assertTrue("no clickables found on $where", clickable.isNotEmpty())
+        clickable.forEach { node ->
+            val b = node.boundsInWindow
+            val intersects = b.bottom > centre - keepOut && b.top < centre + keepOut && b.height > 0f
+            assertTrue("clickable ${node.config} at $b crosses the hinge band on $where", !intersects)
         }
     }
 }

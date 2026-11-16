@@ -1,6 +1,7 @@
 package com.drinkcat.nekopost.ui.log
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -280,7 +281,8 @@ private fun LogRow(item: ForwardLogItem, selected: Boolean, onClick: () -> Unit)
     val group = LogStatusFilter.groupOf(item.status)
     Surface(
         shape = MaterialTheme.shapes.small,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        color = if (selected) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerLow,
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = Modifier
             .fillMaxWidth()
             .selectable(selected = selected, role = Role.Button, onClick = onClick)
