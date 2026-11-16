@@ -20,6 +20,7 @@ import (
 	"nekopost/internal/app"
 	"nekopost/internal/auth"
 	"nekopost/internal/config"
+	"nekopost/internal/enroll"
 	"nekopost/internal/filter"
 	"nekopost/internal/model"
 	"nekopost/internal/store"
@@ -42,14 +43,16 @@ const usage = `nekopost — 个人消息网关
 
 消息来源:
   source list                         列出所有来源
-  source add <id> [--name 名称] [--icon 图标]
-                                      新增来源并生成凭证（凭证只显示一次）
+  source add <id> [--name 名称] [--icon 图标] [--qr] [--url https://…]
+                                      新增来源并生成凭证（凭证只显示一次）；
+                                      --qr 额外显示供安卓 App 扫码注册的二维码
   source show <id>                    查看来源详情与凭证记录
   source set <id> [--name 名称] [--icon 图标]
                                       修改显示名称或图标
   source disable <id>                 停用来源（拒绝其新消息）
   source enable <id>                  重新启用来源
-  source rotate <id>                  生成新凭证并立即吊销旧凭证
+  source rotate <id> [--qr] [--url https://…]
+                                      生成新凭证并立即吊销旧凭证
   source remove <id> --yes            删除来源及其凭证
 
 管理 API 密钥（只读管理接口 /v1/admin/*）:
@@ -269,9 +272,28 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 	name := fs.String("name", "", "显示名称")
 	icon := fs.String("icon", "", "显示图标（一个 Emoji）")
 	yes := fs.Bool("yes", false, "确认删除")
+	withQR := fs.Bool("qr", false, "显示供安卓 App 扫码注册的二维码（含凭证）")
+	baseURL := fs.String("url", "", "二维码中的服务器地址（默认 https://<NEKOPOST_DOMAIN>）")
 	pos, err := parseInterleaved(fs, args)
 	if err != nil {
 		return 2
+	}
+	if *baseURL != "" && !*withQR {
+		fmt.Fprintln(os.Stderr, "--url 只能与 --qr 一起使用")
+		return 2
+	}
+	if *withQR && sub != "add" && sub != "rotate" {
+		fmt.Fprintln(os.Stderr, "--qr 只适用于 source add 和 source rotate")
+		return 2
+	}
+	// Resolve the enrollment base URL before touching the database so that a
+	// bad --url never leaves a new or rotated token without its QR code.
+	var enrollBase string
+	if *withQR {
+		if enrollBase, err = enrollBaseURL(cfg, *baseURL); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
 	}
 	needID := func() (string, bool) {
 		if len(pos) != 1 {
@@ -333,6 +355,9 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 		}
 		fmt.Printf("已创建来源 %s（%s）\n\n", id, model.Source{ID: id, Name: n, Icon: *icon}.DisplayName())
 		printToken(cfg, tok)
+		if *withQR {
+			return printEnrollQR(enrollBase, id, tok, n)
+		}
 		return 0
 
 	case "show":
@@ -409,8 +434,15 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 		if !ok {
 			return 2
 		}
+		s, err := st.GetSource(ctx, id)
+		if errors.Is(err, store.ErrNotFound) {
+			return notFound(id)
+		} else if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
 		tok := auth.NewToken(auth.SourcePrefix)
-		err := st.RotateSourceToken(ctx, id, auth.Hash(tok), auth.DisplayPrefix(tok), now)
+		err = st.RotateSourceToken(ctx, id, auth.Hash(tok), auth.DisplayPrefix(tok), now)
 		if errors.Is(err, store.ErrNotFound) {
 			return notFound(id)
 		} else if err != nil {
@@ -419,6 +451,9 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 		}
 		fmt.Printf("已为 %s 生成新凭证，旧凭证已立即失效。\n\n", id)
 		printToken(cfg, tok)
+		if *withQR {
+			return printEnrollQR(enrollBase, id, tok, s.Name)
+		}
 		return 0
 
 	case "remove":
@@ -451,6 +486,46 @@ func printToken(cfg *config.Config, tok string) {
 	fmt.Println()
 	fmt.Println("提交地址: " + endpoint(cfg))
 	fmt.Println("请求头:   Authorization: Bearer <上面的凭证>")
+}
+
+// enrollBaseURL returns the server base URL embedded in enrollment QR codes:
+// override if set, otherwise https://<NEKOPOST_DOMAIN>.
+func enrollBaseURL(cfg *config.Config, override string) (string, error) {
+	if override != "" {
+		base, err := enroll.NormalizeBaseURL(override)
+		if err != nil {
+			return "", fmt.Errorf("--url 无效：%v（示例：--url https://push.example.com）", err)
+		}
+		return base, nil
+	}
+	if cfg.Domain == "" {
+		return "", errors.New("无法确定二维码中的服务器地址：未设置 NEKOPOST_DOMAIN。请用 --url https://你的域名 指定（只允许 https，不带路径和结尾的 /）")
+	}
+	base, err := enroll.NormalizeBaseURL("https://" + cfg.Domain)
+	if err != nil {
+		return "", fmt.Errorf("NEKOPOST_DOMAIN 无法用作二维码中的服务器地址：%v。请用 --url 指定", err)
+	}
+	return base, nil
+}
+
+// printEnrollQR prints the enrollment QR code for the Android app. The token
+// has already been created and printed, so failures here only lose the QR.
+func printEnrollQR(base, id, tok, name string) int {
+	link, err := enroll.Link(base, id, tok, name)
+	if err == nil {
+		fmt.Println()
+		fmt.Println("用 Nekopost 安卓 App 扫描下方二维码完成注册（服务器地址: " + base + "）:")
+		fmt.Println()
+		err = enroll.RenderTerminal(os.Stdout, link)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "无法生成二维码：%v\n凭证已生成（见上方），可在 App 中手动填写。\n", err)
+		return 1
+	}
+	fmt.Println()
+	fmt.Println("⚠ 注意：二维码中包含上面的凭证，任何拍到它的人都能以此来源身份发送消息。")
+	fmt.Println("  扫码完成后请立即执行 clear 清屏；如二维码可能泄露，请执行 nekopost source rotate " + id + " 更换凭证。")
+	return 0
 }
 
 func cmdAdminKey(st *store.Store, args []string) int {

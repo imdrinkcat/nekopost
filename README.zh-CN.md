@@ -166,6 +166,10 @@ nekopost serve                         运行服务（systemd 使用）
 nekopost check [--send-test]           检查配置、数据库、Telegram 和 DeepSeek
 nekopost healthcheck                   检查本机服务是否存活（Docker 健康检查）
 nekopost source list|add|show|set|enable|disable|rotate|remove
+nekopost source add <id> --qr [--url https://域名]
+                                       同时显示供安卓 App 扫码注册的二维码
+nekopost source rotate <id> --qr [--url https://域名]
+                                       生成新凭证并显示注册二维码
 nekopost admin-key create|list|revoke  只读管理 API 密钥
 nekopost version
 ```

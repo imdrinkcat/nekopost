@@ -164,6 +164,10 @@ nekopost serve                         run the service (used by systemd)
 nekopost check [--send-test]           validate config, database, Telegram and DeepSeek
 nekopost healthcheck                   probe the local service (Docker HEALTHCHECK)
 nekopost source list|add|show|set|enable|disable|rotate|remove
+nekopost source add <id> --qr [--url https://host]
+                                       also print a QR code for Android app enrollment
+nekopost source rotate <id> --qr [--url https://host]
+                                       new token plus enrollment QR code
 nekopost admin-key create|list|revoke  read-only admin API keys
 nekopost version
 ```
