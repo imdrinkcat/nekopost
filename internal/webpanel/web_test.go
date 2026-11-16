@@ -386,6 +386,7 @@ func TestChromiumPanel(t *testing.T) {
 	if _, err := st.InsertMessage(t.Context(), msg, []store.NewDelivery{{Channel: "telegram", Target: "default"}}, 0); err != nil {
 		t.Fatal(err)
 	}
+	demo := seedDemo(t, st)
 
 	var mu sync.Mutex
 	var approval store.WebApproval
@@ -395,6 +396,14 @@ func TestChromiumPanel(t *testing.T) {
 		approval = a
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/inbox/") {
+			// Management routes live in httpapi; the real browser check
+			// shows the panel's re-authentication prompt.
+			if _, ok := f.panel.AuthorizeAdmin(w, r, true); ok {
+				w.WriteHeader(204)
+			}
+			return
+		}
 		if r.URL.Path != "/__test/approve" {
 			f.handler.ServeHTTP(w, r)
 			return
@@ -411,11 +420,141 @@ func TestChromiumPanel(t *testing.T) {
 	}))
 	defer server.Close()
 	f.panel.Google.RedirectURL = server.URL + "/auth/google/callback"
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "node", filepath.Join("..", "..", "web-tests", "panel.cjs"))
-	cmd.Env = append(os.Environ(), "NEKOPOST_TEST_PANEL="+server.URL)
+	cmd.Env = append(os.Environ(), "NEKOPOST_TEST_PANEL="+server.URL, "NEKOPOST_TEST_MESSAGES="+strings.Join(demo[:3], ","))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// seedDemo fills the store with a representative mix of data so every page
+// renders its populated layout (used for the CI review screenshots too).
+func seedDemo(t *testing.T, st *store.Store) []string {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now()
+	for _, src := range []store.SourceChange{{ID: "pixel-sms", Name: "Pixel 短信"}, {ID: "iphone", Name: "旧 iPhone"}, {ID: "bank-hook", Name: "银行通知 Webhook"}} {
+		src.Hash, src.Prefix = "hash-"+src.ID, "src_"+src.ID[:4]
+		if err := st.ChangeSource(ctx, "web:google:111", "create", src, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetSourceEnabled(ctx, "iphone", false, now); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	outcomes := []struct {
+		source, kind, title, body string
+		state                     model.DeliveryState
+		err                       string
+	}{
+		{"pixel-sms", "sms", "【某银行】验证码", "您的验证码为 482913，5 分钟内有效。请勿告诉他人。", model.DeliveryDelivered, ""},
+		{"bank-hook", "notification", "信用卡账单", "本期账单 ¥3,280.00，还款日 11 月 25 日。", model.DeliveryRetrying, "telegram: 502 Bad Gateway"},
+		{"pixel-sms", "sms", "快递到了", "您的包裹已放入 3 号快递柜，取件码 7731。", model.DeliveryUncertain, "context deadline exceeded"},
+		{"iphone", "sms", "", "晚上一起吃饭吗？", model.DeliveryFailed, "telegram: chat not found"},
+		{"pixel-sms", "sms", "", "长时间未投递的消息。", "", ""},
+	}
+	for i, o := range outcomes {
+		m := &model.Message{ID: model.NewMessageID(now.Add(time.Duration(-i) * time.Minute)), SourceID: o.source, Kind: o.kind,
+			Priority: model.PriorityNormal, ReceivedAt: now.Add(time.Duration(-i) * 17 * time.Minute), Title: o.title, Body: o.body,
+			Meta: map[string]string{"sender": "+81 90-0000-000" + string(rune('0'+i))}}
+		if _, err := st.InsertMessage(ctx, m, []store.NewDelivery{{Channel: "telegram", Target: "default"}}, 0); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, m.ID)
+		if o.state == "" {
+			continue
+		}
+		info, err := st.GetMessage(ctx, m.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.FinishAttempt(ctx, info.Deliveries[0].ID, m.ID, store.AttemptResult{State: o.state, LastError: o.err,
+			Uncertain: o.state == model.DeliveryUncertain, PartsTotal: 1, PartsSent: map[bool]int{true: 1}[o.state == model.DeliveryDelivered],
+			NextAttemptAt: now.Add(time.Minute)}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, c := range []model.Category{model.CatMarketing, model.CatSpam, model.CatCode} {
+		m := &model.Message{ID: model.NewMessageID(now), SourceID: "pixel-sms", Kind: "sms", Priority: model.PriorityNormal,
+			ReceivedAt: now.Add(time.Duration(-i) * time.Hour), Title: "过滤示例", Body: "双十一大促，全场五折起！"}
+		if _, err := st.InsertMessage(ctx, m, []store.NewDelivery{{Channel: "telegram", Target: "default", Held: true}}, 0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ResolveHeld(ctx, m.ID, c, true, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, name := range []string{"Galaxy Z Fold8", "旧平板"} {
+		p := store.Pairing{ID: "p_" + rand.Text(), Scopes: store.ScopeRead, Name: name, Expires: now.Add(5 * time.Minute)}
+		code := "code-" + p.ID
+		if err := st.NewPairing(ctx, p, code, "short-"+p.ID, "cli", now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ClaimPairing(ctx, code, store.PairClaim{JWK: "{}", JKT: "jkt-" + p.ID, Name: name, Model: "SM-F9760", AppVersion: "0.2.1", Code: "42", Choices: []string{"17", "42", "88"}}, now); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := st.DecidePairing(ctx, p.ID, "42", "cli", now); !ok || err != nil {
+			t.Fatal(ok, err)
+		}
+		d, err := st.ConsumePairing(ctx, p.ID, "jkt-"+p.ID, "d_"+rand.Text(), "token-"+p.ID, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 1 {
+			if err := st.RevokeDevice(ctx, d.ID, "cli", now); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for i, name := range []string{"备份脚本", "旧 CLI"} {
+		prefix := "mga_" + rand.Text()[:6]
+		if err := st.CreateAdminKey(ctx, name, "hash-"+prefix, prefix, now); err != nil {
+			t.Fatal(err)
+		}
+		if i == 1 {
+			if err := st.RevokeAdminKey(ctx, prefix, now); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return ids
+}
+
+func TestPanelPagesRender(t *testing.T) {
+	f := setupPanel(t)
+	ids := seedDemo(t, f.panel.Store)
+	pending := f.signIn(nil)
+	a := f.alerts[0]
+	if w := f.request("GET", "/panel/confirm", "", "", pending); w.Code != 200 || !strings.Contains(w.Body.String(), ">"+a.Code+"<") {
+		t.Fatal(w.Code)
+	}
+	if ok, err := f.panel.Store.DecideWebApproval(context.Background(), a.ID, a.Code, "cli", false, time.Now()); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	s, err := f.panel.Store.WebSession(context.Background(), hash(pending.Value), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := getCookie(f.request("POST", "/auth/activate", s.CSRF, "{}", pending), sidCookie)
+	paths := []string{"/", "/panel", "/panel?tab=filtered", "/panel?tab=status", "/panel?tab=stats", "/panel?tab=stats&range=today",
+		"/panel?tab=sources", "/panel?tab=devices", "/panel?tab=keys", "/panel?tab=security", "/panel?tab=settings"}
+	for _, id := range ids {
+		paths = append(paths, "/panel/message/"+id)
+	}
+	for _, path := range paths {
+		w := f.request("GET", path, "", "", active)
+		body := w.Body.String()
+		if w.Code != 200 || !strings.HasPrefix(body, "<!doctype html>") || strings.Contains(body, " style=") || strings.Contains(body, "<style") {
+			t.Fatalf("%s: %d %.300s", path, w.Code, body)
+		}
+		if n := strings.Count(body, "<script"); n != 1 {
+			t.Fatalf("%s: %d script tags", path, n)
+		}
+	}
+	if w := f.request("GET", "/panel?tab=sources", "", "", active); !strings.Contains(w.Body.String(), `data-row="iphone"`) || !strings.Contains(w.Body.String(), `data-action="delete-source"`) {
+		t.Fatal("source row contract missing")
 	}
 }

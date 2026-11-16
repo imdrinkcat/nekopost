@@ -40,7 +40,7 @@ const (
 //go:embed panel.html panel.css panel.js
 var files embed.FS
 
-var pages = template.Must(template.New("panel.html").Funcs(template.FuncMap{"visible": visible, "auditDate": auditDate}).ParseFS(files, "panel.html"))
+var pages = template.Must(template.New("panel.html").Funcs(template.FuncMap{"visible": visible, "auditDate": auditDate}).Funcs(viewFuncs).ParseFS(files, "panel.html"))
 var messageID = regexp.MustCompile(`^m_[0-9A-HJKMNP-TV-Z]{26}$`)
 
 type Panel struct {

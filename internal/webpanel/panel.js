@@ -105,8 +105,22 @@ document.getElementById("search")?.addEventListener("submit", async event => {
       const item = document.createElement("li");
       const link = document.createElement("a");
       link.href = "/panel/message/".concat(encodeURIComponent(hit.ID));
-      link.dir = "auto";
-      link.textContent = hit.Source + " · " + hit.Preview;
+      link.className = "row hit";
+      const avatar = document.createElement("span");
+      avatar.className = "avatar";
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.textContent = (String(hit.Source).match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase();
+      const title = document.createElement("span");
+      title.className = "row-title";
+      const source = document.createElement("strong");
+      source.dir = "auto";
+      source.textContent = hit.Source;
+      title.append(source);
+      const preview = document.createElement("span");
+      preview.className = "hit-preview";
+      preview.dir = "auto";
+      preview.textContent = hit.Preview;
+      link.append(avatar, title, preview);
       item.append(link);
       list.append(item);
     }
@@ -123,10 +137,16 @@ function validSegment(value, pattern) {
   return pattern.test(value) ? encodeURIComponent(value) : null;
 }
 
+function tone(display, name) {
+  display.classList.remove("tone-info", "tone-ok", "tone-err");
+  display.classList.add("tone-" + name);
+}
+
 async function manage(method, path, data = {}, download = false) {
   const display = document.getElementById("management-result");
   const reauthLink = document.getElementById("reauth-link");
   display.hidden = false;
+  tone(display, "info");
   display.textContent = "正在处理";
   reauthLink.hidden = true;
   try {
@@ -141,10 +161,12 @@ async function manage(method, path, data = {}, download = false) {
     }
     const result = await response.json();
     if (!response.ok) {
+      tone(display, "err");
       display.textContent = result.error?.message ?? result.message ?? "操作未完成";
       reauthLink.hidden = (result.error?.code ?? result.code) !== "reauth_required";
       return;
     }
+    tone(display, "ok");
     if (download) {
       const uri = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: "application/json" }));
       const link = document.createElement("a");
@@ -166,14 +188,19 @@ async function manage(method, path, data = {}, download = false) {
       if (typeof result.qr === "string" && result.qr.startsWith("nekopost://enroll?")) {
         const copy = document.createElement("button");
         copy.type = "button";
+        copy.className = "btn btn-tonal";
         copy.textContent = "复制配对链接";
         copy.addEventListener("click", () => navigator.clipboard.writeText(result.qr));
         display.append(document.createElement("br"), copy);
       }
     } else if (result.token) {
-      display.textContent = "请现在保存凭证，页面只显示一次\n" + result.token;
+      display.textContent = "请现在保存凭证，页面只显示一次";
+      const token = document.createElement("code");
+      token.textContent = result.token;
+      display.append(token);
     } else display.textContent = "操作已完成";
   } catch {
+    tone(display, "err");
     display.textContent = "无法确认操作结果，请刷新后检查。";
   }
 }
@@ -246,6 +273,8 @@ document.addEventListener("click", async event => {
 document.getElementById("reauth-number")?.addEventListener("click", async event => {
   const button = event.currentTarget;
   const display = document.getElementById("management-result");
+  display.hidden = false;
+  tone(display, "info");
   button.disabled = true;
   try {
     const r = await post("/v1/session/reauth", {});
@@ -261,6 +290,7 @@ document.getElementById("reauth-number")?.addEventListener("click", async event 
       if (state === "approved") {
         const finish = await post("/v1/session/reauth/finish", {});
         if (!finish.ok) throw new Error("finish");
+        tone(display, "ok");
         display.textContent = "已重新认证，请再次执行刚才的操作。";
         document.getElementById("reauth-link").hidden = true;
         return;
@@ -268,10 +298,21 @@ document.getElementById("reauth-number")?.addEventListener("click", async event 
       if (state !== "pending") break;
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
+    tone(display, "err");
     display.textContent = "确认已结束，请重新发起。";
   } catch {
+    tone(display, "err");
     display.textContent = "重新认证未完成，请重试。";
   } finally {
     button.disabled = false;
   }
 });
+
+
+// On narrow screens the navigation is a horizontal strip: keep the current
+// destination in view without moving the page itself.
+const strip = document.querySelector(".nav-scroll");
+const current = strip?.querySelector("[aria-current]");
+if (strip && current && strip.scrollWidth > strip.clientWidth) {
+  strip.scrollLeft = current.offsetLeft - (strip.clientWidth - current.offsetWidth) / 2;
+}

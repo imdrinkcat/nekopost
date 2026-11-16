@@ -2,101 +2,256 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>猫邮局 · Nekopost</title>
 <link rel="stylesheet" href="/assets/{{.Version}}/panel.css">
 <script defer src="/assets/{{.Version}}/panel.js"></script>
 </head>
 <body data-mode="{{.Mode}}" data-csrf="{{.CSRF}}" data-approval="{{.Approval.ID}}" data-state="{{.Approval.State}}">
-<header class="site"><a href="/panel" class="brand">猫邮局</a>{{if .Identity}}<span class="identity">{{.Identity}}</span>{{end}}{{if .CSRF}}<button id="logout" type="button">退出</button>{{end}}</header>
-<main id="main">
+<svg class="sprite" aria-hidden="true" focusable="false">
+<symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></symbol>
+<symbol id="i-bin" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M5.5 6l1 14h11l1-14M10 10.5v6M14 10.5v6"/></symbol>
+<symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3 7 4-14 3 7h4"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 4v16h16M8.5 16v-5M13 16V7M17.5 16v-3"/></symbol>
+<symbol id="i-antenna" viewBox="0 0 24 24"><path d="M12 13v8M8.6 9.6a4.8 4.8 0 0 1 6.8 0M5.6 6.6a9 9 0 0 1 12.8 0"/><circle cx="12" cy="12" r="1.2"/></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M11 18h2"/></symbol>
+<symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M16.5 6.5l3 3M14 9l2 2"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 20 6v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+<symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+<symbol id="i-login" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+<symbol id="i-next" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+<symbol id="i-paw-check" viewBox="0 0 24 24"><path d="m4 13 4.5 4.5L20 6"/><circle cx="19" cy="15.5" r="1.3"/><circle cx="16.2" cy="18.8" r="1.1"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.5 2.5L16 9.5"/></symbol>
+<symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></symbol>
+<symbol id="i-mail-question" viewBox="0 0 24 24"><path d="M13 19H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4"/><path d="m3.5 7 8.5 6 8.5-6M16.5 15.5a2 2 0 1 1 2.8 1.8c-.5.2-.8.7-.8 1.2M18.5 21.5h.01"/></symbol>
+<symbol id="i-mail-x" viewBox="0 0 24 24"><path d="M13 19H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6"/><path d="m3.5 7 8.5 6 8.5-6M16 16l5 5M21 16l-5 5"/></symbol>
+<symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 3v5h5M4 13a8 8 0 0 0 14.3 4.9L20 16M20 21v-5h-5"/></symbol>
+<symbol id="i-question" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.3M12 17h.01"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></symbol>
+<symbol id="i-dash" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></symbol>
+<symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.3 4.2 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4M12 17h.01"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M5.5 6l1 14h11l1-14"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></symbol>
+<symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol>
+<symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.3"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></symbol>
+</svg>
+<a class="skip" href="#main">跳到主要内容</a>
+<header class="topbar">
+<a href="/panel" class="brand">{{template "logo"}}<span class="brand-name">猫邮局</span><span class="brand-sub">Nekopost</span></a>
+<div class="topbar-end">
+{{if .Identity}}<span class="identity" title="{{.Identity}}"><span class="identity-dot" aria-hidden="true">{{initial .Identity}}</span><span class="identity-text"><span class="sr-only">当前身份 </span>{{.Identity}}</span></span>{{end}}
+{{if .CSRF}}<button id="logout" class="btn btn-text" type="button">{{template "icon" "i-logout"}}<span>退出</span></button>{{end}}
+</div>
+</header>
 {{if eq .Mode "home"}}
-<section class="entry"><h1>猫邮局</h1>{{if .Enabled}}<a class="primary" href="/auth/google/start">使用 Google 登录</a>{{else}}<p>网页面板未启用</p>{{end}}</section>
+<main id="main" class="entry-wrap">
+<section class="entry" aria-labelledby="entry-title">
+<div class="entry-mark">{{template "logo"}}</div>
+<h1 id="entry-title">猫邮局</h1>
+<p class="entry-lede">靠谱的猫邮差 · 你的个人消息网关</p>
+{{if .Enabled}}<a class="btn btn-filled btn-block" href="/auth/google/start">{{template "icon" "i-login"}}<span>使用 Google 登录</span></a>
+<p class="entry-note">{{template "icon" "i-lock"}}<span>仅允许列表中的账号可以登录。新浏览器需要在 Telegram 或服务器上确认。</span></p>
+{{else}}<p class="banner tone-neutral">{{template "icon" "i-info"}}<span>网页面板未启用</span></p>{{end}}
+</section>
+</main>
 {{else if eq .Mode "finish"}}
-<section class="entry"><h1>正在完成 Google 登录</h1><p id="notice" role="status"></p><a href="/">返回登录</a></section>
+<main id="main" class="entry-wrap">
+<section class="entry" aria-labelledby="entry-title">
+<div class="spinner" aria-hidden="true"></div>
+<h1 id="entry-title">正在完成 Google 登录</h1>
+<p id="notice" class="entry-status" role="status"></p>
+<a class="btn btn-text" href="/">{{template "icon" "i-back"}}<span>返回登录</span></a>
+</section>
+</main>
 {{else if eq .Mode "error"}}
-<section class="entry"><h1>{{.Error}}</h1>{{if .Identity}}<p><code>{{.Identity}}</code></p>{{end}}<a href="/">返回登录</a></section>
+<main id="main" class="entry-wrap">
+<section class="entry" aria-labelledby="entry-title">
+<div class="entry-icon tone-err">{{template "icon" "i-warn"}}</div>
+<h1 id="entry-title">{{.Error}}</h1>
+{{if .Identity}}<p class="entry-lede">当前账号</p><p class="entry-code"><code>{{.Identity}}</code></p>{{end}}
+<a class="btn btn-tonal" href="/">{{template "icon" "i-back"}}<span>返回登录</span></a>
+</section>
+</main>
 {{else if eq .Mode "confirm"}}
-<section class="entry"><h1>确认新浏览器</h1>{{if or (eq .Approval.State "pending") (eq .Approval.State "approved")}}<p>请在 Telegram 或服务器上选择这个数字。</p><p class="code">{{.Approval.Code}}</p><p id="notice" role="status">等待确认</p>{{else}}<p role="status">确认已结束，请重新登录。</p>{{end}}<a href="/">返回登录</a></section>
+<main id="main" class="entry-wrap">
+<section class="entry" aria-labelledby="entry-title">
+<div class="entry-icon tone-info">{{template "icon" "i-shield"}}</div>
+<h1 id="entry-title">确认新浏览器</h1>
+{{if or (eq .Approval.State "pending") (eq .Approval.State "approved")}}
+<p class="entry-lede">请在 Telegram 或服务器上选择这个数字。</p>
+<p class="code">{{.Approval.Code}}</p>
+<p id="notice" class="entry-status waiting" role="status">等待确认</p>
+<p class="entry-note">{{template "icon" "i-clock"}}<span>确认窗口为 5 分钟。如果不是你本人在登录，请在 Telegram 中拒绝。</span></p>
+{{else}}<p class="banner tone-neutral" role="status">{{template "icon" "i-info"}}<span>确认已结束，请重新登录。</span></p>{{end}}
+<a class="btn btn-text" href="/">{{template "icon" "i-back"}}<span>返回登录</span></a>
+</section>
+</main>
 {{else}}
-<nav aria-label="面板">
-<a href="/panel" {{if eq .Tab "inbox"}}aria-current="page"{{end}}>消息</a>
-<a href="/panel?tab=filtered" {{if eq .Tab "filtered"}}aria-current="page"{{end}}>已过滤</a>
-<a href="/panel?tab=status" {{if eq .Tab "status"}}aria-current="page"{{end}}>总览</a>
-<a href="/panel?tab=stats" {{if eq .Tab "stats"}}aria-current="page"{{end}}>统计</a>
-<a href="/panel?tab=sources" {{if eq .Tab "sources"}}aria-current="page"{{end}}>来源</a>
-<a href="/panel?tab=devices" {{if eq .Tab "devices"}}aria-current="page"{{end}}>设备</a>
-<a href="/panel?tab=keys" {{if eq .Tab "keys"}}aria-current="page"{{end}}>管理凭证</a>
-<a href="/panel?tab=security" {{if eq .Tab "security"}}aria-current="page"{{end}}>安全</a>
-<a href="/panel?tab=settings" {{if eq .Tab "settings"}}aria-current="page"{{end}}>设置</a>
+<div class="shell">
+<nav class="nav" aria-label="面板">
+<div class="nav-scroll">
+<p class="nav-group">收件</p>
+<a href="/panel" {{if or (eq .Tab "inbox") (eq .Tab "message")}}aria-current="page"{{end}}>{{template "icon" "i-inbox"}}<span>消息</span></a>
+<a href="/panel?tab=filtered" {{if eq .Tab "filtered"}}aria-current="page"{{end}}>{{template "icon" "i-bin"}}<span>已过滤</span></a>
+<p class="nav-group">运行</p>
+<a href="/panel?tab=status" {{if eq .Tab "status"}}aria-current="page"{{end}}>{{template "icon" "i-pulse"}}<span>总览</span></a>
+<a href="/panel?tab=stats" {{if eq .Tab "stats"}}aria-current="page"{{end}}>{{template "icon" "i-chart"}}<span>统计</span></a>
+<p class="nav-group">管理</p>
+<a href="/panel?tab=sources" {{if eq .Tab "sources"}}aria-current="page"{{end}}>{{template "icon" "i-antenna"}}<span>来源</span></a>
+<a href="/panel?tab=devices" {{if eq .Tab "devices"}}aria-current="page"{{end}}>{{template "icon" "i-phone"}}<span>设备</span></a>
+<a href="/panel?tab=keys" {{if eq .Tab "keys"}}aria-current="page"{{end}}>{{template "icon" "i-key"}}<span>管理凭证</span></a>
+<p class="nav-group">账户</p>
+<a href="/panel?tab=security" {{if eq .Tab "security"}}aria-current="page"{{end}}>{{template "icon" "i-shield"}}<span>安全</span></a>
+<a href="/panel?tab=settings" {{if eq .Tab "settings"}}aria-current="page"{{end}}>{{template "icon" "i-sliders"}}<span>设置</span></a>
+</div>
 </nav>
-<section class="content">
-<div id="management-result" role="status" hidden></div>
-<div id="reauth-link" hidden><button type="button" id="reauth-number">用 Telegram 或 CLI 重新认证</button> <a href="/auth/google/start?reauth=1">使用 Google 重新认证</a></div>
+<main id="main" class="content">
+<div id="management-result" class="banner tone-info" role="status" hidden></div>
+<div id="reauth-link" class="reauth" hidden>
+<p class="reauth-text">{{template "icon" "i-lock"}}<span>这项操作需要在 5 分钟内重新认证。</span></p>
+<div class="actions"><button type="button" id="reauth-number" class="btn btn-tonal">用 Telegram 或 CLI 重新认证</button> <a class="btn btn-outlined" href="/auth/google/start?reauth=1">使用 Google 重新认证</a></div>
+</div>
 {{if eq .Tab "inbox"}}
-<h1>消息</h1>
-<form id="search"><label for="query">搜索正文</label><input id="query" type="search" maxlength="200" required><button type="submit">搜索</button></form>
-<p id="notice" role="status"></p><ul class="items" id="results"></ul>
-<ul class="items">{{range .Inbox}}<li><a href="/panel/message/{{.ID}}"><strong dir="auto">{{visible .SourceID}}</strong> · {{.Kind}} <span>{{.Status.Label}}</span><time>{{.ReceivedAt.UTC.Format "2006-01-02 15:04 UTC"}}</time></a></li>{{else}}<li>暂无消息</li>{{end}}</ul>
+<header class="page-head"><h1>消息</h1><p class="lede">最近收到的消息与投递状态。正文只在保留期内可读。</p></header>
+<form id="search" class="search" role="search">
+<label for="query" class="sr-only">搜索正文</label>
+<span class="search-field">{{template "icon" "i-search"}}<input id="query" type="search" maxlength="200" required placeholder="在保留期内的正文中搜索" autocomplete="off"></span>
+<button type="submit" class="btn btn-filled">搜索</button>
+</form>
+<p id="notice" class="notice" role="status"></p>
+<ul class="list card list-hits" id="results"></ul>
+<section class="card" aria-label="消息列表">
+<ul class="list">{{range .Inbox}}<li><a class="row row-msg" href="/panel/message/{{.ID}}"><span class="avatar" aria-hidden="true">{{initial .SourceID}}</span><span class="row-title"><strong dir="auto">{{visible .SourceID}}</strong><span class="tag">{{kindLabel .Kind}}</span></span><time class="row-time">{{.ReceivedAt.UTC.Format "01-02 15:04"}}<span class="tz"> UTC</span></time><span class="row-sub">{{template "chip" (statusBadge .Status)}}</span></a></li>{{else}}<li class="empty">{{template "sleepycat"}}<p class="empty-title">暂无消息</p><p class="empty-text">猫邮差在打盹。新消息一到，它会第一个跳起来。</p></li>{{end}}</ul>
+</section>
 {{else if eq .Tab "message"}}
-<a href="/panel">返回消息</a>
+<a class="btn btn-text back" href="/panel">{{template "icon" "i-back"}}<span>返回消息</span></a>
+<header class="page-head msg-head">
 <h1 dir="auto">{{if .Title}}{{visible .Title}}{{else}}消息详情{{end}}</h1>
-<p><strong>来源</strong> <bdi>{{visible .Message.Message.SourceID}}</bdi> · {{.Message.Message.Kind}} · {{.Received}}</p>
-{{if .HasBody}}<pre dir="auto">{{visible .Body}}</pre>
-{{if .Meta}}<dl>{{range $k, $v := .Meta}}<dt>{{visible $k}}</dt><dd dir="auto">{{visible $v}}</dd>{{end}}</dl>{{end}}
-{{else}}<p>正文已过期或已删除。</p>{{end}}
-<div class="management" data-row="{{.Message.Message.ID}}">
+<div class="msg-meta">
+<span class="avatar" aria-hidden="true">{{initial .Message.Message.SourceID}}</span>
+<p class="msg-from"><strong>来源</strong> <bdi>{{visible .Message.Message.SourceID}}</bdi> <span class="tag">{{kindLabel .Message.Message.Kind}}</span><br><time class="mono">{{.Received}}</time></p>
+{{template "chip" (statusBadge .Message.Message.Status)}}
+</div>
+</header>
+{{if .HasBody}}<article class="letter" aria-label="正文"><pre dir="auto">{{visible .Body}}</pre></article>
+{{if .Meta}}<section class="card"><h2 class="card-title">附加信息</h2><dl class="kv">{{range $k, $v := .Meta}}<div><dt>{{visible $k}}</dt><dd dir="auto">{{visible $v}}</dd></div>{{end}}</dl></section>{{end}}
+{{else}}<p class="banner tone-neutral">{{template "icon" "i-info"}}<span>正文已过期或已删除。</span></p>{{end}}
+<section class="card">
+<h2 class="card-title">操作</h2>
+<p class="card-sub mono">{{.Message.Message.ID}}</p>
+<div class="management actions" data-row="{{.Message.Message.ID}}">
 {{if .HasBody}}
-{{if eq .Message.Message.Status "filtered"}}<button type="button" data-action="rescue">找回并转发</button>{{else}}<button type="button" data-action="retry">重新投递</button>{{end}}
-<button type="button" data-action="export">导出这条消息</button>
-<button type="button" data-action="shred">销毁正文</button>
+{{if eq .Message.Message.Status "filtered"}}<button type="button" class="btn btn-filled" data-action="rescue">{{template "icon" "i-send"}}<span>找回并转发</span></button>{{else}}<button type="button" class="btn btn-filled" data-action="retry">{{template "icon" "i-retry"}}<span>重新投递</span></button>{{end}}
+<button type="button" class="btn btn-tonal" data-action="export">{{template "icon" "i-download"}}<span>导出这条消息</span></button>
+<button type="button" class="btn btn-danger" data-action="shred">{{template "icon" "i-trash"}}<span>销毁正文</span></button>
+{{else}}<p class="muted">正文已不可用，没有可执行的操作。</p>
 {{end}}
 </div>
-<h2>投递</h2><ul class="items">{{range .Message.Deliveries}}<li>{{.Channel}} · {{.State}} · {{.PartsSent}} / {{.PartsTotal}}{{if not .AckedAt.IsZero}} · ✓✓ 已取回{{end}}{{if .LastError}}<p dir="auto">{{visible .LastError}}</p>{{end}}</li>{{else}}<li>暂无投递记录</li>{{end}}</ul>
-{{else if eq .Tab "filtered"}}
-<h1>已过滤</h1><ul class="items">{{range .Filtered}}<li><a href="/panel/message/{{.ID}}"><strong dir="auto">{{visible .SourceID}}</strong> · {{.Category.Label}}<time>{{.ReceivedAt.UTC.Format "2006-01-02 15:04 UTC"}}</time></a></li>{{else}}<li>暂无已过滤消息</li>{{end}}</ul>
-{{else if eq .Tab "status"}}
-<h1>系统总览</h1><p>{{.Report.OverallText}}</p><ul class="cards">{{range .Report.Components}}<li><h2>{{.Name}}</h2><p>{{.Level.Label}} · {{visible .Summary}}</p>{{range .Details}}<p>{{visible .}}</p>{{end}}</li>{{end}}</ul>
-{{else if eq .Tab "stats"}}
-<h1>统计</h1><p class="ranges"><a href="/panel?tab=stats&amp;range=today">今天</a> <a href="/panel?tab=stats&amp;range=24h">24 小时</a> <a href="/panel?tab=stats&amp;range=7d">7 天</a> <a href="/panel?tab=stats&amp;range=start">本次启动</a></p>
-<p>{{.Stats.Range.Label}}</p><div class="metrics">{{with .Stats.Stats.Total}}<div>接收 <strong>{{.Received}}</strong></div><div>送达 <strong>{{.Delivered}}</strong></div><div>过滤 <strong>{{.Filtered}}</strong></div><div>失败 <strong>{{.Failed}}</strong></div>{{end}}</div>
-<ul class="items">{{range .Stats.Stats.BySource}}<li><strong dir="auto">{{visible .SourceID}}</strong> · 接收 {{.Counts.Received}} · 送达 {{.Counts.Delivered}}</li>{{end}}</ul>
-{{else if eq .Tab "sources"}}
-<h1>来源</h1>
-<form id="new-source"><label for="source-id">新来源 ID</label><input id="source-id" required maxlength="32" pattern="[a-z0-9][a-z0-9_\-]{0,31}">
-<label for="source-name">名称</label><input id="source-name" maxlength="64"><button type="submit">创建来源</button></form>
-<ul class="items">{{range .Sources}}<li data-row="{{.Source.ID}}"><strong dir="auto">{{visible .Source.Name}}</strong> <small>{{.Source.ID}}</small> · {{if .Source.Enabled}}已启用{{else}}已停用{{end}} · 今日接收 {{.Today.Received}}
-<div class="management"><button type="button" data-action="rename-source">改名</button>
-<button type="button" data-action="source-enabled" data-enabled="{{.Source.Enabled}}">{{if .Source.Enabled}}停用{{else}}启用{{end}}</button>
-<button type="button" data-action="rotate-source">轮换凭证</button>
-<button type="button" data-action="delete-source">删除来源</button></div></li>{{else}}<li>暂无来源</li>{{end}}</ul>
-{{else if eq .Tab "devices"}}
-<h1>设备</h1>
-<form id="new-pairing"><label for="device-name">设备名称</label><input id="device-name" required maxlength="64">
-<label for="device-role">权限</label><select id="device-role"><option value="full">完整</option><option value="sender">仅转发</option><option value="receiver">仅接收</option></select>
-<label for="device-source">来源 ID</label><input id="device-source" maxlength="32"><button type="submit">创建配对</button></form>
-<ul class="items">{{range .DeviceRows}}<li data-row="{{.ID}}"><strong dir="auto">{{visible .Name}}</strong> · <bdi>{{visible .Model}}</bdi> · {{if .Revoked}}已吊销{{else if .Suspended}}暂停读取{{else}}已启用{{end}}
-{{if not .Revoked}}<div class="management"><button type="button" data-action="revoke-device">吊销</button></div>{{end}}</li>{{else}}<li>暂无配对设备</li>{{end}}</ul>
-{{else if eq .Tab "keys"}}
-<h1>管理凭证</h1>
-<form id="new-key"><label for="key-name">凭证名称</label><input id="key-name" required maxlength="64"><button type="submit">创建凭证</button></form>
-<ul class="items">{{range .KeyRows}}<li data-row="{{.Prefix}}"><strong dir="auto">{{visible .Name}}</strong> · <code>{{.Prefix}}</code>
-{{if .RevokedAt.IsZero}}<button type="button" data-action="revoke-key">吊销</button>{{else}} · 已吊销{{end}}</li>{{else}}<li>暂无管理凭证</li>{{end}}</ul>
-{{else if eq .Tab "security"}}
-<h1>安全</h1><p>当前身份 <bdi>{{.Identity}}</bdi></p>
-<h2>网页会话</h2><button type="button" data-action="revoke-others">退出其他会话</button>
-<ul class="items">{{range .Sessions}}<li data-row="{{.Hash}}">{{.Browser}} · {{.State}} · {{.LastSeenAt.UTC.Format "2006-01-02 15:04 UTC"}}
-<button type="button" data-action="revoke-session">退出此会话</button></li>{{else}}<li>暂无会话</li>{{end}}</ul>
-<h2>可信浏览器</h2><ul class="items">{{range .Trusted}}<li data-row="{{.Hash}}">{{.Label}} · 到期 {{.ExpiresAt.UTC.Format "2006-01-02 15:04 UTC"}}
-<button type="button" data-action="revoke-browser">吊销</button></li>{{else}}<li>暂无可信浏览器</li>{{end}}</ul>
-<h2>审计记录</h2><p>{{if .ChainOK}}审计链校验通过{{else}}审计链校验失败{{end}}</p>
-<ul class="items">{{range .Audit}}<li>{{auditDate .At}} · {{.Actor}} · {{.Action}} · {{.Result}}{{if .Target}} · {{.Target}}{{end}}</li>{{else}}<li>暂无审计记录</li>{{end}}</ul>
-{{else if eq .Tab "settings"}}
-<h1>设置</h1><dl><dt>服务端版本</dt><dd>{{.Version}}</dd><dt>时区</dt><dd>{{.Settings.Timezone}}</dd><dt>元数据</dt><dd>{{.Settings.RetentionDays}} 天</dd><dt>普通正文</dt><dd>{{if .Settings.BodyRetentionDays}}{{.Settings.BodyRetentionDays}} 天{{else}}投递结束后清除{{end}}</dd><dt>验证码正文</dt><dd>{{if .Settings.CodeRetentionHours}}{{.Settings.CodeRetentionHours}} 小时{{else}}与普通正文相同{{end}}</dd><dt>登录确认</dt><dd>Telegram、服务器 CLI</dd></dl>
-{{end}}
-{{if .Next}}<p><a href="{{.Next}}">更早的消息</a></p>{{end}}
 </section>
+<section class="card">
+<h2 class="card-title">投递</h2>
+<ul class="list">{{range .Message.Deliveries}}<li class="row row-static delivery"><span class="avatar avatar-icon" aria-hidden="true">{{template "icon" "i-send"}}</span><span class="row-title"><strong>{{channelLabel .Channel}}</strong><span class="mono muted">{{.PartsSent}} / {{.PartsTotal}} 段</span></span><span class="row-sub">{{template "chip" (deliveryBadge .State)}}{{if not .AckedAt.IsZero}}<span class="chip tone-ok">{{template "icon" "i-paw-check"}}✓✓ 已取回</span>{{end}}</span>{{if .LastError}}<p class="row-error" dir="auto">{{visible .LastError}}</p>{{end}}</li>{{else}}<li class="empty empty-plain"><p class="empty-text">暂无投递记录</p></li>{{end}}</ul>
+</section>
+{{else if eq .Tab "filtered"}}
+<header class="page-head"><h1>已过滤</h1><p class="lede">内容过滤判定为不需要推送的消息。保留期内可以打开详情找回并转发。</p></header>
+<section class="card" aria-label="已过滤消息">
+<ul class="list">{{range .Filtered}}<li><a class="row row-msg" href="/panel/message/{{.ID}}"><span class="avatar" aria-hidden="true">{{initial .SourceID}}</span><span class="row-title"><strong dir="auto">{{visible .SourceID}}</strong></span><time class="row-time">{{.ReceivedAt.UTC.Format "01-02 15:04"}}<span class="tz"> UTC</span></time><span class="row-sub"><span class="chip cat cat-{{.Category}}">{{template "icon" (categoryIcon .Category)}}{{.Category.Label}}</span></span></a></li>{{else}}<li class="empty">{{template "sleepycat"}}<p class="empty-title">暂无已过滤消息</p><p class="empty-text">纸篓是空的，没有被拦下的消息。</p></li>{{end}}</ul>
+</section>
+{{else if eq .Tab "status"}}
+<header class="page-head"><h1>系统总览</h1><p class="lede">各组件的实时状态。</p></header>
+{{with levelBadge .Report.Overall}}<p class="banner banner-lg tone-{{.Tone}}">{{template "icon" .Icon}}<span><strong>{{.Label}}</strong><br>{{$.Report.OverallText}}</span></p>{{end}}
+<ul class="grid-cards">{{range .Report.Components}}<li class="card comp"><div class="comp-head"><h2>{{.Name}}</h2>{{template "chip" (levelBadge .Level)}}</div><p>{{visible .Summary}}</p>{{if .Details}}<ul class="details">{{range .Details}}<li>{{visible .}}</li>{{end}}</ul>{{end}}</li>{{end}}</ul>
+{{else if eq .Tab "stats"}}
+<header class="page-head"><h1>统计</h1><p class="lede">{{.Stats.Range.Label}}</p></header>
+{{$r := print .Stats.Range}}
+<nav class="segmented" aria-label="统计时段"><a href="/panel?tab=stats&amp;range=today" {{if eq $r "today"}}aria-current="page"{{end}}>今天</a><a href="/panel?tab=stats&amp;range=24h" {{if eq $r "24h"}}aria-current="page"{{end}}>24 小时</a><a href="/panel?tab=stats&amp;range=7d" {{if eq $r "7d"}}aria-current="page"{{end}}>7 天</a><a href="/panel?tab=stats&amp;range=start" {{if eq $r "start"}}aria-current="page"{{end}}>本次启动</a></nav>
+<div class="metrics">{{with .Stats.Stats.Total}}<div class="metric"><span class="metric-label">{{template "icon" "i-inbox"}}接收</span><strong>{{.Received}}</strong></div><div class="metric tone-ok-text"><span class="metric-label">{{template "icon" "i-paw-check"}}送达</span><strong>{{.Delivered}}</strong></div><div class="metric"><span class="metric-label">{{template "icon" "i-bin"}}过滤</span><strong>{{.Filtered}}</strong></div><div class="metric tone-err-text"><span class="metric-label">{{template "icon" "i-mail-x"}}失败</span><strong>{{.Failed}}</strong></div>{{end}}</div>
+<section class="card">
+<h2 class="card-title">按来源</h2>
+{{if .Stats.Stats.BySource}}<div class="table-wrap"><table class="table"><thead><tr><th scope="col">来源</th><th scope="col" class="num">接收</th><th scope="col" class="num">送达</th><th scope="col" class="num">过滤</th><th scope="col" class="num">失败</th></tr></thead><tbody>{{range .Stats.Stats.BySource}}<tr><th scope="row" dir="auto">{{visible .SourceID}}</th><td class="num">{{.Counts.Received}}</td><td class="num">{{.Counts.Delivered}}</td><td class="num">{{.Counts.Filtered}}</td><td class="num">{{.Counts.Failed}}</td></tr>{{end}}</tbody></table></div>
+{{else}}<p class="empty-text">这个时段没有消息。</p>{{end}}
+</section>
+{{else if eq .Tab "sources"}}
+<header class="page-head"><h1>来源</h1><p class="lede">发送消息到猫邮局的设备或服务。每个来源有独立的凭证。</p></header>
+<section class="card">
+<h2 class="card-title">{{template "icon" "i-plus"}}新建来源</h2>
+<form id="new-source" class="form">
+<div class="field"><label for="source-id">新来源 ID</label><input id="source-id" required maxlength="32" pattern="[a-z0-9][a-z0-9_\-]{0,31}" autocomplete="off" spellcheck="false" aria-describedby="source-id-help"><small id="source-id-help">小写字母、数字、- 或 _，最多 32 位</small></div>
+<div class="field"><label for="source-name">名称</label><input id="source-name" maxlength="64" autocomplete="off"></div>
+<div class="form-end"><button type="submit" class="btn btn-filled">创建来源</button></div>
+</form>
+</section>
+<ul class="stack">{{range .Sources}}<li class="card item" data-row="{{.Source.ID}}">
+<div class="item-head"><span class="avatar" aria-hidden="true">{{initial .Source.Name}}</span><div class="item-title"><strong dir="auto">{{visible .Source.Name}}</strong><code>{{.Source.ID}}</code></div>{{if .Source.Enabled}}<span class="chip tone-ok">{{template "icon" "i-check"}}已启用</span>{{else}}<span class="chip tone-neutral">{{template "icon" "i-dash"}}已停用</span>{{end}}</div>
+<p class="item-stat">今日接收 <strong class="mono">{{.Today.Received}}</strong></p>
+<div class="management actions"><button type="button" class="btn btn-tonal" data-action="rename-source">{{template "icon" "i-edit"}}<span>改名</span></button>
+<button type="button" class="btn btn-tonal" data-action="source-enabled" data-enabled="{{.Source.Enabled}}">{{template "icon" "i-power"}}<span>{{if .Source.Enabled}}停用{{else}}启用{{end}}</span></button>
+<button type="button" class="btn btn-outlined" data-action="rotate-source">{{template "icon" "i-retry"}}<span>轮换凭证</span></button>
+<button type="button" class="btn btn-danger" data-action="delete-source">{{template "icon" "i-trash"}}<span>删除来源</span></button></div></li>{{else}}<li class="card empty empty-plain">{{template "icon" "i-antenna"}}<p class="empty-title">暂无来源</p><p class="empty-text">创建来源后，用它的凭证向猫邮局发送消息。</p></li>{{end}}</ul>
+{{else if eq .Tab "devices"}}
+<header class="page-head"><h1>设备</h1><p class="lede">已配对的 Nekopost App。新设备用二维码或手动配对码加入。</p></header>
+<section class="card">
+<h2 class="card-title">{{template "icon" "i-plus"}}配对新设备</h2>
+<form id="new-pairing" class="form">
+<div class="field"><label for="device-name">设备名称</label><input id="device-name" required maxlength="64" autocomplete="off"></div>
+<div class="field"><label for="device-role">权限</label><select id="device-role"><option value="full">完整</option><option value="sender">仅转发</option><option value="receiver">仅接收</option></select></div>
+<div class="field"><label for="device-source">来源 ID</label><input id="device-source" maxlength="32" autocomplete="off" spellcheck="false" aria-describedby="device-source-help"><small id="device-source-help">转发消息时使用的来源，可留空</small></div>
+<div class="form-end"><button type="submit" class="btn btn-filled">创建配对</button></div>
+</form>
+</section>
+<ul class="stack">{{range .DeviceRows}}<li class="card item" data-row="{{.ID}}">
+<div class="item-head"><span class="avatar avatar-icon" aria-hidden="true">{{template "icon" "i-phone"}}</span><div class="item-title"><strong dir="auto">{{visible .Name}}</strong><bdi class="muted">{{visible .Model}}</bdi></div>{{if .Revoked}}<span class="chip tone-err">{{template "icon" "i-x"}}已吊销</span>{{else if .Suspended}}<span class="chip tone-warn">{{template "icon" "i-clock"}}暂停读取</span>{{else}}<span class="chip tone-ok">{{template "icon" "i-check"}}已启用</span>{{end}}</div>
+{{if not .Revoked}}<div class="management actions"><button type="button" class="btn btn-danger" data-action="revoke-device">{{template "icon" "i-x"}}<span>吊销</span></button></div>{{end}}</li>{{else}}<li class="card empty empty-plain">{{template "icon" "i-phone"}}<p class="empty-title">暂无配对设备</p><p class="empty-text">在上方创建配对，然后用 App 扫描二维码。</p></li>{{end}}</ul>
+{{else if eq .Tab "keys"}}
+<header class="page-head"><h1>管理凭证</h1><p class="lede">供脚本和命令行调用管理接口。凭证只在创建时显示一次。</p></header>
+<section class="card">
+<h2 class="card-title">{{template "icon" "i-plus"}}新建凭证</h2>
+<form id="new-key" class="form"><div class="field"><label for="key-name">凭证名称</label><input id="key-name" required maxlength="64" autocomplete="off"></div><div class="form-end"><button type="submit" class="btn btn-filled">创建凭证</button></div></form>
+</section>
+<section class="card">
+<ul class="list">{{range .KeyRows}}<li class="row row-static key-row" data-row="{{.Prefix}}"><span class="avatar avatar-icon" aria-hidden="true">{{template "icon" "i-key"}}</span><span class="row-title"><strong dir="auto">{{visible .Name}}</strong><code>{{.Prefix}}</code></span>
+<span class="row-end">{{if .RevokedAt.IsZero}}<button type="button" class="btn btn-danger btn-sm" data-action="revoke-key">吊销</button>{{else}}<span class="chip tone-neutral">{{template "icon" "i-x"}}已吊销</span>{{end}}</span></li>{{else}}<li class="empty empty-plain"><p class="empty-title">暂无管理凭证</p></li>{{end}}</ul>
+</section>
+{{else if eq .Tab "security"}}
+<header class="page-head"><h1>安全</h1><p class="lede">当前身份 <bdi class="mono">{{.Identity}}</bdi></p></header>
+<section class="card">
+<div class="card-head"><h2 class="card-title">{{template "icon" "i-globe"}}网页会话</h2><button type="button" class="btn btn-danger btn-sm" data-action="revoke-others">退出其他会话</button></div>
+<ul class="list">{{range .Sessions}}<li class="row row-static" data-row="{{.Hash}}"><span class="row-title"><strong>{{.Browser}}</strong>{{template "chip" (sessionBadge .State)}}</span><span class="row-sub mono muted">最近活动 {{.LastSeenAt.UTC.Format "2006-01-02 15:04 UTC"}}</span>
+<span class="row-end"><button type="button" class="btn btn-outlined btn-sm" data-action="revoke-session">退出此会话</button></span></li>{{else}}<li class="empty empty-plain"><p class="empty-text">暂无会话</p></li>{{end}}</ul>
+</section>
+<section class="card">
+<h2 class="card-title">{{template "icon" "i-lock"}}可信浏览器</h2>
+<ul class="list">{{range .Trusted}}<li class="row row-static" data-row="{{.Hash}}"><span class="row-title"><strong>{{.Label}}</strong></span><span class="row-sub mono muted">到期 {{.ExpiresAt.UTC.Format "2006-01-02 15:04 UTC"}}</span>
+<span class="row-end"><button type="button" class="btn btn-danger btn-sm" data-action="revoke-browser">吊销</button></span></li>{{else}}<li class="empty empty-plain"><p class="empty-text">暂无可信浏览器</p></li>{{end}}</ul>
+</section>
+<section class="card">
+<h2 class="card-title">{{template "icon" "i-list"}}审计记录</h2>
+{{if .ChainOK}}<p class="banner tone-ok">{{template "icon" "i-check"}}<span>审计链校验通过</span></p>{{else}}<p class="banner tone-err">{{template "icon" "i-warn"}}<span>审计链校验失败</span></p>{{end}}
+<ol class="audit">{{range .Audit}}<li><time class="mono">{{auditDate .At}}</time><span class="audit-actor">{{.Actor}}</span><code class="audit-action">{{.Action}}</code>{{template "chip" (resultBadge .Result)}}{{if .Target}}<code class="audit-target">{{.Target}}</code>{{end}}</li>{{else}}<li class="empty empty-plain"><p class="empty-text">暂无审计记录</p></li>{{end}}</ol>
+</section>
+{{else if eq .Tab "settings"}}
+<header class="page-head"><h1>设置</h1><p class="lede">服务端配置，只读。修改请在服务器上编辑配置文件。</p></header>
+<section class="card"><dl class="kv kv-settings"><div><dt>服务端版本</dt><dd class="mono">{{.Version}}</dd></div><div><dt>时区</dt><dd>{{.Settings.Timezone}}</dd></div><div><dt>元数据</dt><dd>{{.Settings.RetentionDays}} 天</dd></div><div><dt>普通正文</dt><dd>{{if .Settings.BodyRetentionDays}}{{.Settings.BodyRetentionDays}} 天{{else}}投递结束后清除{{end}}</dd></div><div><dt>验证码正文</dt><dd>{{if .Settings.CodeRetentionHours}}{{.Settings.CodeRetentionHours}} 小时{{else}}与普通正文相同{{end}}</dd></div><div><dt>登录确认</dt><dd>Telegram、服务器 CLI</dd></div></dl></section>
 {{end}}
+{{if .Next}}<p class="pager"><a class="btn btn-tonal" href="{{.Next}}"><span>更早的消息</span>{{template "icon" "i-next"}}</a></p>{{end}}
 </main>
+</div>
+{{end}}
 </body>
 </html>
+{{define "chip"}}<span class="chip tone-{{.Tone}}"><svg class="i" aria-hidden="true"><use href="#{{.Icon}}"></use></svg>{{.Label}}</span>{{end}}
+{{define "icon"}}<svg class="i" aria-hidden="true"><use href="#{{.}}"></use></svg>{{end}}
+{{define "logo"}}<svg class="logo" viewBox="0 0 48 48" aria-hidden="true"><rect class="logo-bg" width="48" height="48" rx="14"/><path class="logo-cat" d="M11 22V9l8.5 6.5h9L37 9v13c0 9-5.8 15-13 15s-13-6-13-15z"/><path class="logo-eye" d="M17 23.5q2.2 1.6 4.4 0M26.6 23.5q2.2 1.6 4.4 0"/><rect class="logo-mail" x="17" y="29" width="14" height="10" rx="1.6"/><path class="logo-flap" d="M17.6 29.8 24 34.4l6.4-4.6"/></svg>{{end}}
+{{define "sleepycat"}}<svg class="art" viewBox="0 0 160 112" aria-hidden="true"><rect class="art-post" x="98" y="58" width="10" height="50" rx="3"/><path class="art-box" d="M74 30h52a16 16 0 0 1 16 16v20H58V46a16 16 0 0 1 16-16z"/><rect class="art-slot" x="80" y="44" width="34" height="6" rx="3"/><path class="art-flag" d="M136 36v-16h12v8h-12"/><path class="art-cat" d="M60 30c0-10 8-17 20-17 3 0 6 .4 9 1.3L95 8l2 11c3 3 4 6 4 11z"/><path class="art-ear" d="M66 18 64 6l9 7"/><path class="art-tail" d="M60 30c-10 0-14 6-12 12 1.5 4 6 5 9 3"/><path class="art-line" d="M74 22q3 2 6 0M86 22q3 2 6 0"/><path class="art-z" d="M106 4h8l-8 8h8M120 0h5l-5 5h5"/><path class="art-ground" d="M40 108h104"/></svg>{{end}}
