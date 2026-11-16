@@ -14,45 +14,59 @@ import com.drinkcat.nekopost.core.ui.fold.rememberFoldState
 import com.drinkcat.nekopost.core.ui.motion.LocalReducedMotion
 import com.drinkcat.nekopost.core.ui.motion.isReducedMotionEnabled
 import com.drinkcat.nekopost.core.ui.theme.NekopostTheme
-import com.drinkcat.nekopost.inbox.InboxIdle
+import com.drinkcat.nekopost.lock.AppLockHost
 import com.drinkcat.nekopost.system.LocalAppIconLoader
+import com.drinkcat.nekopost.system.LocalExternalLauncher
 import com.drinkcat.nekopost.system.TouchSecurity
 import com.drinkcat.nekopost.ui.NekopostRoot
 
 /**
  * The single activity. It handles fold/unfold/rotation itself (configChanges in
  * the manifest), so Compose recomposes in place and nothing is lost. It never
- * reads its Intent: extras and data are ignored, it always opens the home screen.
+ * reads its Intent: extras and data are ignored, it always opens the home screen
+ * (a notification tap reaches it through the non-exported OpenMessageActivity,
+ * which hands the message ID over in-process).
  *
  * FLAG_SECURE is on for the whole app (design §8.3): the enrollment link, the
  * log and the settings never appear in screenshots, screen recordings or
- * the Recents thumbnail.
+ * the Recents thumbnail. The whole app sits behind the app lock.
  */
 class MainActivity : ComponentActivity() {
+    private val container get() = (application as NekopostApp).container
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(false)
-        val container = (application as NekopostApp).container
+        val container = container
         setContent {
             // Re-read on configuration changes (the accessibility switch arrives as one).
             val configuration = LocalConfiguration.current
             val reducedMotion = remember(configuration) { isReducedMotionEnabled() }
+            val fold = rememberFoldState()
             CompositionLocalProvider(
                 LocalReducedMotion provides reducedMotion,
                 LocalAppIconLoader provides container.iconLoader,
+                LocalExternalLauncher provides container.launcher,
             ) {
                 NekopostTheme {
-                    NekopostRoot(container = container, fold = rememberFoldState())
+                    AppLockHost(container.lock, fold) {
+                        NekopostRoot(container = container, fold = fold)
+                    }
                 }
             }
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        container.lock.activityResumed()
+    }
+
     override fun onUserInteraction() {
         super.onUserInteraction()
-        InboxIdle.touch()
+        container.lock.touch()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
