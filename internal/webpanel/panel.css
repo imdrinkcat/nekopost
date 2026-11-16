@@ -529,11 +529,12 @@ select { appearance: none; padding-inline-end: 40px; background-image: linear-gr
 /* ---------- Message detail ---------- */
 .msg-head { gap: 12px; }
 .msg-head h1 { font-size: 1.5rem; }
-.msg-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.msg-from { flex: 0 1 auto; min-width: 0; line-height: 1.5; }
+.msg-meta { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: 8px 12px; }
+.msg-meta > .avatar { align-self: start; }
+.msg-meta > .chip { grid-column: 2; justify-self: start; }
+.msg-from { min-width: 0; line-height: 1.5; }
 .msg-from time, .msg-id { font-size: .8125rem; color: var(--on-surface-variant); }
-.msg-id { overflow-wrap: anywhere; }
-.msg-id::before { content: "· "; }
+.msg-id { display: block; overflow-wrap: anywhere; }
 .letter {
   position: relative; overflow: hidden;
   padding: 28px 20px 20px;
