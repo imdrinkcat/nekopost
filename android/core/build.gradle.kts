@@ -43,4 +43,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
 
     testImplementation(libs.junit)
+    // Reads the enrollment fixture shared with the server (enroll-fixtures.json).
+    testImplementation(libs.kotlinx.serialization.json)
 }

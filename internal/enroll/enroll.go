@@ -7,16 +7,24 @@
 //	nekopost://enroll?v=1&kind=source&url=<base>&id=<id>&token=<mgs_…>&name=<name>
 //
 // Every value is percent-encoded (spaces as %20, never "+") and the
-// parameters always appear in this order.
+// parameters always appear in this order. The rules here are kept no looser
+// than the app's parser (android/core …/enroll/EnrollmentLink.kt), so every
+// link built here is accepted there unchanged; the shared fixture
+// android/core/src/test/resources/enroll-fixtures.json is checked by the tests
+// on both sides.
 package enroll
 
 import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"rsc.io/qr"
 
@@ -26,8 +34,20 @@ import (
 // Version is the enrollment link format version.
 const Version = "1"
 
-// tokenRe matches source tokens accepted by the app (see auth.SourcePrefix).
-var tokenRe = regexp.MustCompile(`^mgs_[A-Za-z0-9_-]{20,}$`)
+// Limits enforced by the app's parser.
+const (
+	// MaxLinkLength is the longest link the app accepts.
+	MaxLinkLength = 2048
+	// MaxNameRunes is the longest display name (in code points) the app accepts.
+	MaxNameRunes = 128
+)
+
+var (
+	// tokenRe matches source tokens accepted by the app (see auth.SourcePrefix).
+	tokenRe = regexp.MustCompile(`^mgs_[A-Za-z0-9_-]{20,}$`)
+	// dnsLabelRe matches one lower-case host name label (RFC 1123).
+	dnsLabelRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+)
 
 // NormalizeBaseURL validates a server base URL for the enrollment link: it
 // must be an absolute https URL with a host and nothing else (no user info,
@@ -61,11 +81,62 @@ func NormalizeBaseURL(raw string) (string, error) {
 	case u.Fragment != "" || strings.Contains(raw, "#"):
 		return "", fmt.Errorf("服务器地址 %q 不能包含 # 片段", raw)
 	}
-	return "https://" + strings.ToLower(u.Host), nil
+	host := strings.ToLower(u.Host)
+	if !validHost(strings.ToLower(u.Hostname()), strings.HasPrefix(host, "[")) {
+		return "", fmt.Errorf("服务器地址 %q 的主机名无效（只接受 ASCII 域名或 IP 地址）", raw)
+	}
+	if port := u.Port(); port != "" || strings.HasSuffix(host, ":") {
+		if n, err := strconv.Atoi(port); err != nil || port[0] == '0' || n < 1 || n > 65535 {
+			return "", fmt.Errorf("服务器地址 %q 的端口无效", raw)
+		}
+	}
+	return "https://" + host, nil
+}
+
+// validHost reports whether host (lower-case, without brackets or port) is
+// a name the app's URI parser accepts as a server host: a bracketed IPv6
+// literal, a dotted IPv4 address, or an ASCII DNS name whose last label
+// starts with a letter. Internationalized names must be given in punycode.
+func validHost(host string, bracketed bool) bool {
+	if bracketed {
+		ip := net.ParseIP(host)
+		return ip != nil && ip.To4() == nil
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.To4() != nil && !strings.Contains(host, ":")
+	}
+	labels := strings.Split(host, ".")
+	for _, l := range labels {
+		if !dnsLabelRe.MatchString(l) {
+			return false
+		}
+	}
+	last := labels[len(labels)-1]
+	return last[0] >= 'a' && last[0] <= 'z'
+}
+
+// NormalizeName trims surrounding white space, falls back to the source ID
+// when nothing is left, and checks the result against the app's limits:
+// valid UTF-8, at most MaxNameRunes code points, no control characters.
+func NormalizeName(name, sourceID string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = sourceID
+	}
+	switch {
+	case !utf8.ValidString(name):
+		return "", errors.New("名称不是有效的 UTF-8 文本")
+	case utf8.RuneCountInString(name) > MaxNameRunes:
+		return "", fmt.Errorf("名称超过 %d 个字符", MaxNameRunes)
+	case strings.IndexFunc(name, unicode.IsControl) >= 0:
+		return "", errors.New("名称包含控制字符")
+	}
+	return name, nil
 }
 
 // Link returns the enrollment link for a source. baseURL is validated with
-// NormalizeBaseURL; an empty name falls back to the source ID.
+// NormalizeBaseURL and name with NormalizeName (an empty name falls back to
+// the source ID).
 func Link(baseURL, sourceID, token, name string) (string, error) {
 	base, err := NormalizeBaseURL(baseURL)
 	if err != nil {
@@ -77,15 +148,19 @@ func Link(baseURL, sourceID, token, name string) (string, error) {
 	if !tokenRe.MatchString(token) {
 		return "", errors.New("凭证格式无效")
 	}
-	if name == "" {
-		name = sourceID
+	if name, err = NormalizeName(name, sourceID); err != nil {
+		return "", err
 	}
-	return "nekopost://enroll?v=" + Version +
+	link := "nekopost://enroll?v=" + Version +
 		"&kind=source" +
 		"&url=" + escape(base) +
 		"&id=" + escape(sourceID) +
 		"&token=" + escape(token) +
-		"&name=" + escape(name), nil
+		"&name=" + escape(name)
+	if len(link) > MaxLinkLength {
+		return "", fmt.Errorf("注册链接长 %d 个字符，超过 App 接受的 %d 个字符（请缩短名称）", len(link), MaxLinkLength)
+	}
+	return link, nil
 }
 
 // escape percent-encodes s for a query value. Spaces become %20 rather than

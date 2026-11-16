@@ -344,6 +344,10 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 			n = id
 		}
 		tok := auth.NewToken(auth.SourcePrefix)
+		link, ok := enrollLink(*withQR, enrollBase, id, tok, n, "未创建来源")
+		if !ok {
+			return 2
+		}
 		err := st.CreateSource(ctx, model.Source{ID: id, Name: n, Icon: *icon, Enabled: true}, auth.Hash(tok), auth.DisplayPrefix(tok), now)
 		if errors.Is(err, store.ErrExists) {
 			fmt.Fprintf(os.Stderr, "来源 %q 已存在。如需新凭证请使用 nekopost source rotate %s\n", id, id)
@@ -356,7 +360,7 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 		fmt.Printf("已创建来源 %s（%s）\n\n", id, model.Source{ID: id, Name: n, Icon: *icon}.DisplayName())
 		printToken(cfg, tok)
 		if *withQR {
-			return printEnrollQR(enrollBase, id, tok, n)
+			return printEnrollQR(enrollBase, id, link)
 		}
 		return 0
 
@@ -442,6 +446,10 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 			return 1
 		}
 		tok := auth.NewToken(auth.SourcePrefix)
+		link, ok := enrollLink(*withQR, enrollBase, id, tok, s.Name, "凭证未更换")
+		if !ok {
+			return 2
+		}
 		err = st.RotateSourceToken(ctx, id, auth.Hash(tok), auth.DisplayPrefix(tok), now)
 		if errors.Is(err, store.ErrNotFound) {
 			return notFound(id)
@@ -452,7 +460,7 @@ func cmdSource(cfg *config.Config, st *store.Store, args []string) int {
 		fmt.Printf("已为 %s 生成新凭证，旧凭证已立即失效。\n\n", id)
 		printToken(cfg, tok)
 		if *withQR {
-			return printEnrollQR(enrollBase, id, tok, s.Name)
+			return printEnrollQR(enrollBase, id, link)
 		}
 		return 0
 
@@ -508,17 +516,30 @@ func enrollBaseURL(cfg *config.Config, override string) (string, error) {
 	return base, nil
 }
 
+// enrollLink builds the enrollment link for the new token before anything is
+// written, so a name the app would reject (too long, control characters)
+// never leaves a token without its QR code. It returns "", true when --qr is
+// not set; on failure it prints the reason plus unchanged (what was left
+// untouched) and returns false.
+func enrollLink(withQR bool, base, id, tok, name, unchanged string) (string, bool) {
+	if !withQR {
+		return "", true
+	}
+	link, err := enroll.Link(base, id, tok, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "无法生成注册二维码：%v（%s）\n", err, unchanged)
+		return "", false
+	}
+	return link, true
+}
+
 // printEnrollQR prints the enrollment QR code for the Android app. The token
 // has already been created and printed, so failures here only lose the QR.
-func printEnrollQR(base, id, tok, name string) int {
-	link, err := enroll.Link(base, id, tok, name)
-	if err == nil {
-		fmt.Println()
-		fmt.Println("用 Nekopost 安卓 App 扫描下方二维码完成注册（服务器地址: " + base + "）:")
-		fmt.Println()
-		err = enroll.RenderTerminal(os.Stdout, link)
-	}
-	if err != nil {
+func printEnrollQR(base, id, link string) int {
+	fmt.Println()
+	fmt.Println("用 Nekopost 安卓 App 扫描下方二维码完成注册（服务器地址: " + base + "）:")
+	fmt.Println()
+	if err := enroll.RenderTerminal(os.Stdout, link); err != nil {
 		fmt.Fprintf(os.Stderr, "无法生成二维码：%v\n凭证已生成（见上方），可在 App 中手动填写。\n", err)
 		return 1
 	}

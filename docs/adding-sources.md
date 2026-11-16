@@ -53,7 +53,7 @@ nekopost source rotate fold8 --qr          # 换新凭证并重新扫码（旧�
 nekopost source add fold8 --qr --url https://push.example.com   # 指定服务器地址
 ```
 
-- 二维码中的服务器地址默认为 `https://` + `NEKOPOST_DOMAIN`；未设置域名时必须用 `--url` 指定。`--url` 只接受 `https://主机名[:端口]`，不能带路径、查询参数或结尾的 `/`。地址无效时命令会在创建或轮换凭证**之前**报错退出，不会产生多余的凭证。
+- 二维码中的服务器地址默认为 `https://` + `NEKOPOST_DOMAIN`；未设置域名时必须用 `--url` 指定。`--url` 只接受 `https://主机名[:端口]`，不能带路径、查询参数或结尾的 `/`；主机名须为 ASCII 域名（中文域名请用 punycode 形式 `xn--…`）或 IP 地址。地址或名称无效（名称最多 128 个字符，不能含控制字符）时命令会在创建或轮换凭证**之前**报错退出，不会产生多余的凭证。
 - 二维码内容为 `nekopost://enroll?v=1&kind=source&url=…&id=…&token=mgs_…&name=…`（各值均经百分号编码）。App 只接受这一格式，且只接受 https 地址。
 - 二维码使用黑白背景色绘制，深色和浅色终端主题都能扫描；如终端窗口太小导致二维码折行，请放大窗口或缩小字号后重试。
 - **二维码里包含凭证**，与凭证文本同等敏感：不要截图或分享，扫码完成后立即执行 `clear` 清屏。如果怀疑二维码已泄露，执行 `nekopost source rotate <id>` 更换凭证。

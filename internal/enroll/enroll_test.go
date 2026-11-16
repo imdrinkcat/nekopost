@@ -17,7 +17,6 @@ func TestLinkRoundTrip(t *testing.T) {
 		"三星 折叠屏",
 		"猫猫 📱 phone",
 		"a+b&c=d#e?f/g%h",
-		"  leading and trailing  ",
 	}
 	for _, name := range names {
 		link, err := Link("https://Push.Example.COM:8443", "fold8", tok, name)
@@ -94,10 +93,34 @@ func TestLinkRejectsBadInput(t *testing.T) {
 		{"https://example.com", "phone", "mgs_short"},
 		{"https://example.com", "phone", "mgs_" + strings.Repeat("A", 30) + "="},
 		{"http://example.com", "phone", tok},
+		{"https://example.com", "phone", "mgs_" + strings.Repeat("A", MaxLinkLength)},
 	}
 	for _, c := range cases {
 		if _, err := Link(c.base, c.id, c.token, "x"); err == nil {
 			t.Errorf("Link(%q, %q, %q) accepted", c.base, c.id, c.token)
+		}
+	}
+}
+
+func TestNormalizeName(t *testing.T) {
+	good := map[string]string{
+		"":                       "phone",
+		"   ":                    "phone",
+		"  Galaxy Fold\u3000":    "Galaxy Fold",
+		strings.Repeat("猫", 128): strings.Repeat("猫", 128),
+		strings.Repeat("🐱", 128): strings.Repeat("🐱", 128),
+		"zero\u200bwidth":        "zero\u200bwidth",
+		"a+b&c=d#e?f/g%h ~._-":   "a+b&c=d#e?f/g%h ~._-",
+	}
+	for in, want := range good {
+		got, err := NormalizeName(in, "phone")
+		if err != nil || got != want {
+			t.Errorf("NormalizeName(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"a\nb", "tab\there", "del\x7f", "c1\u0090", strings.Repeat("猫", 129), "bad\xffutf8"} {
+		if got, err := NormalizeName(in, "phone"); err == nil {
+			t.Errorf("NormalizeName(%q) = %q, want error", in, got)
 		}
 	}
 }
@@ -109,6 +132,9 @@ func TestNormalizeBaseURL(t *testing.T) {
 		"https://push.example.com:8443": "https://push.example.com:8443",
 		"https://[2001:db8::1]":         "https://[2001:db8::1]",
 		"https://xn--fsq.example":       "https://xn--fsq.example",
+		"https://10.0.0.5:443":          "https://10.0.0.5:443",
+		"https://localhost:65535":       "https://localhost:65535",
+		"https://a-b.c-d.example":       "https://a-b.c-d.example",
 	}
 	for in, want := range good {
 		got, err := NormalizeBaseURL(in)
@@ -135,6 +161,19 @@ func TestNormalizeBaseURL(t *testing.T) {
 		"https://example.com\n",
 		"https://:443",
 		"//example.com",
+		"https://my_host.example",
+		"https://例え.jp",
+		"https://host.123",
+		"https://example.com.",
+		"https://-bad.example",
+		"https://bad-.example",
+		"https://a..b",
+		"https://example.com:",
+		"https://example.com:0",
+		"https://example.com:0443",
+		"https://example.com:65536",
+		"https://[fe80::1%25eth0]",
+		"https://[1.2.3.4]",
 	}
 	for _, in := range bad {
 		if got, err := NormalizeBaseURL(in); err == nil {
