@@ -12,7 +12,7 @@ import (
 
 func openTest(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"), TestingOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,12 +31,12 @@ var tg = []NewDelivery{{Channel: "telegram", Target: "default"}}
 
 func TestReopenKeepsData(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "t.db")
-	s, _ := Open(p)
+	s, _ := Open(p, TestingOptions())
 	if err := s.CreateSource(ctx, model.Source{ID: "a", Name: "A", Enabled: true}, "hash", "pfx", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
-	s, err := Open(p)
+	s, err := Open(p, TestingOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestDeliveryLifecycleAndPurge(t *testing.T) {
 	m := newMsg("a", "secret 123456", "", now)
 	m.Title = "t"
 	res, _ := s.InsertMessage(ctx, m, tg, 0)
-	jobs, err := s.DueJobs(ctx, now, 10)
+	jobs, err := s.DueJobs(ctx, now, "", 10)
 	if err != nil || len(jobs) != 1 || jobs[0].Message.Body != "secret 123456" || jobs[0].PayloadMissing {
 		t.Fatalf("jobs %+v %v", jobs, err)
 	}
@@ -148,14 +148,14 @@ func TestDeliveryLifecycleAndPurge(t *testing.T) {
 	if st, _ := s.MessageStatus(ctx, res.ID); st != model.StatusSending {
 		t.Errorf("status %s", st)
 	}
-	if jobs, _ := s.DueJobs(ctx, now, 10); len(jobs) != 0 {
+	if jobs, _ := s.DueJobs(ctx, now, "", 10); len(jobs) != 0 {
 		t.Error("in-flight delivery must not be due")
 	}
 	st, err := s.FinishAttempt(ctx, j.Delivery.ID, res.ID, AttemptResult{State: model.DeliveryRetrying, NextAttemptAt: now.Add(time.Minute), Uncertain: true, LastError: "x"}, now)
 	if err != nil || st != model.StatusRetrying {
 		t.Fatalf("%s %v", st, err)
 	}
-	if next, ok, _ := s.NextDueAt(ctx); !ok || !next.Equal(time.UnixMilli(now.Add(time.Minute).UnixMilli())) {
+	if next, ok, _ := s.NextDueAt(ctx, ""); !ok || !next.Equal(time.UnixMilli(now.Add(time.Minute).UnixMilli())) {
 		t.Errorf("next due %v", next)
 	}
 	st, _ = s.FinishAttempt(ctx, j.Delivery.ID, res.ID, AttemptResult{State: model.DeliveryDelivered, PartsTotal: 1, PartsSent: 1}, now)
@@ -163,9 +163,9 @@ func TestDeliveryLifecycleAndPurge(t *testing.T) {
 		t.Errorf("status %s", st)
 	}
 	var n int
-	s.db.QueryRow("SELECT COUNT(*) FROM payloads").Scan(&n)
-	if n != 0 {
-		t.Error("payload must be purged once the message is finished")
+	s.db.QueryRow("SELECT COUNT(*) FROM bodies").Scan(&n)
+	if n != 1 {
+		t.Error("body is kept until the retention period")
 	}
 	mi, _ := s.GetMessage(ctx, res.ID)
 	if !mi.Deliveries[0].Uncertain || mi.Deliveries[0].DeliveredAt.IsZero() || mi.Message.FinishedAt.IsZero() {
@@ -181,7 +181,7 @@ func TestRecoverInFlight(t *testing.T) {
 	s := openTest(t)
 	now := time.Now()
 	res, _ := s.InsertMessage(ctx, newMsg("a", "x", "", now), tg, 0)
-	jobs, _ := s.DueJobs(ctx, now, 10)
+	jobs, _ := s.DueJobs(ctx, now, "", 10)
 	_ = s.ClaimDelivery(ctx, jobs[0].Delivery.ID, res.ID, now)
 	n, err := s.RecoverInFlight(ctx, now)
 	if err != nil || n != 1 {
@@ -191,7 +191,7 @@ func TestRecoverInFlight(t *testing.T) {
 	if mi.Deliveries[0].State != model.DeliveryRetrying || !mi.Deliveries[0].Uncertain || mi.Message.Status != model.StatusRetrying {
 		t.Errorf("after recovery: %+v %s", mi.Deliveries[0], mi.Message.Status)
 	}
-	if jobs, _ := s.DueJobs(ctx, now, 10); len(jobs) != 1 {
+	if jobs, _ := s.DueJobs(ctx, now, "", 10); len(jobs) != 1 {
 		t.Error("recovered delivery should be due again")
 	}
 }
@@ -203,7 +203,7 @@ func TestNotRoutedHasNoPayload(t *testing.T) {
 		t.Errorf("status %s", res.Status)
 	}
 	var n int
-	s.db.QueryRow("SELECT COUNT(*) FROM payloads").Scan(&n)
+	s.db.QueryRow("SELECT COUNT(*) FROM bodies").Scan(&n)
 	if n != 0 {
 		t.Error("unrouted messages must not keep a payload")
 	}
@@ -215,7 +215,7 @@ func TestStatsAndActivity(t *testing.T) {
 	for i, src := range []string{"a", "a", "b"} {
 		res, _ := s.InsertMessage(ctx, newMsg(src, string(rune('x'+i)), "", now.Add(time.Duration(i)*time.Second)), tg, 0)
 		if i == 0 {
-			jobs, _ := s.DueJobs(ctx, now.Add(time.Hour), 10)
+			jobs, _ := s.DueJobs(ctx, now.Add(time.Hour), "", 10)
 			s.ClaimDelivery(ctx, jobs[0].Delivery.ID, res.ID, now)
 			s.FinishAttempt(ctx, jobs[0].Delivery.ID, res.ID, AttemptResult{State: model.DeliveryFailed}, now)
 		}
@@ -269,7 +269,7 @@ func TestFilteredRescueAndPayloadRetention(t *testing.T) {
 	if _, total, _ := s.FilteredMessages(ctx, 0, 10); total != 2 {
 		t.Fatalf("filtered before purge: %d", total)
 	}
-	if _, err := s.PurgeFinishedPayloads(ctx, now.Add(-7*24*time.Hour)); err != nil {
+	if _, err := s.ExpireBodies(ctx, now); err != nil {
 		t.Fatal(err)
 	}
 	list, total, _ := s.FilteredMessages(ctx, 0, 10)
@@ -287,7 +287,7 @@ func TestFilteredRescueAndPayloadRetention(t *testing.T) {
 	if err := s.RescueFiltered(ctx, ad2.ID, now); !errors.Is(err, ErrNotRescuable) {
 		t.Fatalf("second rescue: %v", err)
 	}
-	jobs, _ := s.DueJobs(ctx, now.Add(2*time.Minute), 10)
+	jobs, _ := s.DueJobs(ctx, now.Add(2*time.Minute), "", 10)
 	if len(jobs) != 1 || jobs[0].Message.Category != model.CatSpam || jobs[0].Message.Body != "ad2" ||
 		!jobs[0].Delivery.CreatedAt.Equal(now.Add(time.Minute).Truncate(time.Millisecond)) {
 		t.Fatalf("rescued job: %+v", jobs)
@@ -305,7 +305,68 @@ func TestReleaseAllHeld(t *testing.T) {
 	if n, err := s.ReleaseAllHeld(ctx, now); err != nil || n != 1 {
 		t.Fatalf("release: %d %v", n, err)
 	}
-	if jobs, _ := s.DueJobs(ctx, now, 10); len(jobs) != 1 || jobs[0].Message.Category != "" {
+	if jobs, _ := s.DueJobs(ctx, now, "", 10); len(jobs) != 1 || jobs[0].Message.Category != "" {
 		t.Fatalf("released job: %+v", jobs)
+	}
+}
+
+func TestInsertAfterDEKRollback(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	if _, err := s.db.Exec(`CREATE TRIGGER reject_delivery BEFORE INSERT ON deliveries
+		WHEN NEW.target = 'reject' BEGIN SELECT RAISE(ABORT, 'test rollback'); END`); err != nil {
+		t.Fatal(err)
+	}
+	m := newMsg("a", "test body", "", now)
+	if _, err := s.InsertMessage(ctx, m, []NewDelivery{{Channel: "telegram", Target: "reject"}}, 0); err == nil {
+		t.Fatal("expected delivery insert to roll back")
+	}
+	res, err := s.InsertMessage(ctx, m, tg, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(s.path, TestingOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if _, body, _, ok, err := reopened.ReadBody(ctx, res.ID); err != nil || !ok || body != m.Body {
+		t.Fatalf("body after retry and reopen: %q, ok=%v, err=%v", body, ok, err)
+	}
+}
+
+func TestStaleDeliveryCannotUpdateReplacement(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	first, err := s.InsertMessage(ctx, newMsg("a", "first", "", now), tg, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := s.DueJobs(ctx, now, "telegram", 1)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("first job: %v, %v", jobs, err)
+	}
+	stale := jobs[0].Delivery
+	if _, err := s.DeleteMessage(ctx, first.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := s.InsertMessage(ctx, newMsg("a", "replacement", "", now), tg, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := s.GetMessage(ctx, replacement.ID)
+	if err != nil || len(info.Deliveries) != 1 || info.Deliveries[0].ID != stale.ID {
+		t.Fatalf("expected recycled delivery ID: %+v, %v", info.Deliveries, err)
+	}
+
+	if err := s.ClaimDelivery(ctx, stale.ID, first.ID, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stale claim: %v", err)
+	}
+	if _, err := s.FinishAttempt(ctx, stale.ID, first.ID, AttemptResult{State: model.DeliveryFailed}, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stale result: %v", err)
+	}
+	info, err = s.GetMessage(ctx, replacement.ID)
+	if err != nil || info.Deliveries[0].State != model.DeliveryPending || info.Deliveries[0].Attempts != 0 {
+		t.Fatalf("replacement delivery changed: %+v, %v", info.Deliveries, err)
 	}
 }

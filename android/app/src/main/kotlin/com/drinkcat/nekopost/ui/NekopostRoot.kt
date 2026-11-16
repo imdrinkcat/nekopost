@@ -3,6 +3,17 @@ package com.drinkcat.nekopost.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.provider.Settings
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,6 +28,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drinkcat.nekopost.AppContainer
 import com.drinkcat.nekopost.BuildConfig
+import com.drinkcat.nekopost.inbox.InboxScreen
 import com.drinkcat.nekopost.core.forwarder.OtpHealth
 import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.system.InstalledApp
@@ -85,30 +97,47 @@ fun NekopostRoot(container: AppContainer, fold: FoldState) {
             Settings.Global.getInt(context.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0
     }
 
+    val paired by produceState(false, container) { value = container.inbox.paired() }
+    LaunchedEffect(paired) {
+        if (paired && !prefs.setupCompleted) {
+            wizardOpen = false
+            destination = Destination.Inbox
+        }
+    }
+
     if (wizardOpen) {
-        SetupRoute(
-            controller = controller,
-            snapshot = snapshot,
-            step = wizardStep,
-            fold = fold,
-            canClose = prefs.setupCompleted,
-            allowInsecureLocalhost = container.allowInsecureLocalhost,
-            onStepChange = { wizardStep = it },
-            onAcknowledge = { container.uiPrefs.acknowledge(it.name) },
-            onSmsBlockedChange = { smsBlocked = it },
-            onRefreshChecks = refresh,
-            onFinish = {
-                container.uiPrefs.setSetupCompleted(true)
-                wizardOpen = false
-                destination = Destination.Forward
-            },
-            onClose = { wizardOpen = false },
-        )
+        Column(Modifier.fillMaxSize()) {
+            TextButton(
+                onClick = { wizardOpen = false; destination = Destination.Inbox },
+                modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)),
+            ) { Text("已有设备配对码？打开收件箱") }
+            Box(Modifier.weight(1f)) {
+                SetupRoute(
+                    controller = controller,
+                    snapshot = snapshot,
+                    step = wizardStep,
+                    fold = fold,
+                    canClose = prefs.setupCompleted,
+                    allowInsecureLocalhost = container.allowInsecureLocalhost,
+                    onStepChange = { wizardStep = it },
+                    onAcknowledge = { container.uiPrefs.acknowledge(it.name) },
+                    onSmsBlockedChange = { smsBlocked = it },
+                    onRefreshChecks = refresh,
+                    onFinish = {
+                        container.uiPrefs.setSetupCompleted(true)
+                        wizardOpen = false
+                        destination = Destination.Forward
+                    },
+                    onClose = { wizardOpen = false },
+                )
+            }
+        }
         return
     }
 
     val foldDebug = if (memory.debugUnlocked) rememberFoldDebugInfo(fold) else null
     NekopostShell(
+        inboxContent = { mode -> InboxScreen(container.inbox, fold, mode) },
         state = ShellUiState(
             forwarder = forwarderState,
             log = log,

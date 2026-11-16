@@ -31,6 +31,15 @@ func freeAddr(t *testing.T) string {
 	return l.Addr().String()
 }
 
+func useTestKEK(t *testing.T, dir string) {
+	t.Helper()
+	p := filepath.Join(dir, "kek")
+	if err := os.WriteFile(p, store.TestingOptions().KEK, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NEKOPOST_KEK_FILE", p)
+}
+
 func waitHealthy(t *testing.T, base string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -51,6 +60,7 @@ func waitHealthy(t *testing.T, base string) {
 func TestServiceLifecycle(t *testing.T) {
 	tg := faketg.New(t)
 	dir := t.TempDir()
+	useTestKEK(t, dir)
 	addr := freeAddr(t)
 	cfg, err := config.Load(func(k string) string {
 		return map[string]string{
@@ -69,7 +79,7 @@ func TestServiceLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	tok := auth.NewToken(auth.SourcePrefix)
-	st, err := store.Open(cfg.DBPath())
+	st, err := store.Open(cfg.DBPath(), store.TestingOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +127,7 @@ func TestServiceLifecycle(t *testing.T) {
 	// Restart: previous state survives.
 	cancel, done = start()
 	defer func() { cancel(); <-done }()
-	st2, _ := store.Open(filepath.Join(dir, "nekopost.db"))
+	st2, _ := store.Open(filepath.Join(dir, "nekopost.db"), store.TestingOptions())
 	defer st2.Close()
 	stats, _ := st2.Stats(context.Background(), time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 	if stats.Total.Delivered != 1 {
@@ -133,17 +143,18 @@ func TestServiceLifecycle(t *testing.T) {
 func TestRecoveryAfterCrash(t *testing.T) {
 	tg := faketg.New(t)
 	dir := t.TempDir()
+	useTestKEK(t, dir)
 	addr := freeAddr(t)
 	cfg, _ := config.Load(func(k string) string {
 		return map[string]string{"NEKOPOST_TLS_MODE": "off", "NEKOPOST_HTTP_ADDR": addr, "NEKOPOST_DATA_DIR": dir,
 			"NEKOPOST_TELEGRAM_BOT_TOKEN": faketg.Token, "NEKOPOST_TELEGRAM_ADMIN_IDS": "1001", "NEKOPOST_TELEGRAM_API_BASE": tg.URL}[k]
 	})
-	st, _ := store.Open(cfg.DBPath())
+	st, _ := store.Open(cfg.DBPath(), store.TestingOptions())
 	now := time.Now()
 	m := &model.Message{ID: model.NewMessageID(now), SourceID: "iphone", Kind: "text", Priority: model.PriorityNormal,
 		Body: "in flight", ContentHash: "h", ReceivedAt: now}
 	st.InsertMessage(context.Background(), m, []store.NewDelivery{{Channel: "telegram", Target: "default"}}, 0)
-	jobs, _ := st.DueJobs(context.Background(), now, 10)
+	jobs, _ := st.DueJobs(context.Background(), now, "", 10)
 	st.ClaimDelivery(context.Background(), jobs[0].Delivery.ID, m.ID, now) // "crash" here
 	st.Close()
 
@@ -155,7 +166,7 @@ func TestRecoveryAfterCrash(t *testing.T) {
 	if !strings.Contains(calls[0].Params["text"].(string), "in flight") {
 		t.Error("interrupted message should be re-sent after restart")
 	}
-	st2, _ := store.Open(cfg.DBPath())
+	st2, _ := store.Open(cfg.DBPath(), store.TestingOptions())
 	defer st2.Close()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {

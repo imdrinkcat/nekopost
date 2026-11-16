@@ -4,6 +4,7 @@ import android.content.Context
 import com.drinkcat.nekopost.core.forwarder.ForwarderController
 import com.drinkcat.nekopost.data.UiPrefs
 import com.drinkcat.nekopost.forwarder.AndroidForwarderController
+import com.drinkcat.nekopost.inbox.DeviceInbox
 import com.drinkcat.nekopost.system.AppIconLoader
 import com.drinkcat.nekopost.system.PackageIconLoader
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +21,9 @@ class AppContainer(context: Context) {
 
     /** Process-lifetime scope for work that must outlive a screen. */
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    internal val inbox by lazy { DeviceInbox(appContext) }
+    internal fun newInboxWindow() = inbox.newWindow()
 
     val forwarder: ForwarderController by lazy { AndroidForwarderController(appContext, appScope) }
 

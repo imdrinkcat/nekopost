@@ -54,22 +54,41 @@ internal class ApiClient(
     private val token: String,
     private val http: OkHttpClient,
     private val now: () -> Instant = Instant::now,
+    private val sourceId: String? = null,
 ) {
     fun postMessage(json: String, idempotencyKey: String): UploadOutcome {
-        val request = Request.Builder()
-            .url(baseUrl.resolve("/v1/messages")!!)
-            .header("Authorization", "Bearer $token")
+        val source = sourceId
+        val target = checkNotNull(baseUrl.resolve("/v1/messages"))
+        val signer = ForwarderDeviceAuth.signer
+        fun request(proof: ForwarderDeviceAuth.Proof?): Request = Request.Builder()
+            .url(target)
+            .header("Authorization", if (proof == null) "Bearer $token" else "DPoP ${proof.token}")
+            .apply { if (proof != null) header("DPoP", proof.jws) }
             .header("Idempotency-Key", idempotencyKey)
             .header("Accept", "application/json")
             .header("User-Agent", USER_AGENT)
             .post(json.toRequestBody(JSON))
             .build()
         return try {
-            http.newCall(request).execute().use { response ->
+            val proof = source?.let { signer?.invoke(baseUrl, it, target.toString(), now(), null) }
+            val outcome = http.newCall(request(proof)).execute().use { response ->
+                val body = readSmall(response)
+                val nonce = response.header("DPoP-Nonce")
+                val signedAt = response.headers.getDate("Date")?.toInstant()
+                if (proof != null && response.code == 401 && nonce != null && signedAt != null &&
+                    parse(body)?.errorCode() == "use_dpop_nonce" && source != null
+                ) {
+                    signer?.invoke(baseUrl, source, target.toString(), signedAt, nonce) to classify(response.code, retryAfter(response), body)
+                } else null to classify(response.code, retryAfter(response), body)
+            }
+            val retry = outcome.first
+            if (retry == null) outcome.second else http.newCall(request(retry)).execute().use { response ->
                 classify(response.code, retryAfter(response), readSmall(response))
             }
         } catch (e: IOException) {
             networkFailure(e)
+        } catch (_: java.security.GeneralSecurityException) {
+            UploadOutcome.Retry(FailureReason.Server, null, null, "device_key_unavailable")
         }
     }
 

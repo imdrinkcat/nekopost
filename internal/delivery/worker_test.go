@@ -28,7 +28,7 @@ var ctx = context.Background()
 
 func setup(t *testing.T, apiBase string) *env {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), store.TestingOptions())
 	if err != nil {
 		t.Fatal(err)
 	}

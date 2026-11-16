@@ -25,6 +25,11 @@ android {
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersion
+        listOf("FIREBASE_PROJECT_ID", "FIREBASE_APP_ID", "FIREBASE_API_KEY", "FIREBASE_SENDER_ID").forEach { key ->
+            val value = providers.environmentVariable(key).orNull.orEmpty()
+            require(value.matches(Regex("[a-zA-Z0-9:_-]*"))) { "Invalid Firebase project setting" }
+            buildConfigField("String", key, "\"$value\"")
+        }
     }
 
     signingConfigs {
@@ -107,6 +112,11 @@ tasks.withType<Test>().configureEach {
 dependencies {
     implementation(project(":core"))
     implementation(project(":forwarder"))
+    implementation(libs.okhttp)
+    implementation(libs.tink.android)
+    implementation(libs.firebase.messaging)
+    implementation(libs.work.runtime)
+
 
     implementation(platform(libs.compose.bom))
     implementation(libs.androidx.core.ktx)

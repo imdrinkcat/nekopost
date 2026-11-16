@@ -243,6 +243,21 @@ func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, t
 	}, nil)
 }
 
+// EditMessageReplyMarkup replaces only the inline keyboard.
+func (c *Client) EditMessageReplyMarkup(ctx context.Context, chatID, messageID int64, kb *InlineKeyboardMarkup) error {
+	return c.Call(ctx, "editMessageReplyMarkup", map[string]any{
+		"chat_id": chatID, "message_id": messageID, "reply_markup": kb,
+	}, nil)
+}
+
+// DeleteMessage removes a message the bot sent. Telegram refuses messages
+// older than 48 hours.
+func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) error {
+	return c.Call(ctx, "deleteMessage", map[string]any{
+		"chat_id": chatID, "message_id": messageID,
+	}, nil)
+}
+
 // AnswerCallbackQuery acknowledges a button press, optionally with a toast.
 func (c *Client) AnswerCallbackQuery(ctx context.Context, id, text string, alert bool) error {
 	return c.Call(ctx, "answerCallbackQuery", map[string]any{

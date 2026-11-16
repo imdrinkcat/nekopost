@@ -48,7 +48,7 @@ func (t *TelegramChannel) pace(ctx context.Context) error {
 }
 
 // Deliver implements Channel.
-func (t *TelegramChannel) Deliver(ctx context.Context, job store.Job, progress func(total, sent int)) Result {
+func (t *TelegramChannel) Deliver(ctx context.Context, job store.Job, progress func(total, sent int, tgMessageID int64)) Result {
 	chatID, ok := t.Targets[job.Delivery.Target]
 	if !ok {
 		return Result{Outcome: Permanent, FailKind: health.FailConfig, Err: "未知的投递目标 " + job.Delivery.Target}
@@ -78,19 +78,19 @@ func (t *TelegramChannel) Deliver(ctx context.Context, job store.Job, progress f
 			DisableNotification: job.Delivery.Silent,
 			ReplyMarkup:         keyboard(parts[i].Buttons),
 		}
-		err := t.send(ctx, p)
+		id, err := t.send(ctx, p)
 		var ae *telegram.APIError
 		if errors.As(err, &ae) && ae.Code == 400 && strings.Contains(ae.Description, "can't parse entities") {
 			// Formatting problem: fall back to plain text rather than failing.
 			p.Text, p.ParseMode = parts[i].Plain, ""
-			err = t.send(ctx, p)
+			id, err = t.send(ctx, p)
 		}
 		if err != nil {
 			r := classify(err)
 			r.PartsTotal, r.PartsSent = total, i
 			return r
 		}
-		progress(total, i+1)
+		progress(total, i+1, id)
 	}
 	return Result{Outcome: Delivered, PartsTotal: total, PartsSent: total}
 }
@@ -111,11 +111,11 @@ func keyboard(rows [][]render.Button) *telegram.InlineKeyboardMarkup {
 }
 
 // send performs one sendMessage call with its own timeout.
-func (t *TelegramChannel) send(ctx context.Context, p telegram.SendMessageParams) error {
+func (t *TelegramChannel) send(ctx context.Context, p telegram.SendMessageParams) (int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	_, err := t.Client.SendMessage(ctx, p)
-	return err
+	m, err := t.Client.SendMessage(ctx, p)
+	return m.MessageID, err
 }
 
 // classify maps a Bot API error to a delivery outcome.

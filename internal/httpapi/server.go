@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"nekopost/internal/auth"
 	"nekopost/internal/delivery"
 	"nekopost/internal/health"
 	"nekopost/internal/ratelimit"
@@ -28,9 +29,17 @@ type Waker interface{ Wake() }
 
 // Server holds the dependencies of the HTTP handlers.
 type Server struct {
-	Store  *store.Store
-	Router router.Router
-	Worker Waker
+	TestPush       func(context.Context, string) error
+	CookieAdmin    func(http.ResponseWriter, *http.Request, bool) (string, bool)
+	SecurityNotify func(context.Context, string)
+
+	DPoP       *auth.DPoP
+	PublicURL  string
+	PairNotify func(context.Context, store.Pairing)
+	Web        http.Handler
+	Store      *store.Store
+	Router     router.Router
+	Worker     Waker
 	// Filter, when set, receives messages whose type is in FilterTypes
 	// before they are delivered.
 	Filter       Waker
@@ -52,7 +61,8 @@ type Server struct {
 	FailGuard     *ratelimit.FailureGuard
 	Now           func() time.Time
 
-	sem chan struct{}
+	sem     chan struct{}
+	streams chan struct{}
 }
 
 // MaxConcurrent bounds simultaneous requests being handled.
@@ -71,9 +81,16 @@ func (s *Server) now() time.Time {
 // Handler builds the HTTP handler with all routes and middleware.
 func (s *Server) Handler() http.Handler {
 	s.sem = make(chan struct{}, MaxConcurrent)
+	s.streams = make(chan struct{}, 4)
 	mux := http.NewServeMux()
+	if s.DPoP != nil && s.PublicURL != "" {
+		s.registerDevices(mux)
+		s.registerManagement(mux)
+	}
 	mux.HandleFunc("/v1/messages", methods(map[string]http.HandlerFunc{http.MethodPost: s.handleSubmit}))
 	mux.HandleFunc("/v1/messages/{id}", methods(map[string]http.HandlerFunc{http.MethodGet: s.handleGetMessage}))
+	mux.HandleFunc("/v1/admin/system", methods(map[string]http.HandlerFunc{http.MethodGet: s.admin(s.handleAdminStatus)}))
+	mux.HandleFunc("/v1/admin/settings", methods(map[string]http.HandlerFunc{http.MethodGet: s.admin(s.handleAdminSettings)}))
 	mux.HandleFunc("/v1/admin/status", methods(map[string]http.HandlerFunc{http.MethodGet: s.admin(s.handleAdminStatus)}))
 	mux.HandleFunc("/v1/admin/sources", methods(map[string]http.HandlerFunc{http.MethodGet: s.admin(s.handleAdminSources)}))
 	mux.HandleFunc("/v1/admin/stats", methods(map[string]http.HandlerFunc{http.MethodGet: s.admin(s.handleAdminStats)}))
@@ -81,7 +98,22 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, errNotFound)
 	})
-	return s.middleware(mux)
+	return s.middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.DPoP != nil {
+			if token, ok := auth.BearerToken(r.Header.Get("Authorization")); ok && auth.AdminToken(token) && !adminKeyRoute(r) {
+				deviceError(w, r, 403, "insufficient_scope", "此管理凭证仅可访问指定只读接口")
+				return
+			}
+		}
+		path := r.URL.Path
+		if s.Web != nil && (path == "/" || path == "/v1/session" || strings.HasPrefix(path, "/v1/session/reauth") || path == "/panel" ||
+			strings.HasPrefix(path, "/auth/") || strings.HasPrefix(path, "/assets/") ||
+			strings.HasPrefix(path, "/panel/") || strings.HasPrefix(path, "/v1/approvals/")) {
+			s.Web.ServeHTTP(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
 }
 
 func methods(m map[string]http.HandlerFunc) http.HandlerFunc {
@@ -121,6 +153,8 @@ type statusRecorder struct {
 	http.ResponseWriter
 	status int
 }
+
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 func (s *statusRecorder) WriteHeader(code int) {
 	s.status = code
@@ -169,6 +203,8 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 // believed when the directly connected peer is a trusted proxy; then the
 // rightmost X-Forwarded-For entry that is not itself a trusted proxy is the
 // client, since a client can prepend anything it likes.
+func (s *Server) ClientIP(r *http.Request) string { return s.clientIP(r) }
+
 func (s *Server) clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

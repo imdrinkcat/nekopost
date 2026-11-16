@@ -21,7 +21,7 @@ COPY --from=build --chown=65532:65532 --chmod=0700 /out/data /data
 ENV NEKOPOST_DATA_DIR=/data \
     NEKOPOST_HTTP_ADDR=:8080 \
     NEKOPOST_HTTPS_ADDR=:8443 \
-    GOMEMLIMIT=64MiB
+    GOMEMLIMIT=96MiB
 EXPOSE 8080 8443
 # The probe uses plain HTTP on 8080 in both TLS modes (see "healthcheck").
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \

@@ -208,7 +208,7 @@ func (c *counter) get() int {
 }
 
 func setup(t *testing.T) *fixture {
-	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), store.TestingOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func (fx *fixture) info(t *testing.T, id string) store.MessageInfo {
 func TestHeldMessagesAreNotDeliveredBeforeClassification(t *testing.T) {
 	fx := setup(t)
 	fx.hold(t, "10086", "hello")
-	jobs, err := fx.st.DueJobs(bg, fx.now.Add(time.Hour), 10)
+	jobs, err := fx.st.DueJobs(bg, fx.now.Add(time.Hour), "", 10)
 	if err != nil || len(jobs) != 0 {
 		t.Fatalf("held message must not be due: %d %v", len(jobs), err)
 	}

@@ -17,6 +17,7 @@ import (
 
 	"nekopost/internal/auth"
 	"nekopost/internal/model"
+	"nekopost/internal/ratelimit"
 	"nekopost/internal/store"
 )
 
@@ -36,48 +37,52 @@ var metaKeyRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,32}$`)
 // response and returns false.
 func (s *Server) authSource(w http.ResponseWriter, r *http.Request) (model.Source, bool) {
 	ip := s.clientIP(r)
-	if blocked, ra := s.FailGuard.Blocked(ip); blocked {
-		writeError(w, r, &apiError{Status: http.StatusTooManyRequests, Code: "too_many_auth_failures",
-			Message: "认证失败次数过多，请稍后再试", RetryAfter: ra})
-		return model.Source{}, false
+	proxy := s.trusted(ip)
+	if proxy {
+		s.Health.NoteProxyClient()
 	}
 	now := s.now()
 	tok, ok := auth.BearerToken(r.Header.Get("Authorization"))
-	if !ok {
-		s.FailGuard.Fail(ip)
-		s.Health.AuthFailure(now)
-		writeError(w, r, errUnauthorized)
-		return model.Source{}, false
+	key := ratelimit.ScopeKey(ip, "source")
+	if ok && auth.SourceToken(tok) {
+		lk, err := s.Store.LookupSourceToken(r.Context(), auth.Hash(tok))
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			s.Log.Error("token lookup failed", "err", err)
+			writeError(w, r, errInternal)
+			return model.Source{}, false
+		}
+		if err == nil && !lk.Revoked {
+			info(r).Source = lk.Source.ID
+			if err := s.Store.TouchSource(r.Context(), lk.Source.ID, now); err != nil {
+				s.Log.Error("touch source failed", "err", err)
+			}
+			if !lk.Source.Enabled {
+				writeError(w, r, &apiError{Status: http.StatusForbidden, Code: "source_disabled", Message: "该消息来源已被停用"})
+				return model.Source{}, false
+			}
+			return lk.Source, true
+		}
+		if err == nil && lk.Revoked {
+			s.Health.AuthFailure(now)
+			_ = s.Store.RecordSourceAuthFailure(r.Context(), lk.Source.ID, now)
+			s.Log.Warn("revoked source credential used", "source", lk.Source.ID, "ip", ip)
+			writeError(w, r, errUnauthorized)
+			return model.Source{}, false
+		}
 	}
-	lk, err := s.Store.LookupSourceToken(r.Context(), auth.Hash(tok))
-	if errors.Is(err, store.ErrNotFound) {
-		s.FailGuard.Fail(ip)
-		s.Health.AuthFailure(now)
-		writeError(w, r, errUnauthorized)
-		return model.Source{}, false
+	if !proxy {
+		if blocked, ra := s.FailGuard.Blocked(key); blocked {
+			writeError(w, r, &apiError{Status: http.StatusTooManyRequests, Code: "too_many_auth_failures",
+				Message: "认证失败次数过多，请稍后再试", RetryAfter: ra})
+			return model.Source{}, false
+		}
+		if ok && auth.SourceToken(tok) {
+			s.FailGuard.Fail(key)
+		}
 	}
-	if err != nil {
-		s.Log.Error("token lookup failed", "err", err)
-		writeError(w, r, errInternal)
-		return model.Source{}, false
-	}
-	info(r).Source = lk.Source.ID
-	if lk.Revoked {
-		s.FailGuard.Fail(ip)
-		s.Health.AuthFailure(now)
-		_ = s.Store.RecordSourceAuthFailure(r.Context(), lk.Source.ID, now)
-		s.Log.Warn("revoked source credential used", "source", lk.Source.ID, "ip", ip)
-		writeError(w, r, errUnauthorized)
-		return model.Source{}, false
-	}
-	if err := s.Store.TouchSource(r.Context(), lk.Source.ID, now); err != nil {
-		s.Log.Error("touch source failed", "err", err)
-	}
-	if !lk.Source.Enabled {
-		writeError(w, r, &apiError{Status: http.StatusForbidden, Code: "source_disabled", Message: "该消息来源已被停用"})
-		return model.Source{}, false
-	}
-	return lk.Source, true
+	s.Health.AuthFailure(now)
+	writeError(w, r, errUnauthorized)
+	return model.Source{}, false
 }
 
 // submission is the decoded request before validation.
@@ -92,7 +97,7 @@ type submission struct {
 }
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
-	src, ok := s.authSource(w, r)
+	src, origin, ok := s.ingestSource(w, r)
 	if !ok {
 		return
 	}
@@ -158,10 +163,12 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	msg.ID = model.NewMessageID(now)
 	msg.SourceID = src.ID
+	msg.OriginDevice = origin
 	msg.ReceivedAt = now
 	msg.ContentHash = auth.ContentHash(s.DedupeKey, src.ID, msg.Kind, msg.Title, msg.Body)
 
 	held := s.Filter != nil && s.FilterTypes[msg.Kind]
+	msg.NeedsClassification = held
 	var targets []store.NewDelivery
 	for _, t := range s.Router.Route(src, msg) {
 		targets = append(targets, store.NewDelivery{Channel: t.Channel, Target: t.Target, Silent: t.Silent, Held: held})
@@ -454,7 +461,7 @@ func parseOccurred(v string, loc *time.Location) (time.Time, bool) {
 }
 
 func (s *Server) handleGetMessage(w http.ResponseWriter, r *http.Request) {
-	src, ok := s.authSource(w, r)
+	src, _, ok := s.ingestSource(w, r)
 	if !ok {
 		return
 	}
@@ -525,4 +532,25 @@ func nullIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+func (s *Server) ingestSource(w http.ResponseWriter, r *http.Request) (model.Source, string, bool) {
+	if _, ok := auth.DeviceAuthorization(r.Header.Get("Authorization")); !ok {
+		source, ok := s.authSource(w, r)
+		return source, "", ok
+	}
+	d, ok := s.authorizeDevice(w, r, store.ScopeSend, true)
+	if !ok {
+		return model.Source{}, "", false
+	}
+	src, err := s.Store.DeviceSource(r.Context(), d)
+	if errors.Is(err, store.ErrNotFound) || err == nil && !src.Enabled {
+		deviceError(w, r, 403, "source_disabled", "该消息来源已被停用")
+		return src, "", false
+	}
+	if err != nil {
+		writeError(w, r, errInternal)
+		return src, "", false
+	}
+	return src, d.ID, true
 }

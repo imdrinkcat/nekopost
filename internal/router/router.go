@@ -20,11 +20,15 @@ type Router interface {
 // Default sends every message to one target. Low-priority messages are
 // delivered silently.
 type Default struct {
+	Types   map[string]bool
 	Channel string
 	Target  string
 }
 
 // Route implements Router.
 func (d Default) Route(_ model.Source, msg *model.Message) []Target {
+	if d.Types != nil && !d.Types[msg.Kind] {
+		return nil
+	}
 	return []Target{{Channel: d.Channel, Target: d.Target, Silent: msg.Priority == model.PriorityLow}}
 }

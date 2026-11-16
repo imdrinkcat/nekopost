@@ -64,6 +64,12 @@ func (s *Service) Report(ctx context.Context) health.Report {
 	if s.Cert != nil {
 		in.Cert = s.Cert()
 	}
+	if cs, err := s.Store.CryptoStatus(ctx); err == nil {
+		in.Crypto = &health.CryptoInfo{
+			Prefix: cs.Prefix, DEKs: cs.DEKs, Oldest: cs.Oldest, AgeDays: cs.AgeDays,
+			Ready: cs.Ready, Detail: cs.Detail,
+		}
+	}
 	return health.Evaluate(in)
 }
 

@@ -129,7 +129,7 @@ internal class Uploader(
     private fun apiFor(enrollment: Enrollment): ApiClient? {
         val token = secrets.token() ?: return null
         val url = enrollment.serverUrl.toHttpUrlOrNull() ?: return null
-        return ApiClient(url, token, http.forServer(url), clock::instant)
+        return ApiClient(url, token, http.forServer(url), clock::instant, sourceId = enrollment.sourceId)
     }
 
     /** The token is unreadable (key lost after a restore or data wipe): same as 401, re-enroll. */

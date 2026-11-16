@@ -16,7 +16,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
+
+	"nekopost/internal/sealbox"
 
 	_ "modernc.org/sqlite"
 )
@@ -24,16 +27,38 @@ import (
 // ErrNotFound is returned when a requested row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrDeliveryInFlight means a message cannot be deleted while it is being sent.
+var ErrDeliveryInFlight = errors.New("delivery in flight")
+
+// ErrRevoked is returned when a credential exists but has been revoked.
+var ErrRevoked = errors.New("revoked")
+
 // ErrExists is returned when creating a row whose key is already taken.
 var ErrExists = errors.New("already exists")
 
 // Store wraps the database handle.
 type Store struct {
-	db *sql.DB
+	enablePush    bool
+	path          string
+	db            *sql.DB
+	box           sealbox.Keys
+	bodyRetention time.Duration
+	codeRetention time.Duration
+	filteredKeep  time.Duration
+	dedupeWindow  time.Duration
+	keepMigBackup bool
+	now           func() time.Time
+	migrated      bool
 }
 
 // Open opens (creating if needed) the database at path and migrates it.
-func Open(path string) (*Store, error) {
+// A 32-byte KEK is required: without it the process refuses to start and
+// does not modify the database.
+func Open(path string, opt Options) (*Store, error) {
+	keys, err := sealbox.Derive(opt.KEK)
+	if err != nil {
+		return nil, errors.New("未找到主密钥：请运行 sudo nekopost keys init（见 docs/encryption.md）")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -55,10 +80,39 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxIdleTime(5 * time.Minute)
-	s := &Store{db: db}
+	s := &Store{
+		path: path, db: db, box: keys, enablePush: opt.EnablePush,
+		bodyRetention: opt.BodyRetention, codeRetention: opt.CodeRetention,
+		filteredKeep: opt.FilteredKeep, dedupeWindow: opt.DedupeWindow,
+		keepMigBackup: opt.KeepMigrationBackup, now: opt.now,
+	}
 	if err := s.migrate(context.Background()); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("数据库迁移失败: %w", err)
+	}
+	if len(opt.PreviousKEK) == 32 {
+		if err := s.rewrapIfNeeded(context.Background(), opt.PreviousKEK); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if err := s.verifyKEK(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.noteKEKSince(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if s.migrated {
+		if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if _, err := db.Exec("VACUUM"); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	_ = os.Chmod(path, 0o600)
 	return s, nil
@@ -79,8 +133,13 @@ func (s *Store) Checkpoint(ctx context.Context) error {
 	return err
 }
 
-var migrations = []string{
-	`CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+type migration struct {
+	sql string
+	fn  func(*Store, context.Context, *sql.Tx) error
+}
+
+var migrations = []migration{
+	{sql: `CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 	CREATE TABLE sources (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -152,10 +211,13 @@ var migrations = []string{
 	);
 	CREATE INDEX deliveries_due ON deliveries(state, next_attempt_at);
 	CREATE INDEX deliveries_msg ON deliveries(message_id);
-	CREATE INDEX deliveries_attempt ON deliveries(last_attempt_at);`,
+	CREATE INDEX deliveries_attempt ON deliveries(last_attempt_at);`},
 	// v2: content filter verdict.
-	`ALTER TABLE messages ADD COLUMN category TEXT NOT NULL DEFAULT '';
-	CREATE INDEX messages_status ON messages(status, received_at);`,
+	{sql: `ALTER TABLE messages ADD COLUMN category TEXT NOT NULL DEFAULT '';
+	CREATE INDEX messages_status ON messages(status, received_at);`},
+	{sql: v3SQL, fn: (*Store).migrateV3},
+	{sql: v4SQL},
+	{sql: v5SQL},
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -163,14 +225,29 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
+	if version > len(migrations) {
+		return fmt.Errorf("数据库版本 %d 比本程序新", version)
+	}
+	if version < len(migrations) {
+		if err := s.backupBefore(ctx, len(migrations)); err != nil {
+			return err
+		}
+		s.migrated = true
+	}
 	for i := version; i < len(migrations); i++ {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
+		if _, err := tx.ExecContext(ctx, migrations[i].sql); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("migration %d: %w", i+1, err)
+		}
+		if migrations[i].fn != nil {
+			if err := migrations[i].fn(s, ctx, tx); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("migration %d: %w", i+1, err)
+			}
 		}
 		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = "+strconv.Itoa(i+1)); err != nil {
 			tx.Rollback()
@@ -181,6 +258,17 @@ func (s *Store) migrate(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) backupBefore(ctx context.Context, target int) error {
+	dir := filepath.Dir(s.path)
+	name := fmt.Sprintf("nekopost.db.pre-v%d-%s.bak", target, s.now().UTC().Format("20060102T150405Z"))
+	dest := filepath.Join(dir, name)
+	q := strings.ReplaceAll(dest, "'", "''")
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO '"+q+"'"); err != nil {
+		return fmt.Errorf("迁移前备份失败: %w", err)
+	}
+	return os.Chmod(dest, 0o600)
 }
 
 // GetKV reads a key from the kv table.

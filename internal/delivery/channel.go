@@ -41,5 +41,5 @@ type Channel interface {
 	Name() string
 	// Deliver attempts to deliver job, resuming after job.Delivery.PartsSent
 	// parts. progress must be called after each confirmed part.
-	Deliver(ctx context.Context, job store.Job, progress func(total, sent int)) Result
+	Deliver(ctx context.Context, job store.Job, progress func(total, sent int, tgMessageID int64)) Result
 }

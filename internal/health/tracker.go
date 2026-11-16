@@ -62,6 +62,7 @@ type State struct {
 
 	BotUnauthorized     int
 	LastBotUnauthorized time.Time
+	ClientIPIsProxy     bool
 }
 
 // Tracker is safe for concurrent use.
@@ -168,6 +169,13 @@ func (t *Tracker) AuthFailure(at time.Time) {
 	defer t.mu.Unlock()
 	t.st.AuthFailures++
 	t.st.LastAuthFailure = at
+}
+
+// NoteProxyClient records that a request's client address is itself a trusted proxy.
+func (t *Tracker) NoteProxyClient() {
+	t.mu.Lock()
+	t.st.ClientIPIsProxy = true
+	t.mu.Unlock()
 }
 
 // WorkerBeat records that the delivery worker loop is alive.

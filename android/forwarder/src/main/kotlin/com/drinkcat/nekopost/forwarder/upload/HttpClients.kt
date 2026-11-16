@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
  * network-security-config `<pin-set expiration>`), so an app that was not
  * updated for a year keeps working with plain system trust.
  */
-internal object ServerPins {
+object ServerPins {
     const val ISRG_ROOT_X1 = "sha256/C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M="
     const val ISRG_ROOT_X2 = "sha256/diGVwiVYbubAI3RW4hB9xU8e/CH2GnkuvVFZE8zmgzI="
     const val ISRG_ROOT_YE = "sha256/sCkq5UWXjg+7mKu9lMhhYF5bGLsy7VI/UNW3tccdR7w="

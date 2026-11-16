@@ -16,20 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: gofmt
-        run: test -z "$(gofmt -l . | tee /dev/stderr)"
-      - run: go vet ./...
-      - run: go test -race -count=1 ./...
-
   image:
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -41,19 +28,30 @@ jobs:
           context: .
           load: true
           tags: nekopost:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Smoke test
         run: |
           # Outside the checkout, so it does not end up in the build context.
           data="$RUNNER_TEMP/data"
+          kek="$RUNNER_TEMP/kek"
           mkdir "$data" && sudo chown 65532:65532 "$data" && sudo chmod 700 "$data"
+          head -c 32 /dev/urandom > "$kek"
+          sudo chown 65532:65532 "$kek" && sudo chmod 400 "$kek"
+          # Missing KEK must refuse to start.
+          if docker run --rm --read-only --tmpfs /tmp --cap-drop ALL \
+            -e NEKOPOST_TLS_MODE=off \
+            -e NEKOPOST_TELEGRAM_BOT_TOKEN=123456:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
+            -e NEKOPOST_TELEGRAM_ADMIN_IDS=1 \
+            nekopost:ci; then
+            echo "service started without a KEK"
+            exit 1
+          fi
           # Telegram points at a closed port: the service must still start
           # and report healthy, since Telegram outages do not affect liveness.
           docker run -d --name np --read-only --tmpfs /tmp --cap-drop ALL \
             --health-interval 2s --health-start-period 5s \
             -v "$data:/data" \
+            -v "$kek:/run/secrets/nekopost_kek:ro" \
             -e NEKOPOST_TLS_MODE=off \
             -e NEKOPOST_TELEGRAM_BOT_TOKEN=123456:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
             -e NEKOPOST_TELEGRAM_ADMIN_IDS=1 \
@@ -99,5 +97,3 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

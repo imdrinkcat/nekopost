@@ -66,7 +66,16 @@ func (r Report) Component(key string) Component {
 	return Component{Key: key, Level: Unknown}
 }
 
-// CertInfo describes the current TLS certificate.
+// CryptoInfo is the encryption component. Nil means the caller does not
+// evaluate it (older tests).
+type CryptoInfo struct {
+	Prefix  string
+	DEKs    int
+	Oldest  string
+	AgeDays int
+	Ready   bool
+	Detail  string
+}
 type CertInfo struct {
 	NotAfter time.Time
 	Err      string
@@ -83,6 +92,7 @@ type Inputs struct {
 	DBErr    error
 	TLSMode  string
 	Cert     CertInfo
+	Crypto   *CryptoInfo
 }
 
 // Thresholds used by Evaluate.
@@ -142,6 +152,10 @@ func Evaluate(in Inputs) Report {
 	}
 	if st.AuthFailures > 0 {
 		in1.Details = append(in1.Details, fmt.Sprintf("本次启动后无效凭证请求 %d 次（最近 %s）", st.AuthFailures, Ago(now, st.LastAuthFailure)))
+	}
+	if st.ClientIPIsProxy && in1.Level < ConfigError {
+		in1.Level = ConfigError
+		in1.Summary = "客户端地址落在可信代理网段内，未执行封禁"
 	}
 	r.Components = append(r.Components, in1)
 
@@ -263,6 +277,23 @@ func Evaluate(in Inputs) Report {
 		}
 	}
 	r.Components = append(r.Components, sv)
+
+	if in.Crypto != nil {
+		cr := Component{Key: "crypto", Name: "正文加密", Level: OK, Summary: in.Crypto.Detail}
+		if !in.Crypto.Ready {
+			cr.Level, cr.Summary = Down, "主密钥无法解密"
+		} else if in.Crypto.AgeDays > 365 {
+			cr.Level = Degraded
+			cr.Summary = fmt.Sprintf("主密钥已使用 %d 天，建议轮换", in.Crypto.AgeDays)
+		}
+		if in.Crypto.Prefix != "" {
+			cr.Details = append(cr.Details, "主密钥标识 "+in.Crypto.Prefix)
+		}
+		if in.Crypto.DEKs > 0 {
+			cr.Details = append(cr.Details, fmt.Sprintf("数据密钥 %d 把，最早 %s", in.Crypto.DEKs, in.Crypto.Oldest))
+		}
+		r.Components = append(r.Components, cr)
+	}
 
 	unknown := false
 	for _, c := range r.Components {

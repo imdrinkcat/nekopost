@@ -34,6 +34,7 @@ flowchart LR
 
 - **Reliable delivery**: messages are committed to SQLite (`synchronous=FULL`) before the client gets a response. A persistent outbox retries with backoff for up to 24 h. Delivery is at-least-once: when an attempt's outcome is unknown, Nekopost resends rather than risk losing the message, and marks it *uncertain*.
 - **Per-source credentials**: each device or script gets its own token, which can be disabled, rotated or revoked independently. The source identity comes from the token and cannot be spoofed in the payload.
+- **Encrypted bodies**: message text is stored with AES-256-GCM. The master key stays outside the database (systemd credential or a Docker secret). See `docs/encryption.md`.
 - **Dedupe and idempotency**: `Idempotency-Key` support, plus content-based dedupe within a configurable window.
 - **Clean notifications**: the message text contains only the content, so lock-screen previews show what matters. Source and type appear as inline buttons; tapping one shows the message details.
 - **Admin bot**: a menu-driven Telegram bot (Chinese UI) for system overview, bot and server health, sources, statistics and settings. It is admin-only, private chats only, and silent in groups.
@@ -183,6 +184,7 @@ The detailed documentation is written in Chinese.
 | [Telegram bot](docs/telegram-bot.md) | Bot setup, menus, permissions |
 | [iPhone Shortcuts](docs/iphone-shortcuts.md) | Manual sending and SMS automation; iOS limitations |
 | [API reference](docs/api.md) | Endpoints, status values, error format |
+| [Web panel](docs/web.md) | Google sign-in, browser approval and read-only views |
 | [Message model](docs/message-model.md) | Unified message format, states, rendering |
 | [SMS filter](docs/sms-filter.md) | DeepSeek classification, privacy, rescue |
 | [Adding sources](docs/adding-sources.md) | Linux, Windows, macOS, Android examples; new output channels |

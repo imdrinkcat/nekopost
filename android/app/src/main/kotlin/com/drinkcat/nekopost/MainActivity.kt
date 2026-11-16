@@ -14,6 +14,7 @@ import com.drinkcat.nekopost.core.ui.fold.rememberFoldState
 import com.drinkcat.nekopost.core.ui.motion.LocalReducedMotion
 import com.drinkcat.nekopost.core.ui.motion.isReducedMotionEnabled
 import com.drinkcat.nekopost.core.ui.theme.NekopostTheme
+import com.drinkcat.nekopost.inbox.InboxIdle
 import com.drinkcat.nekopost.system.LocalAppIconLoader
 import com.drinkcat.nekopost.system.TouchSecurity
 import com.drinkcat.nekopost.ui.NekopostRoot
@@ -47,6 +48,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        InboxIdle.touch()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {

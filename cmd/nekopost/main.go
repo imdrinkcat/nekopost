@@ -23,6 +23,7 @@ import (
 	"nekopost/internal/enroll"
 	"nekopost/internal/filter"
 	"nekopost/internal/model"
+	"nekopost/internal/sealbox"
 	"nekopost/internal/store"
 	"nekopost/internal/telegram"
 )
@@ -37,9 +38,29 @@ const usage = `nekopost — 个人消息网关
 
 服务:
   serve                               运行网关服务（通常由 systemd 启动）
-  check [--send-test]                 检查配置、数据库和 Telegram 连接
+  check [--send-test]                 检查配置、数据库、主密钥和 Telegram 连接
   healthcheck                         检查本机服务是否存活（供 Docker 健康检查使用）
   version                             显示版本
+
+主密钥:
+  approve                             处理待确认的网页登录
+  device pair|list|revoke             配对、列出或吊销设备
+  lockdown                            紧急锁定或解除
+  web unlock google:<sub>             解除网页登录限制
+  web audit verify                    校验审计链
+  keys init                           生成主密钥并交给 systemd-creds（已存在则拒绝）
+  keys status                         查看主密钥标识与数据密钥数量
+  keys export                         把主密钥写到标准输出（终端上会拒绝）
+  keys gen                            生成 32 字节主密钥到标准输出（终端上会拒绝）
+  keys rotate                         写入新主密钥，保留旧密钥直到重启完成重包裹
+  keys rotate --finish                确认重包裹完成后去掉旧密钥
+  keys shred-all                      销毁全部数据密钥和正文，保留元数据
+  keys reset --i-understand           销毁正文并生成新的主密钥
+
+收件箱（只在你自己的终端里查看正文）:
+  inbox list [--limit N]
+  inbox show <id>
+  inbox search <词>
 
 消息来源:
   source list                         列出所有来源
@@ -80,6 +101,22 @@ func run(args []string) int {
 		return 2
 	}
 
+	cmd, rest := args[0], args[1:]
+	switch cmd {
+	case "version", "--version", "-v":
+		fmt.Println("nekopost", version)
+		return 0
+	case "help", "-h", "--help":
+		fmt.Print(usage)
+		return 0
+	case "keys":
+		// A fresh systemd or Docker installation can provision its KEK
+		// before the service configuration exists.
+		if len(rest) > 0 && (rest[0] == "init" || rest[0] == "gen") {
+			return cmdKeys(nil, rest)
+		}
+	}
+
 	fileVals := map[string]string{}
 	if v, err := config.ReadEnvFile(*envFile); err == nil {
 		fileVals = v
@@ -92,15 +129,6 @@ func run(args []string) int {
 	}
 	cfg, cfgErr := config.Load(config.EnvWithFile(fileVals))
 
-	cmd, rest := args[0], args[1:]
-	switch cmd {
-	case "version", "--version", "-v":
-		fmt.Println("nekopost", version)
-		return 0
-	case "help", "-h", "--help":
-		fmt.Print(usage)
-		return 0
-	}
 	if cfgErr != nil {
 		fmt.Fprintf(os.Stderr, "配置错误:\n%v\n", cfgErr)
 		return 1
@@ -116,6 +144,18 @@ func run(args []string) int {
 		return withStore(cfg, func(st *store.Store) int { return cmdSource(cfg, st, rest) })
 	case "admin-key":
 		return withStore(cfg, func(st *store.Store) int { return cmdAdminKey(st, rest) })
+	case "keys":
+		return cmdKeys(cfg, rest)
+	case "device":
+		return withStore(cfg, func(st *store.Store) int { return cmdDevice(cfg, st, rest) })
+	case "lockdown":
+		return withStore(cfg, func(st *store.Store) int { return cmdLockdown(st, rest) })
+	case "approve":
+		return withStore(cfg, cmdApprove)
+	case "web":
+		return withStore(cfg, func(st *store.Store) int { return cmdWeb(st, rest) })
+	case "inbox":
+		return withStore(cfg, func(st *store.Store) int { return cmdInbox(cfg, st, rest) })
 	}
 	fmt.Fprintf(os.Stderr, "未知命令 %q\n\n%s", cmd, usage)
 	return 2
@@ -215,14 +255,21 @@ func dropPrivileges(dataDir string) error {
 	return syscall.Setuid(int(stat.Uid))
 }
 
-func withStore(cfg *config.Config, fn func(*store.Store) int) int {
-	if err := dropPrivileges(cfg.DataDir); err != nil {
-		fmt.Fprintf(os.Stderr, "切换到服务用户失败: %v\n", err)
-		return 1
-	}
-	st, err := store.Open(cfg.DBPath())
+func openStore(cfg *config.Config) (*store.Store, error) {
+	mat, err := sealbox.LoadMaterial(sealbox.Location{AllowSystemd: os.Geteuid() == 0})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "打开数据库 %s 失败: %v\n", cfg.DBPath(), err)
+		return nil, err
+	}
+	if err := dropPrivileges(cfg.DataDir); err != nil {
+		return nil, err
+	}
+	return store.Open(cfg.DBPath(), cfg.StoreOptions(mat.Current, mat.Previous))
+}
+
+func withStore(cfg *config.Config, fn func(*store.Store) int) int {
+	st, err := openStore(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "打开数据库失败: %v\n", err)
 		return 1
 	}
 	defer st.Close()
@@ -633,10 +680,7 @@ func cmdCheck(cfg *config.Config, args []string) int {
 		report(true, "配置", fmt.Sprintf("（TLS=%s，域名=%s，管理员 %d 人，时区 %s）", cfg.TLSMode, cfg.Domain, len(cfg.AdminIDs), cfg.TimezoneName))
 	}
 
-	if err := dropPrivileges(cfg.DataDir); err != nil {
-		report(false, "权限", err.Error())
-	}
-	if st, err := store.Open(cfg.DBPath()); err != nil {
+	if st, err := openStore(cfg); err != nil {
 		report(false, "数据库", err.Error())
 	} else {
 		srcs, _ := st.ListSources(context.Background())

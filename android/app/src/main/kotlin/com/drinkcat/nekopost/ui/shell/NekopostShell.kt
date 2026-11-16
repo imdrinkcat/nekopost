@@ -43,6 +43,7 @@ import com.drinkcat.nekopost.ui.settings.SettingsScreen
 /** Top-level destinations. */
 enum class Destination(@param:StringRes val label: Int, val icon: ImageVector) {
     Forward(R.string.nav_forward, Icons.AutoMirrored.Filled.Send),
+    Inbox(R.string.nav_inbox, Icons.AutoMirrored.Filled.List),
     Log(R.string.nav_log, Icons.AutoMirrored.Filled.List),
     Settings(R.string.nav_settings, Icons.Filled.Settings),
 }
@@ -130,12 +131,13 @@ fun NekopostShell(
     actions: ShellActions,
     modifier: Modifier = Modifier,
     memory: ShellMemory = rememberShellMemory(),
+    inboxContent: (@Composable (PaneMode) -> Unit)? = null,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val navType = navigationTypeFor(fold, maxWidth)
         NavigationSuiteScaffold(
             navigationItems = {
-                Destination.entries.forEach { d ->
+                Destination.entries.filter { it != Destination.Inbox || inboxContent != null }.forEach { d ->
                     NavigationSuiteItem(
                         selected = d == destination,
                         onClick = { onDestinationChange(d) },
@@ -156,6 +158,7 @@ fun NekopostShell(
                 val mode = paneModeFor(fold, maxWidth)
                 when (destination) {
                     Destination.Forward -> ForwardScreen(state, fold, mode, actions, memory)
+                    Destination.Inbox -> inboxContent?.invoke(mode)
                     Destination.Log -> LogScreen(state, fold, mode, memory, onCopy = actions.onCopy)
                     Destination.Settings -> SettingsScreen(state, fold, mode, actions, memory)
                 }

@@ -2,15 +2,18 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"nekopost/internal/health"
 	"nekopost/internal/model"
+	"nekopost/internal/render"
 	"nekopost/internal/status"
 	"nekopost/internal/store"
 	"nekopost/internal/sysinfo"
@@ -31,7 +34,7 @@ var bg = context.Background()
 
 func setup(t *testing.T) *env {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), store.TestingOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,5 +407,150 @@ func TestInfoButtonShowsDetailsWithoutEditing(t *testing.T) {
 	ans = e.tg.Calls("answerCallbackQuery")
 	if ans[len(ans)-1].Params["text"] != "⛔ 无权限" {
 		t.Error("strangers must not see message details")
+	}
+}
+
+func TestDeletePush(t *testing.T) {
+	e := setup(t)
+	now := time.Now()
+	m := &model.Message{ID: model.NewMessageID(now), SourceID: "iphone", Kind: "sms", Priority: model.PriorityNormal,
+		Title: "银行", Body: "验证码 123456", ContentHash: "h", ReceivedAt: now}
+	if _, err := e.st.InsertMessage(bg, m, []store.NewDelivery{{Channel: "telegram", Target: "default"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := e.st.DueJobs(bg, now, "", 10)
+	if err != nil || len(jobs) != 1 {
+		t.Fatal(err, jobs)
+	}
+	if err := e.st.ClaimDelivery(bg, jobs[0].Delivery.ID, m.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range []int64{77, 78} {
+		if err := e.st.SetPartsProgress(bg, jobs[0].Delivery.ID, m.ID, 2, i+1, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ask := render.DeleteAskPrefix + m.ID + ":1:1"
+	e.b.handle(bg, cb(stranger, ask))
+	if len(e.tg.Calls("editMessageReplyMarkup")) != 0 {
+		t.Fatal("stranger must not change the keyboard")
+	}
+
+	e.b.handle(bg, cb(admin, ask))
+	edits := e.tg.Calls("editMessageReplyMarkup")
+	if len(edits) != 1 {
+		t.Fatalf("confirm keyboard: %d", len(edits))
+	}
+	kb := flatten(edits[0].Params["reply_markup"].(map[string]any))
+	if !strings.Contains(kb, "确认删除") && !strings.Contains(kb, render.DeleteYesPrefix) {
+		t.Fatalf("markup %s", kb)
+	}
+	var confirm string
+	for _, d := range strings.Fields(kb) {
+		if strings.HasPrefix(d, render.DeleteYesPrefix) {
+			confirm = d
+		}
+	}
+	if confirm == "" {
+		t.Fatalf("missing confirm payload in %s", kb)
+	}
+
+	e.b.Now = func() time.Time { return now.Add(10 * time.Minute) }
+	stale := render.DeleteYesPrefix + m.ID + ":" + strconv.FormatInt(now.Add(-10*time.Minute).Unix(), 10) + ":1:1"
+	e.b.handle(bg, cb(admin, stale))
+	if _, err := e.st.GetMessage(bg, m.ID); err != nil {
+		t.Fatal("expired confirmation must keep the message")
+	}
+
+	e.b.Now = func() time.Time { return now }
+	e.b.handle(bg, cb(admin, confirm))
+	if len(e.tg.Calls("deleteMessage")) != 0 {
+		t.Fatal("must wait for in-flight delivery before deleting")
+	}
+	if _, err := e.st.GetMessage(bg, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.FinishAttempt(bg, jobs[0].Delivery.ID, m.ID, store.AttemptResult{
+		State: model.DeliveryDelivered, PartsTotal: 2, PartsSent: 2,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	e.b.handle(bg, cb(admin, confirm))
+	var deleted []int64
+	for _, c := range e.tg.Calls("deleteMessage") {
+		deleted = append(deleted, int64(c.Params["message_id"].(float64)))
+	}
+	if len(deleted) != 2 {
+		t.Fatalf("deleted telegram messages %v", deleted)
+	}
+	if _, err := e.st.GetMessage(bg, m.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("server row: %v", err)
+	}
+	stats, err := e.st.Stats(bg, now.Add(-time.Hour), now.Add(time.Hour))
+	if err != nil || stats.Total.Received != 0 {
+		t.Fatalf("deleted message still counted: %+v %v", stats.Total, err)
+	}
+}
+
+func TestDeleteOldPushEdits(t *testing.T) {
+	e := setup(t)
+	now := time.Now()
+	sent := now.Add(-49 * time.Hour)
+	m := &model.Message{ID: model.NewMessageID(sent), SourceID: "iphone", Kind: "sms", Priority: model.PriorityNormal,
+		Body: "旧消息", ContentHash: "old", ReceivedAt: sent}
+	if _, err := e.st.InsertMessage(bg, m, []store.NewDelivery{{Channel: "telegram", Target: "default"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	jobs, _ := e.st.DueJobs(bg, sent.Add(time.Minute), "", 10)
+	_ = e.st.ClaimDelivery(bg, jobs[0].Delivery.ID, m.ID, sent)
+	if err := e.st.SetPartsProgress(bg, jobs[0].Delivery.ID, m.ID, 1, 1, 77); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = e.st.FinishAttempt(bg, jobs[0].Delivery.ID, m.ID, store.AttemptResult{State: model.DeliveryDelivered}, sent)
+	confirm := render.DeleteYesPrefix + m.ID + ":" + strconv.FormatInt(now.Unix(), 10) + ":1:1"
+	e.b.handle(bg, cb(admin, confirm))
+	if len(e.tg.Calls("deleteMessage")) != 0 {
+		t.Fatal("messages older than 48h must not be deleted via deleteMessage")
+	}
+	edits := e.tg.Calls("editMessageText")
+	if len(edits) != 1 || edits[0].Params["text"] != "此消息已删除" {
+		t.Fatalf("placeholder: %+v", edits)
+	}
+	if _, err := e.st.GetMessage(bg, m.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+}
+
+func TestWebApprovalOnlyInAdminPrivateChat(t *testing.T) {
+	e := setup(t)
+	now := time.Now()
+	a := store.WebApproval{ID: "a_AAAAAAAAAAAAAAAAAAAAAAAAAA", Code: "42", Choices: []string{"11", "42", "57"},
+		Expires: now.Add(time.Minute), Browser: "Chrome", IP: "192.0.2.1"}
+	session := store.WebSession{Hash: "test-session", Identity: "google:1", CSRF: "test"}
+	if _, err := e.st.StartWebSession(bg, session, a, "", now); err != nil {
+		t.Fatal(err)
+	}
+	e.b.SendWebApproval(bg, a)
+	sends := e.tg.Calls("sendMessage")
+	if len(sends) != 1 || sends[0].Params["chat_id"] != float64(admin) ||
+		strings.Contains(sends[0].Params["text"].(string), a.Code) {
+		t.Fatalf("approval must go to the administrator and keep the code out of the message text")
+	}
+	for _, u := range []telegram.Update{
+		cb(stranger, "wa:"+a.ID+":42"),
+		{CallbackQuery: &telegram.CallbackQuery{From: telegram.User{ID: admin},
+			Message: &telegram.Message{Chat: telegram.Chat{ID: admin, Type: "group"}}, Data: "wa:" + a.ID + ":42"}},
+	} {
+		e.b.handle(bg, u)
+	}
+	if status, err := e.st.WebApproval(bg, session.Hash, now); err != nil || status.State != "pending" {
+		t.Fatal(status.State, err)
+	}
+	u := cb(admin, "wa:"+a.ID+":42")
+	u.CallbackQuery.Message.Chat.ID = admin
+	e.b.handle(bg, u)
+	if status, err := e.st.WebApproval(bg, session.Hash, now); err != nil || status.State != "approved" {
+		t.Fatal(status.State, err)
 	}
 }

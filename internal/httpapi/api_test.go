@@ -45,7 +45,7 @@ var bg = context.Background()
 
 func setup(t *testing.T, opts ...func(*env)) *env {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), store.TestingOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,11 +155,12 @@ func TestSubmitAndDeliver(t *testing.T) {
 	if text != "<b>招商银行</b>\n验证码 123456，5分钟内有效。\n日本語テスト 🎉👍🏽" {
 		t.Errorf("telegram text should be only the content:\n%s", text)
 	}
-	if b := buttons(calls[0].Params); b != "📱 iPhone=i:"+r.body["id"].(string)+" 💬 短信=i:"+r.body["id"].(string) {
-		t.Errorf("source and type buttons: %s", b)
+	id := r.body["id"].(string)
+	wantButtons := "📱 iPhone=i:" + id + " 💬 短信=i:" + id + " 🗑 删除=xd:" + id + ":1:1"
+	if b := buttons(calls[0].Params); b != wantButtons {
+		t.Errorf("delivery buttons: %s", b)
 	}
 	// Status lookup by the owning source.
-	id := r.body["id"].(string)
 	g := e.do(t, "GET", "/v1/messages/"+id, e.iphone, "", "")
 	if g.code != 200 || g.body["status"] != "delivered" || g.body["source"] != "iphone" {
 		t.Fatalf("%d %v", g.code, g.body)
@@ -235,12 +236,16 @@ func TestAuthentication(t *testing.T) {
 
 func TestBruteForceBlocked(t *testing.T) {
 	e := setup(t)
+	guess := "mgs_" + strings.Repeat("a", 20)
 	for i := 0; i < 20; i++ {
-		e.post(t, "mgs_guess", `{"body":"x"}`)
+		e.post(t, guess, `{"body":"x"}`)
 	}
-	r := e.post(t, e.iphone, `{"body":"x"}`)
+	if r := e.post(t, e.iphone, `{"body":"x"}`); r.code != 202 {
+		t.Errorf("a valid credential must not be blocked: %d %v", r.code, r.body)
+	}
+	r := e.post(t, guess, `{"body":"x"}`)
 	if r.code != 429 || errCode(r) != "too_many_auth_failures" || r.hdr.Get("Retry-After") == "" {
-		t.Errorf("client should be blocked after repeated failures: %d %v", r.code, r.body)
+		t.Errorf("guesses should be blocked: %d %v", r.code, r.body)
 	}
 }
 
@@ -393,8 +398,17 @@ func TestAdminAPI(t *testing.T) {
 		t.Fatalf("%d %v", r.code, r.body)
 	}
 	comps := r.body["report"].(map[string]any)["components"].([]any)
-	if len(comps) != 6 {
+	if len(comps) != 7 {
 		t.Errorf("components %d", len(comps))
+	}
+	var sawCrypto bool
+	for _, c := range comps {
+		if c.(map[string]any)["key"] == "crypto" {
+			sawCrypto = true
+		}
+	}
+	if !sawCrypto {
+		t.Error("status report should include the crypto component")
 	}
 	r = e.do(t, "GET", "/v1/admin/sources", e.adminKey, "", "")
 	srcs := r.body["sources"].([]any)

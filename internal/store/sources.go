@@ -210,12 +210,16 @@ func (s *Store) CreateAdminKey(ctx context.Context, name, hash, prefix string, n
 // LookupAdminKey verifies an admin credential digest and records its use.
 func (s *Store) LookupAdminKey(ctx context.Context, hash string, now time.Time) (string, error) {
 	var name string
-	err := s.db.QueryRowContext(ctx, "SELECT name FROM admin_keys WHERE hash = ? AND revoked_at IS NULL", hash).Scan(&name)
+	var revoked sql.NullInt64
+	err := s.db.QueryRowContext(ctx, "SELECT name, revoked_at FROM admin_keys WHERE hash = ?", hash).Scan(&name, &revoked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}
 	if err != nil {
 		return "", err
+	}
+	if revoked.Valid {
+		return name, ErrRevoked
 	}
 	_, _ = s.db.ExecContext(ctx, "UPDATE admin_keys SET last_used_at = ? WHERE hash = ?", now.UnixMilli(), hash)
 	return name, nil

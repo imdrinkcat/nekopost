@@ -67,6 +67,17 @@ type Button struct {
 // follows. The management bot answers it with the message's details.
 const InfoPrefix = "i:"
 
+// Delete button callbacks. The message id contains no colon.
+//
+//	xd:<id>:<part>:<total>                 ask for confirmation
+//	xc:<id>:<unix>:<part>:<total>          confirmed delete, valid for 5 minutes
+//	xx:<id>:<part>:<total>                 cancel and restore the original buttons
+const (
+	DeleteAskPrefix = "xd:"
+	DeleteYesPrefix = "xc:"
+	DeleteNoPrefix  = "xx:"
+)
+
 type piece struct {
 	text string
 	bold bool
@@ -114,18 +125,6 @@ func UTF16Len(s string) int {
 // Render produces one or more parts for the message.
 func Render(in Input) []Part {
 	m := in.Message
-	loc := in.Location
-	if loc == nil {
-		loc = time.UTC
-	}
-	name := in.SourceName
-	if name == "" {
-		name = in.SourceID
-	}
-	icon := in.SourceIcon
-	if icon == "" {
-		icon = "📨"
-	}
 
 	// Layout: only the content is in the text, so the notification preview
 	// and the chat show nothing else. Source, type and category are inline
@@ -168,26 +167,9 @@ func Render(in Input) []Part {
 
 	// One row: the source, then the type and category. No time: Telegram
 	// already shows when the message arrived, and the popup behind the
-	// buttons has the exact receive and device times.
-	buttons := func(i, n int) [][]Button {
-		data := InfoPrefix + m.ID
-		row := []Button{{Text: icon + " " + name, Data: data}}
-		var kind []string
-		if l := KindLabel(m.Kind); l != "" {
-			kind = append(kind, l)
-		}
-		if m.Category != "" {
-			kind = append(kind, m.Category.Label())
-		}
-		if len(kind) > 0 {
-			row = append(row, Button{Text: strings.Join(kind, " · "), Data: data})
-		}
-		if n > 1 {
-			last := &row[len(row)-1]
-			last.Text += " (" + strconv.Itoa(i) + "/" + strconv.Itoa(n) + ")"
-		}
-		return [][]Button{row}
-	}
+	// buttons has the exact receive and device times. A second row deletes
+	// the message after a confirmation.
+	buttons := func(i, n int) [][]Button { return MessageButtons(in, i, n) }
 
 	body := m.Body
 	// Try to fit everything into one message first.
@@ -217,6 +199,48 @@ func Render(in Input) []Part {
 		parts[i] = Part{HTML: d.html(), Plain: d.plain(), Buttons: buttons(i+1, len(chunks))}
 	}
 	return parts
+}
+
+// MessageButtons is the keyboard under one delivered part. part and total
+// are 1-based and only change the "(1/2)" suffix.
+func MessageButtons(in Input, part, total int) [][]Button {
+	m := in.Message
+	name := in.SourceName
+	if name == "" {
+		name = in.SourceID
+	}
+	icon := in.SourceIcon
+	if icon == "" {
+		icon = "📨"
+	}
+	data := InfoPrefix + m.ID
+	row := []Button{{Text: icon + " " + name, Data: data}}
+	var kind []string
+	if l := KindLabel(m.Kind); l != "" {
+		kind = append(kind, l)
+	}
+	if m.Category != "" {
+		kind = append(kind, m.Category.Label())
+	}
+	if len(kind) > 0 {
+		row = append(row, Button{Text: strings.Join(kind, " · "), Data: data})
+	}
+	if total > 1 {
+		last := &row[len(row)-1]
+		last.Text += " (" + strconv.Itoa(part) + "/" + strconv.Itoa(total) + ")"
+	}
+	del := Button{Text: "🗑 删除", Data: DeleteAskPrefix + m.ID + ":" + strconv.Itoa(part) + ":" + strconv.Itoa(total)}
+	return [][]Button{row, {del}}
+}
+
+// DeleteConfirmButtons replaces the keyboard while a delete is waiting.
+func DeleteConfirmButtons(id string, part, total int, unix int64) [][]Button {
+	p := strconv.Itoa(part)
+	n := strconv.Itoa(total)
+	return [][]Button{{
+		{Text: "确认删除", Data: DeleteYesPrefix + id + ":" + strconv.FormatInt(unix, 10) + ":" + p + ":" + n},
+		{Text: "取消", Data: DeleteNoPrefix + id + ":" + p + ":" + n},
+	}}
 }
 
 // splitText cuts s into chunks of at most first (then rest) UTF-16 units,

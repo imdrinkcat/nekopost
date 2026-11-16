@@ -110,4 +110,5 @@
     <string name="settings_unenroll_detail">删除本机保存的凭证、发送队列和转发记录，转发立即停止，无法撤销。</string>
     <string name="settings_about">关于</string>
     <string name="settings_about_detail">Nekopost %1$s · 自托管消息网关的安卓客户端</string>
+    <string name="nav_inbox">收件箱</string>
 </resources>

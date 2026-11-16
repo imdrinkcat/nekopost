@@ -44,7 +44,7 @@ flowchart LR
 1. `httpapi` 校验来源凭证（`Authorization: Bearer mgs_...`），并按来源限流。
 2. 解析 JSON 或纯文本，校验字段，规范化文本，生成统一的 `model.Message`。
 3. `router.Router` 决定投递目标。第一版固定为“所有来源 → `telegram/default`”。
-4. `store.InsertMessage` 在**一个事务里**完成：去重检查、写入元数据、写入正文（payload）、写入每个目标的 delivery 记录。事务提交后才响应客户端。
+4. `store.InsertMessage` 在**一个事务里**完成：去重检查、写入元数据、加密写入正文、写入每个目标的 delivery 记录。事务提交后才响应客户端。
 5. 唤醒 `delivery.Worker`。（启用短信过滤时，`sms` 类型的 delivery 以 `held` 状态入库，先唤醒 `filter.Filter`；分类后改为 `pending` 再唤醒 Worker，或改为 `filtered` 不投递。）Worker 取出到期的 delivery，交给对应的 `Channel` 发送，再记录结果。
 6. 如果请求带了 `?wait=N`，HTTP 处理器会订阅这条消息的状态变化，最多等 N 秒（上限 25 秒），返回当时的真实状态。
 
@@ -86,17 +86,17 @@ flowchart LR
 
 | 表 | 内容 |
 |---|---|
-| `kv` | 内部键值：去重密钥 `secret:dedupe`、`last_start`、`start_count` |
+| `kv` | 内部键值：`seq`、主密钥首次使用时间、`last_start`、`start_count`。去重密钥不在这里 |
+| `bodies` | 加密后的标题、正文和 meta。按 `NEKOPOST_BODY_RETENTION_DAYS`（默认 7 天）保留，验证码类默认 24 小时。见 [encryption.md](encryption.md) |
 | `sources` | 来源：id、名称、图标、是否启用、最近请求时间、已吊销凭证被使用的次数和时间 |
 | `source_tokens` | 来源凭证：**仅存 SHA-256 摘要**和前 10 个字符的显示前缀；轮换后旧凭证记录 `revoked_at` |
 | `admin_keys` | 管理 API 密钥（同样只存摘要） |
-| `messages` | 消息元数据：来源、幂等键、内容 HMAC、类型、优先级、标题/正文长度、设备时间、接收时间、聚合状态、重复提交次数、完成时间。**不含正文** |
-| `payloads` | 标题、正文、meta。**消息进入终态时在同一事务里删除** |
-| `deliveries` | 每个（消息, 目标）一行：状态、尝试次数、分段进度、下次尝试时间、最近错误、`uncertain` 标记 |
+| `messages` | 消息元数据：来源、幂等键摘要、内容 HMAC、类型、优先级、长度、时间、状态。**不含正文** |
+| `deliveries` | 每个（消息, 目标）一行：状态、尝试次数、分段进度、下次尝试时间、最近错误、`uncertain` 标记、Telegram `message_id` |
 
 数据保留：
 
-- 正文：投递结束（送达 / 失败 / 不确定）即删除。另有每小时执行的兜底清理 `PurgeFinishedPayloads`。
+- 正文：加密保存在 `bodies`。默认保留 7 天（验证码类 24 小时），到期后删除，并在没有引用时销毁当天的数据密钥。详见 [encryption.md](encryption.md)。
 - 元数据：保留 `NEKOPOST_RETENTION_DAYS`（默认 30 天）后删除，只删已完成的消息。维护任务在启动 1 分钟后首次运行，之后每小时一次。
 
 ## 4. 投递语义与状态机
@@ -171,7 +171,7 @@ stateDiagram-v2
 - **长轮询**：Bot 使用 `getUpdates`（timeout 50 秒），空闲时大约每 50 秒一次请求，不需要入站 webhook。
 - **不在后台采集指标**：只在查询时读取 `/proc`（CPU 采样约 0.3 秒，结果 5 秒内复用），不保存历史数据。
 - **空闲时 Worker 的行为**：每 30 秒最多查询一次到期任务；有到期任务时按 `next_attempt_at` 精确唤醒；新消息入库后立即唤醒。
-- **内存限制**：systemd 中设置 `GOMEMLIMIT=64MiB` 和 `MemoryMax=160M`。HTTP 并发处理上限为 32，超出时返回 `503 busy`。
+- **内存限制**：systemd 中设置 `GOMEMLIMIT=96MiB` 和 `MemoryMax=192M`。HTTP 并发处理上限为 32，超出时返回 `503 busy`。
 - **依赖**：只有 `modernc.org/sqlite`（纯 Go，无需 cgo）和 `golang.org/x/crypto/acme/autocert`。
 
 ## 7. 为什么主环境用 systemd 而不是 Docker

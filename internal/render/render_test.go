@@ -30,11 +30,14 @@ func TestRenderSingle(t *testing.T) {
 	if want := "<b>10086</b>\n" + strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(body, "&", "&amp;"), "<", "&lt;"), ">", "&gt;"); h != want {
 		t.Errorf("HTML should be only the content:\n%s", h)
 	}
-	if got := buttonTexts(parts[0]); got != "📱 iPhone | 💬 短信" {
+	if got := buttonTexts(parts[0]); got != "📱 iPhone | 💬 短信 | 🗑 删除" {
 		t.Errorf("buttons: %q", got)
 	}
-	if len(parts[0].Buttons) != 1 || len(parts[0].Buttons[0]) != 2 {
+	if len(parts[0].Buttons) != 2 || len(parts[0].Buttons[0]) != 2 {
 		t.Fatalf("source and type should share one row: %+v", parts[0].Buttons)
+	}
+	if parts[0].Buttons[1][0].Data != DeleteAskPrefix+"m_TEST:1:1" {
+		t.Errorf("delete payload: %+v", parts[0].Buttons[1][0])
 	}
 	for _, b := range parts[0].Buttons[0] {
 		if b.Data != InfoPrefix+"m_TEST" {
@@ -69,11 +72,11 @@ func TestRenderUnknownKindShownVerbatim(t *testing.T) {
 		t.Errorf("body-only message layout: %q", p)
 	}
 	x.Message.Priority = model.PriorityNormal
-	if !strings.HasSuffix(buttonTexts(Render(x)[0]), " | ci.build") {
+	if !strings.Contains(buttonTexts(Render(x)[0]), "ci.build") {
 		t.Error("unknown kinds should be displayed verbatim")
 	}
 	x.Message.Kind = "text"
-	if got := Render(x)[0].Buttons; len(got) != 1 || len(got[0]) != 1 || got[0][0].Text != "📱 iPhone" {
+	if got := Render(x)[0].Buttons; len(got) != 2 || len(got[0]) != 1 || got[0][0].Text != "📱 iPhone" {
 		t.Errorf("plain text kind should only have the source button: %+v", got)
 	}
 }
@@ -139,7 +142,7 @@ func TestRenderSplitNoNewlines(t *testing.T) {
 func TestRenderCategory(t *testing.T) {
 	x := in("包裹已到驿站")
 	x.Message.Category = model.CatLogistics
-	if got := buttonTexts(Render(x)[0]); got != "📱 iPhone | 💬 短信 · 快递/出行" {
+	if got := buttonTexts(Render(x)[0]); got != "📱 iPhone | 💬 短信 · 快递/出行 | 🗑 删除" {
 		t.Errorf("category should follow the type label: %q", got)
 	}
 }

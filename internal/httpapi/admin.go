@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"nekopost/internal/auth"
+	"nekopost/internal/ratelimit"
 	"nekopost/internal/status"
 	"nekopost/internal/store"
 )
@@ -13,33 +14,55 @@ import (
 // separate from source tokens: a source token can never access these routes.
 func (s *Server) admin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := s.clientIP(r)
-		if blocked, ra := s.FailGuard.Blocked(ip); blocked {
-			writeError(w, r, &apiError{Status: http.StatusTooManyRequests, Code: "too_many_auth_failures",
-				Message: "认证失败次数过多，请稍后再试", RetryAfter: ra})
+		if _, ok := auth.DeviceAuthorization(r.Header.Get("Authorization")); ok {
+			if _, ok := s.authorizeDevice(w, r, store.ScopeAdminRead, false); ok {
+				next(w, r)
+			}
 			return
+		}
+		if len(r.Header.Values("Authorization")) == 0 && s.CookieAdmin != nil {
+			if _, ok := s.CookieAdmin(w, r, false); ok {
+				next(w, r)
+			}
+			return
+		}
+		ip := s.clientIP(r)
+		proxy := s.trusted(ip)
+		if proxy {
+			s.Health.NoteProxyClient()
 		}
 		tok, ok := auth.BearerToken(r.Header.Get("Authorization"))
-		if !ok || len(tok) < len(auth.AdminPrefix) || tok[:len(auth.AdminPrefix)] != auth.AdminPrefix {
-			s.FailGuard.Fail(ip)
-			s.Health.AuthFailure(s.now())
-			writeError(w, r, errUnauthorized)
-			return
+		key := ratelimit.ScopeKey(ip, "admin_key")
+		if ok && auth.AdminToken(tok) {
+			name, err := s.Store.LookupAdminKey(r.Context(), auth.Hash(tok), s.now())
+			if err != nil && !errors.Is(err, store.ErrNotFound) && !errors.Is(err, store.ErrRevoked) {
+				s.Log.Error("admin key lookup failed", "err", err)
+				writeError(w, r, errInternal)
+				return
+			}
+			if err == nil {
+				info(r).Source = "admin:" + name
+				next(w, r)
+				return
+			}
+			if errors.Is(err, store.ErrRevoked) {
+				s.Health.AuthFailure(s.now())
+				writeError(w, r, errUnauthorized)
+				return
+			}
 		}
-		name, err := s.Store.LookupAdminKey(r.Context(), auth.Hash(tok), s.now())
-		if errors.Is(err, store.ErrNotFound) {
-			s.FailGuard.Fail(ip)
-			s.Health.AuthFailure(s.now())
-			writeError(w, r, errUnauthorized)
-			return
+		if !proxy {
+			if blocked, ra := s.FailGuard.Blocked(key); blocked {
+				writeError(w, r, &apiError{Status: http.StatusTooManyRequests, Code: "too_many_auth_failures",
+					Message: "认证失败次数过多，请稍后再试", RetryAfter: ra})
+				return
+			}
+			if ok && auth.AdminToken(tok) {
+				s.FailGuard.Fail(key)
+			}
 		}
-		if err != nil {
-			s.Log.Error("admin key lookup failed", "err", err)
-			writeError(w, r, errInternal)
-			return
-		}
-		info(r).Source = "admin:" + name
-		next(w, r)
+		s.Health.AuthFailure(s.now())
+		writeError(w, r, errUnauthorized)
 	}
 }
 
@@ -150,4 +173,21 @@ func (s *Server) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 		"queue_in_progress": res.Queue.InProgress,
 		"note":              res.Note,
 	})
+}
+
+func adminKeyRoute(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case "/v1/admin/status", "/v1/admin/sources", "/v1/admin/stats", "/v1/admin/system", "/v1/admin/settings":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"version": s.Version, "timezone": s.Location.String(), "retention_days": s.Status.RetentionDays,
+		"max_body_chars": s.MaxBodyChars, "filter_enabled": s.Filter != nil})
 }

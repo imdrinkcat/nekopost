@@ -1,6 +1,9 @@
 # Nekopost with built-in HTTPS (Let's Encrypt). Ports 80 and 443 of the host
 # must be free and the domain must point at this host.
 #
+#   mkdir -p secrets
+#   docker run --rm ghcr.io/imdrinkcat/nekopost keys gen > secrets/nekopost_kek
+#   chmod 0400 secrets/nekopost_kek
 #   install -d -o 65532 -g 65532 -m 700 data   # data directory, once
 #   cp ../nekopost.env.example nekopost.env     # then fill it in
 #   docker compose up -d
@@ -22,13 +25,15 @@ services:
       - "443:8443"
     volumes:
       - ./data:/data
+    secrets:
+      - nekopost_kek
     read_only: true
     tmpfs:
       - /tmp
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    mem_limit: 160m
+    mem_limit: 192m
     pids_limit: 64
     stop_grace_period: 30s
     logging:
@@ -36,3 +41,7 @@ services:
       options:
         max-size: 10m
         max-file: "3"
+
+secrets:
+  nekopost_kek:
+    file: ./secrets/nekopost_kek

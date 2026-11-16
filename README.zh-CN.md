@@ -183,6 +183,7 @@ nekopost version
 | [Telegram Bot](docs/telegram-bot.md) | Bot 配置、菜单与权限 |
 | [iPhone 快捷指令](docs/iphone-shortcuts.md) | 手动发送、短信自动化、iOS 限制 |
 | [接口说明](docs/api.md) | 接口、状态取值、错误格式 |
+| [网页面板](docs/web.md) | Google 登录、浏览器确认和只读页面 |
 | [消息模型](docs/message-model.md) | 统一消息格式、状态、呈现方式 |
 | [短信过滤](docs/sms-filter.md) | DeepSeek 分类、隐私、找回 |
 | [扩展消息来源](docs/adding-sources.md) | Linux / Windows / macOS / Android 示例，新增输出通道 |

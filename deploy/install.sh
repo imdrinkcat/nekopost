@@ -26,6 +26,11 @@ chmod 0600 /etc/nekopost/nekopost.env
 echo "==> 安装程序与 systemd 服务"
 install -o root -g root -m 0755 bin/nekopost /usr/local/bin/nekopost.new
 mv -f /usr/local/bin/nekopost.new /usr/local/bin/nekopost
+install -d -o root -g root -m 0700 /etc/credstore.encrypted
+if [[ ! -f /etc/credstore.encrypted/nekopost-kek ]]; then
+  echo "==> 生成主密钥"
+  /usr/local/bin/nekopost keys init
+fi
 install -o root -g root -m 0644 deploy/nekopost.service /etc/systemd/system/nekopost.service
 systemctl daemon-reload
 systemctl enable nekopost.service >/dev/null

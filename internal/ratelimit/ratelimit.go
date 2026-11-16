@@ -3,6 +3,8 @@ package ratelimit
 
 import (
 	"math"
+	"net/netip"
+	"strings"
 	"sync"
 	"time"
 )
@@ -58,7 +60,25 @@ func (l *Limiter) Cleanup() {
 	}
 }
 
-// FailureGuard blocks a key (client address) after too many failures within
+// ScopeKey is the FailGuard key for one client prefix and credential class.
+// IPv4 is counted per address. IPv6 is counted per /64.
+func ScopeKey(ip, category string) string {
+	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
+	if err != nil {
+		return ip + "|" + category
+	}
+	addr = addr.Unmap()
+	bits := 64
+	if addr.Is4() {
+		bits = 32
+	}
+	p, err := addr.Prefix(bits)
+	if err != nil {
+		return addr.String() + "|" + category
+	}
+	return p.Masked().String() + "|" + category
+}
+
 // a window, e.g. repeated invalid credentials.
 type FailureGuard struct {
 	mu       sync.Mutex

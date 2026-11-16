@@ -21,9 +21,8 @@ type HeldMessage struct {
 // HeldMessages returns messages whose deliveries are held for the content
 // filter, oldest first.
 func (s *Store) HeldMessages(ctx context.Context, limit int) ([]HeldMessage, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT m.id, m.source_id, m.kind, COALESCE(p.title, ''), COALESCE(p.body, '')
-		FROM messages m LEFT JOIN payloads p ON p.message_id = m.id
-		WHERE m.status = 'classifying' ORDER BY m.received_at, m.id LIMIT ?`, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, source_id, kind FROM messages
+		WHERE status = 'classifying' ORDER BY received_at, id LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -31,8 +30,15 @@ func (s *Store) HeldMessages(ctx context.Context, limit int) ([]HeldMessage, err
 	var out []HeldMessage
 	for rows.Next() {
 		var h HeldMessage
-		if err := rows.Scan(&h.ID, &h.SourceID, &h.Kind, &h.Title, &h.Body); err != nil {
+		if err := rows.Scan(&h.ID, &h.SourceID, &h.Kind); err != nil {
 			return nil, err
+		}
+		title, body, _, ok, err := s.readBody(ctx, h.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			h.Title, h.Body = title, body
 		}
 		out = append(out, h)
 	}
@@ -58,7 +64,18 @@ func (s *Store) ResolveHeld(ctx context.Context, msgID string, cat model.Categor
 		string(state), now.UnixMilli(), msgID); err != nil {
 		return "", err
 	}
-	st, err := updateAggregate(ctx, tx, msgID, now)
+	if cat == model.CatCode {
+		var received int64
+		if err := tx.QueryRowContext(ctx, "SELECT received_at FROM messages WHERE id = ?", msgID).Scan(&received); err != nil {
+			return "", err
+		}
+		exp := s.expiresAt(time.UnixMilli(received), true, string(cat))
+		if _, err := tx.ExecContext(ctx, `UPDATE bodies SET expires_at = ?
+			WHERE message_id = ? AND expires_at > ?`, exp.UnixMilli(), msgID, exp.UnixMilli()); err != nil {
+			return "", err
+		}
+	}
+	st, err := s.updateAggregate(ctx, tx, msgID, now)
 	if err != nil {
 		return "", err
 	}
@@ -94,12 +111,12 @@ type FilteredMessage struct {
 // total number of them.
 func (s *Store) FilteredMessages(ctx context.Context, offset, limit int) ([]FilteredMessage, int, error) {
 	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages m JOIN payloads p ON p.message_id = m.id
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages m JOIN bodies b ON b.message_id = m.id
 		WHERE m.status = 'filtered'`).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT m.id, m.source_id, m.category, m.received_at, p.title, p.body
-		FROM messages m JOIN payloads p ON p.message_id = m.id
+	rows, err := s.db.QueryContext(ctx, `SELECT m.id, m.source_id, m.category, m.received_at
+		FROM messages m JOIN bodies b ON b.message_id = m.id
 		WHERE m.status = 'filtered' ORDER BY m.received_at DESC, m.id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, 0, err
@@ -110,11 +127,16 @@ func (s *Store) FilteredMessages(ctx context.Context, offset, limit int) ([]Filt
 		var f FilteredMessage
 		var cat string
 		var at int64
-		if err := rows.Scan(&f.ID, &f.SourceID, &cat, &at, &f.Title, &f.Body); err != nil {
+		if err := rows.Scan(&f.ID, &f.SourceID, &cat, &at); err != nil {
 			return nil, 0, err
 		}
 		f.Category = model.Category(cat)
 		f.ReceivedAt = time.UnixMilli(at)
+		title, body, _, _, err := s.readBody(ctx, f.ID)
+		if err != nil {
+			return nil, 0, err
+		}
+		f.Title, f.Body = title, body
 		out = append(out, f)
 	}
 	return out, total, rows.Err()
@@ -133,10 +155,10 @@ func (s *Store) RescueFiltered(ctx context.Context, msgID string, now time.Time)
 	}
 	defer tx.Rollback()
 	var status string
-	var hasPayload int
-	err = tx.QueryRowContext(ctx, `SELECT m.status, p.message_id IS NOT NULL FROM messages m
-		LEFT JOIN payloads p ON p.message_id = m.id WHERE m.id = ?`, msgID).Scan(&status, &hasPayload)
-	if errors.Is(err, sql.ErrNoRows) || err == nil && (status != string(model.StatusFiltered) || hasPayload == 0) {
+	var hasBody int
+	err = tx.QueryRowContext(ctx, `SELECT m.status, b.message_id IS NOT NULL FROM messages m
+		LEFT JOIN bodies b ON b.message_id = m.id WHERE m.id = ?`, msgID).Scan(&status, &hasBody)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && (status != string(model.StatusFiltered) || hasBody == 0) {
 		return ErrNotRescuable
 	}
 	if err != nil {
@@ -146,7 +168,7 @@ func (s *Store) RescueFiltered(ctx context.Context, msgID string, now time.Time)
 		WHERE message_id = ? AND state = 'filtered'`, now.UnixMilli(), now.UnixMilli(), msgID); err != nil {
 		return err
 	}
-	if _, err := updateAggregate(ctx, tx, msgID, now); err != nil {
+	if _, err := s.updateAggregate(ctx, tx, msgID, now); err != nil {
 		return err
 	}
 	return tx.Commit()

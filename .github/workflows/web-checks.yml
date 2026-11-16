@@ -1,0 +1,32 @@
+name: web-checks
+
+on:
+  push:
+    paths: ["internal/webpanel/**", "internal/store/**", "internal/bot/**", "web-tests/**", "go.*", ".github/workflows/web-checks.yml"]
+  pull_request:
+    paths: ["internal/webpanel/**", "internal/store/**", "internal/bot/**", "web-tests/**", "go.*", ".github/workflows/web-checks.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  chromium:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/nekopost-web-checks" playwright@1.56.1
+          "$RUNNER_TEMP/nekopost-web-checks/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Check browser code and exercise Google login
+        env:
+          NEKOPOST_RUN_BROWSER_TEST: "1"
+          NODE_PATH: ${{ runner.temp }}/nekopost-web-checks/node_modules
+        run: |
+          if git grep -nE 'innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function' -- internal/webpanel/panel.js; then
+            exit 1
+          fi
+          go test ./internal/webpanel -run '^TestChromiumPanel$' -count=1 -v

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>猫邮局 · Nekopost</title>
+<link rel="stylesheet" href="/assets/{{.Version}}/panel.css">
+<script defer src="/assets/{{.Version}}/panel.js"></script>
+</head>
+<body data-mode="{{.Mode}}" data-csrf="{{.CSRF}}" data-approval="{{.Approval.ID}}" data-state="{{.Approval.State}}">
+<header class="site"><a href="/panel" class="brand">猫邮局</a>{{if .Identity}}<span class="identity">{{.Identity}}</span>{{end}}{{if .CSRF}}<button id="logout" type="button">退出</button>{{end}}</header>
+<main id="main">
+{{if eq .Mode "home"}}
+<section class="entry"><h1>猫邮局</h1>{{if .Enabled}}<a class="primary" href="/auth/google/start">使用 Google 登录</a>{{else}}<p>网页面板未启用</p>{{end}}</section>
+{{else if eq .Mode "finish"}}
+<section class="entry"><h1>正在完成 Google 登录</h1><p id="notice" role="status"></p><a href="/">返回登录</a></section>
+{{else if eq .Mode "error"}}
+<section class="entry"><h1>{{.Error}}</h1>{{if .Identity}}<p><code>{{.Identity}}</code></p>{{end}}<a href="/">返回登录</a></section>
+{{else if eq .Mode "confirm"}}
+<section class="entry"><h1>确认新浏览器</h1>{{if or (eq .Approval.State "pending") (eq .Approval.State "approved")}}<p>请在 Telegram 或服务器上选择这个数字。</p><p class="code">{{.Approval.Code}}</p><p id="notice" role="status">等待确认</p>{{else}}<p role="status">确认已结束，请重新登录。</p>{{end}}<a href="/">返回登录</a></section>
+{{else}}
+<nav aria-label="面板">
+<a href="/panel" {{if eq .Tab "inbox"}}aria-current="page"{{end}}>消息</a>
+<a href="/panel?tab=filtered" {{if eq .Tab "filtered"}}aria-current="page"{{end}}>已过滤</a>
+<a href="/panel?tab=status" {{if eq .Tab "status"}}aria-current="page"{{end}}>总览</a>
+<a href="/panel?tab=stats" {{if eq .Tab "stats"}}aria-current="page"{{end}}>统计</a>
+<a href="/panel?tab=sources" {{if eq .Tab "sources"}}aria-current="page"{{end}}>来源</a>
+<a href="/panel?tab=devices" {{if eq .Tab "devices"}}aria-current="page"{{end}}>设备</a>
+<a href="/panel?tab=keys" {{if eq .Tab "keys"}}aria-current="page"{{end}}>管理凭证</a>
+<a href="/panel?tab=security" {{if eq .Tab "security"}}aria-current="page"{{end}}>安全</a>
+<a href="/panel?tab=settings" {{if eq .Tab "settings"}}aria-current="page"{{end}}>设置</a>
+</nav>
+<section class="content">
+<div id="management-result" role="status" hidden></div>
+<div id="reauth-link" hidden><button type="button" id="reauth-number">用 Telegram 或 CLI 重新认证</button> <a href="/auth/google/start?reauth=1">使用 Google 重新认证</a></div>
+{{if eq .Tab "inbox"}}
+<h1>消息</h1>
+<form id="search"><label for="query">搜索正文</label><input id="query" type="search" maxlength="200" required><button type="submit">搜索</button></form>
+<p id="notice" role="status"></p><ul class="items" id="results"></ul>
+<ul class="items">{{range .Inbox}}<li><a href="/panel/message/{{.ID}}"><strong dir="auto">{{visible .SourceID}}</strong> · {{.Kind}} <span>{{.Status.Label}}</span><time>{{.ReceivedAt.UTC.Format "2006-01-02 15:04 UTC"}}</time></a></li>{{else}}<li>暂无消息</li>{{end}}</ul>
+{{else if eq .Tab "message"}}
+<a href="/panel">返回消息</a>
+<h1 dir="auto">{{if .Title}}{{visible .Title}}{{else}}消息详情{{end}}</h1>
+<p><strong>来源</strong> <bdi>{{visible .Message.Message.SourceID}}</bdi> · {{.Message.Message.Kind}} · {{.Received}}</p>
+{{if .HasBody}}<pre dir="auto">{{visible .Body}}</pre>
+{{if .Meta}}<dl>{{range $k, $v := .Meta}}<dt>{{visible $k}}</dt><dd dir="auto">{{visible $v}}</dd>{{end}}</dl>{{end}}
+{{else}}<p>正文已过期或已删除。</p>{{end}}
+<div class="management" data-row="{{.Message.Message.ID}}">
+{{if .HasBody}}
+{{if eq .Message.Message.Status "filtered"}}<button type="button" data-action="rescue">找回并转发</button>{{else}}<button type="button" data-action="retry">重新投递</button>{{end}}
+<button type="button" data-action="export">导出这条消息</button>
+<button type="button" data-action="shred">销毁正文</button>
+{{end}}
+</div>
+<h2>投递</h2><ul class="items">{{range .Message.Deliveries}}<li>{{.Channel}} · {{.State}} · {{.PartsSent}} / {{.PartsTotal}}{{if not .AckedAt.IsZero}} · ✓✓ 已取回{{end}}{{if .LastError}}<p dir="auto">{{visible .LastError}}</p>{{end}}</li>{{else}}<li>暂无投递记录</li>{{end}}</ul>
+{{else if eq .Tab "filtered"}}
+<h1>已过滤</h1><ul class="items">{{range .Filtered}}<li><a href="/panel/message/{{.ID}}"><strong dir="auto">{{visible .SourceID}}</strong> · {{.Category.Label}}<time>{{.ReceivedAt.UTC.Format "2006-01-02 15:04 UTC"}}</time></a></li>{{else}}<li>暂无已过滤消息</li>{{end}}</ul>
+{{else if eq .Tab "status"}}
+<h1>系统总览</h1><p>{{.Report.OverallText}}</p><ul class="cards">{{range .Report.Components}}<li><h2>{{.Name}}</h2><p>{{.Level.Label}} · {{visible .Summary}}</p>{{range .Details}}<p>{{visible .}}</p>{{end}}</li>{{end}}</ul>
+{{else if eq .Tab "stats"}}
+<h1>统计</h1><p class="ranges"><a href="/panel?tab=stats&amp;range=today">今天</a> <a href="/panel?tab=stats&amp;range=24h">24 小时</a> <a href="/panel?tab=stats&amp;range=7d">7 天</a> <a href="/panel?tab=stats&amp;range=start">本次启动</a></p>
+<p>{{.Stats.Range.Label}}</p><div class="metrics">{{with .Stats.Stats.Total}}<div>接收 <strong>{{.Received}}</strong></div><div>送达 <strong>{{.Delivered}}</strong></div><div>过滤 <strong>{{.Filtered}}</strong></div><div>失败 <strong>{{.Failed}}</strong></div>{{end}}</div>
+<ul class="items">{{range .Stats.Stats.BySource}}<li><strong dir="auto">{{visible .SourceID}}</strong> · 接收 {{.Counts.Received}} · 送达 {{.Counts.Delivered}}</li>{{end}}</ul>
+{{else if eq .Tab "sources"}}
+<h1>来源</h1>
+<form id="new-source"><label for="source-id">新来源 ID</label><input id="source-id" required maxlength="32" pattern="[a-z0-9][a-z0-9_\-]{0,31}">
+<label for="source-name">名称</label><input id="source-name" maxlength="64"><button type="submit">创建来源</button></form>
+<ul class="items">{{range .Sources}}<li data-row="{{.Source.ID}}"><strong dir="auto">{{visible .Source.Name}}</strong> <small>{{.Source.ID}}</small> · {{if .Source.Enabled}}已启用{{else}}已停用{{end}} · 今日接收 {{.Today.Received}}
+<div class="management"><button type="button" data-action="rename-source">改名</button>
+<button type="button" data-action="source-enabled" data-enabled="{{.Source.Enabled}}">{{if .Source.Enabled}}停用{{else}}启用{{end}}</button>
+<button type="button" data-action="rotate-source">轮换凭证</button>
+<button type="button" data-action="delete-source">删除来源</button></div></li>{{else}}<li>暂无来源</li>{{end}}</ul>
+{{else if eq .Tab "devices"}}
+<h1>设备</h1>
+<form id="new-pairing"><label for="device-name">设备名称</label><input id="device-name" required maxlength="64">
+<label for="device-role">权限</label><select id="device-role"><option value="full">完整</option><option value="sender">仅转发</option><option value="receiver">仅接收</option></select>
+<label for="device-source">来源 ID</label><input id="device-source" maxlength="32"><button type="submit">创建配对</button></form>
+<ul class="items">{{range .DeviceRows}}<li data-row="{{.ID}}"><strong dir="auto">{{visible .Name}}</strong> · <bdi>{{visible .Model}}</bdi> · {{if .Revoked}}已吊销{{else if .Suspended}}暂停读取{{else}}已启用{{end}}
+{{if not .Revoked}}<div class="management"><button type="button" data-action="revoke-device">吊销</button></div>{{end}}</li>{{else}}<li>暂无配对设备</li>{{end}}</ul>
+{{else if eq .Tab "keys"}}
+<h1>管理凭证</h1>
+<form id="new-key"><label for="key-name">凭证名称</label><input id="key-name" required maxlength="64"><button type="submit">创建凭证</button></form>
+<ul class="items">{{range .KeyRows}}<li data-row="{{.Prefix}}"><strong dir="auto">{{visible .Name}}</strong> · <code>{{.Prefix}}</code>
+{{if .RevokedAt.IsZero}}<button type="button" data-action="revoke-key">吊销</button>{{else}} · 已吊销{{end}}</li>{{else}}<li>暂无管理凭证</li>{{end}}</ul>
+{{else if eq .Tab "security"}}
+<h1>安全</h1><p>当前身份 <bdi>{{.Identity}}</bdi></p><h2>审计记录</h2><p>{{if .ChainOK}}审计链校验通过{{else}}审计链校验失败{{end}}</p>
+<ul class="items">{{range .Audit}}<li>{{auditDate .At}} · {{.Actor}} · {{.Action}} · {{.Result}}{{if .Target}} · {{.Target}}{{end}}</li>{{else}}<li>暂无审计记录</li>{{end}}</ul>
+{{else if eq .Tab "settings"}}
+<h1>设置</h1><dl><dt>服务端版本</dt><dd>{{.Version}}</dd><dt>时区</dt><dd>{{.Settings.Timezone}}</dd><dt>元数据</dt><dd>{{.Settings.RetentionDays}} 天</dd><dt>普通正文</dt><dd>{{if .Settings.BodyRetentionDays}}{{.Settings.BodyRetentionDays}} 天{{else}}投递结束后清除{{end}}</dd><dt>验证码正文</dt><dd>{{if .Settings.CodeRetentionHours}}{{.Settings.CodeRetentionHours}} 小时{{else}}与普通正文相同{{end}}</dd><dt>登录确认</dt><dd>Telegram、服务器 CLI</dd></dl>
+{{end}}
+{{if .Next}}<p><a href="{{.Next}}">更早的消息</a></p>{{end}}
+</section>
+{{end}}
+</main>
+</body>
+</html>

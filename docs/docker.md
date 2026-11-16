@@ -167,7 +167,7 @@ sudo chown -R 65532:65532 data
 | 进程卡死 | systemd 看门狗在 5 分钟内重启 | 程序自己检测：数据库或投递循环连续 5 分钟不正常就主动退出，由 `restart: unless-stopped` 重新启动 |
 | 健康检查 | `/healthz` | 同样用 `/healthz`，由镜像里的 `nekopost healthcheck` 通过本机 HTTP 端口检查。内置 HTTPS 模式下，80 端口也会响应 `/healthz` |
 | 日志 | journald | `docker compose logs`，每个文件最大 10 MB，保留 3 个 |
-| 资源限制 | `MemoryMax=160M` 等 | `mem_limit: 160m`、`pids_limit: 64` |
+| 资源限制 | `MemoryMax=192M`、`GOMEMLIMIT=96MiB` | `mem_limit: 192m`、`pids_limit: 64` |
 | 沙箱 | `ProtectSystem=strict` 等 | 只读根文件系统、去掉所有 capabilities、`no-new-privileges`、非 root 用户 |
 | Bot 中的服务器指标 | 本机 | 内存、负载、运行时长是**宿主机**的数值；磁盘是 `data` 目录所在磁盘 |
 

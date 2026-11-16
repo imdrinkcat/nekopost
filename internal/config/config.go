@@ -17,6 +17,7 @@ import (
 	_ "time/tzdata" // timezone data even on minimal hosts
 
 	"nekopost/internal/model"
+	"nekopost/internal/store"
 )
 
 // DefaultEnvFile is where the installed service keeps its configuration.
@@ -24,6 +25,10 @@ const DefaultEnvFile = "/etc/nekopost/nekopost.env"
 
 // Config holds all runtime settings.
 type Config struct {
+	TelegramTypes       map[string]bool
+	FCMFile, FCMProject string
+
+	Web       WebConfig
 	Domain    string
 	TLSMode   string // "autocert" or "off"
 	HTTPSAddr string
@@ -50,18 +55,35 @@ type Config struct {
 	LogLevel         slog.Level
 
 	// Content filter (DeepSeek). Enabled when DeepSeekAPIKey is set.
-	DeepSeekAPIKey  string
-	DeepSeekModel   string
-	DeepSeekAPIBase string
-	FilterTypes     []string         // message types that are classified
-	FilterDrop      []model.Category // categories that are not forwarded
-	FilterKeepDays  int              // how long filtered messages stay rescuable
+	DeepSeekAPIKey      string
+	DeepSeekModel       string
+	DeepSeekAPIBase     string
+	FilterTypes         []string         // message types that are classified
+	FilterDrop          []model.Category // categories that are not forwarded
+	FilterKeepDays      int              // how long filtered messages stay rescuable
+	BodyRetentionDays   int
+	CodeRetentionHours  int
+	KeepMigrationBackup bool
+	RetentionAliasWarn  string
 }
 
 // FilterEnabled reports whether the content filter is configured.
 func (c *Config) FilterEnabled() bool { return c.DeepSeekAPIKey != "" }
 
-// DBPath is the SQLite database location.
+// StoreOptions builds the database options for this configuration.
+func (c *Config) StoreOptions(kek, previous []byte) store.Options {
+	o := store.Options{
+		KEK: kek, PreviousKEK: previous,
+		BodyRetention:       time.Duration(c.BodyRetentionDays) * 24 * time.Hour,
+		CodeRetention:       time.Duration(c.CodeRetentionHours) * time.Hour,
+		DedupeWindow:        c.DedupeWindow,
+		KeepMigrationBackup: c.KeepMigrationBackup,
+	}
+	if c.BodyRetentionDays == 0 {
+		o.FilteredKeep = time.Duration(c.FilterKeepDays) * 24 * time.Hour
+	}
+	return o
+}
 func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "nekopost.db") }
 
 // ACMECacheDir stores Let's Encrypt account keys and certificates.
@@ -90,6 +112,8 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	var errs []error
 	c := &Config{
+		FCMFile:         get("NEKOPOST_FCM_CREDENTIALS_FILE", ""),
+		FCMProject:      get("NEKOPOST_FCM_PROJECT_ID", ""),
 		Domain:          strings.ToLower(get("NEKOPOST_DOMAIN", "")),
 		TLSMode:         get("NEKOPOST_TLS_MODE", "autocert"),
 		HTTPSAddr:       get("NEKOPOST_HTTPS_ADDR", ":443"),
@@ -99,6 +123,10 @@ func Load(getenv func(string) string) (*Config, error) {
 		BotToken:        get("NEKOPOST_TELEGRAM_BOT_TOKEN", ""),
 		TelegramAPIBase: strings.TrimRight(get("NEKOPOST_TELEGRAM_API_BASE", "https://api.telegram.org"), "/"),
 		TimezoneName:    get("NEKOPOST_TIMEZONE", "Asia/Tokyo"),
+	}
+	if err := loadWeb(c, getenv); err != nil {
+		// Isolate optional Web configuration failures from message forwarding.
+		c.Web = WebConfig{Warning: err.Error()}
 	}
 	if c.TLSMode != "autocert" && c.TLSMode != "off" {
 		errs = append(errs, fmt.Errorf("NEKOPOST_TLS_MODE 必须是 autocert 或 off"))
@@ -115,6 +143,17 @@ func Load(getenv func(string) string) (*Config, error) {
 				continue
 			}
 			c.AdminIDs = append(c.AdminIDs, id)
+		}
+	}
+	if raw := get("NEKOPOST_TELEGRAM_TYPES", "*"); raw != "*" {
+		c.TelegramTypes = make(map[string]bool)
+		for _, kind := range strings.Split(raw, ",") {
+			kind = strings.TrimSpace(kind)
+			if !model.ValidKind(kind) {
+				errs = append(errs, errors.New("NEKOPOST_TELEGRAM_TYPES 包含无效的消息类型"))
+				continue
+			}
+			c.TelegramTypes[kind] = true
 		}
 	}
 	if v := get("NEKOPOST_TELEGRAM_CHAT_ID", ""); v != "" {
@@ -171,6 +210,9 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 
 	c.RetentionDays = intVar("NEKOPOST_RETENTION_DAYS", 30, 1, 365)
+	c.BodyRetentionDays = intVar("NEKOPOST_BODY_RETENTION_DAYS", 7, 0, 90)
+	c.CodeRetentionHours = intVar("NEKOPOST_CODE_RETENTION_HOURS", 24, 0, 90*24)
+	c.KeepMigrationBackup = strings.EqualFold(get("NEKOPOST_KEEP_MIGRATION_BACKUP", ""), "true") || get("NEKOPOST_KEEP_MIGRATION_BACKUP", "") == "1"
 	c.DeliveryMaxAge = durVar("NEKOPOST_DELIVERY_MAX_AGE", 24*time.Hour, time.Minute, 7*24*time.Hour)
 	c.DedupeWindow = durVar("NEKOPOST_DEDUPE_WINDOW", 60*time.Second, 0, 24*time.Hour)
 	c.MaxBodyChars = intVar("NEKOPOST_MAX_BODY_CHARS", 12000, 100, 50000)
@@ -197,7 +239,15 @@ func Load(getenv func(string) string) (*Config, error) {
 		}
 		c.FilterDrop = append(c.FilterDrop, cat)
 	}
-	c.FilterKeepDays = intVar("NEKOPOST_FILTER_KEEP_DAYS", 7, 1, 30)
+	rawKeep := strings.TrimSpace(getenv("NEKOPOST_FILTER_KEEP_DAYS"))
+	c.FilterKeepDays = intVar("NEKOPOST_FILTER_KEEP_DAYS", 7, 0, 90)
+	if rawKeep != "" && c.FilterKeepDays > c.BodyRetentionDays {
+		c.RetentionAliasWarn = fmt.Sprintf("NEKOPOST_FILTER_KEEP_DAYS=%d 已弃用，正文保留期按较大值 %d 天", c.FilterKeepDays, c.FilterKeepDays)
+		c.BodyRetentionDays = c.FilterKeepDays
+	}
+	if c.BodyRetentionDays > 0 && c.RetentionDays < c.BodyRetentionDays {
+		errs = append(errs, fmt.Errorf("NEKOPOST_RETENTION_DAYS（%d）不能小于正文保留天数（%d）", c.RetentionDays, c.BodyRetentionDays))
+	}
 
 	switch strings.ToLower(get("NEKOPOST_LOG_LEVEL", "info")) {
 	case "debug":

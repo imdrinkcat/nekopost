@@ -12,7 +12,8 @@ User=nekopost
 Group=nekopost
 EnvironmentFile=/etc/nekopost/nekopost.env
 # Keep the Go heap small on low-memory hosts.
-Environment=GOMEMLIMIT=64MiB
+Environment=GOMEMLIMIT=96MiB
+ImportCredential=nekopost-*
 ExecStart=/usr/local/bin/nekopost serve
 Restart=always
 RestartSec=5
@@ -50,9 +51,10 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 
 # Resource ceilings.
-MemoryMax=160M
+MemoryMax=192M
 TasksMax=64
 LimitNOFILE=4096
+LimitCORE=0
 
 [Install]
 WantedBy=multi-user.target

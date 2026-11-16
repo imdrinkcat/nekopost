@@ -89,6 +89,8 @@ var commands = []telegram.BotCommand{
 	{Command: "filtered", Description: "已过滤的短信"},
 	{Command: "settings", Description: "系统设置"},
 	{Command: "help", Description: "帮助"},
+	{Command: "devices", Description: "配对设备"},
+	{Command: "lockdown", Description: "紧急锁定"},
 }
 
 // classify maps a Bot API error to a failure kind and a readable message.
@@ -259,6 +261,10 @@ func (b *Bot) handleMessage(ctx context.Context, m *telegram.Message) {
 		v = b.viewSettings(ctx)
 	case "/help":
 		v = b.viewHelp()
+	case "/devices":
+		v = b.viewDevices(ctx)
+	case "/lockdown":
+		v = b.viewLockdown()
 	default:
 		v = b.viewMain(ctx)
 		v.text = "🤔 无法识别的输入。请使用下方按钮，或发送 /menu 打开主菜单。\n\n" + v.text
@@ -314,10 +320,23 @@ func (b *Bot) handleCallback(ctx context.Context, cq *telegram.CallbackQuery) {
 		_ = b.Client.AnswerCallbackQuery(ctx, cq.ID, "⛔ 无权限", true)
 		return
 	}
+	if data, ok := strings.CutPrefix(cq.Data, pairPrefix); ok {
+		b.handlePairApproval(ctx, cq, data)
+		return
+	}
+	if data, ok := strings.CutPrefix(cq.Data, webApprovalPrefix); ok {
+		b.handleWebApproval(ctx, cq, data)
+		return
+	}
 	if id, ok := strings.CutPrefix(cq.Data, render.InfoPrefix); ok {
 		// Info button under a forwarded message: answer with a popup and
-		// leave the message itself untouched.
+		// leave the message itself untouched. Delete callbacks share the
+		// "xd:" prefix shape, so this must stay an exact "i:" cut.
 		_ = b.Client.AnswerCallbackQuery(ctx, cq.ID, b.messageInfo(ctx, id), true)
+		return
+	}
+	if strings.HasPrefix(cq.Data, render.DeleteAskPrefix) || strings.HasPrefix(cq.Data, render.DeleteYesPrefix) || strings.HasPrefix(cq.Data, render.DeleteNoPrefix) {
+		b.handleDelete(ctx, cq)
 		return
 	}
 	if cq.Message == nil || cq.Message.Chat.Type != "private" {
@@ -346,6 +365,9 @@ func (b *Bot) handleCallback(ctx context.Context, cq *telegram.CallbackQuery) {
 //	i:<message id>                 info button under a forwarded message (popup only)
 func (b *Bot) dispatch(ctx context.Context, userID int64, data string) (view, string) {
 	parts := strings.Split(data, ":")
+	if v, toast, ok := b.deviceAction(ctx, userID, parts); ok {
+		return v, toast
+	}
 	switch parts[0] {
 	case "m":
 		return b.viewMain(ctx), ""

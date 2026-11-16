@@ -20,3 +20,6 @@ com.drinkcat.nekopost.forwarder.notify.NekoNotificationListener android.permissi
 # only); the receiver checks the action, reads no extras and only schedules an
 # inbox scan and an upload.
 com.drinkcat.nekopost.forwarder.BootReceiver -
+
+# Firebase Messaging accepts GMS broadcasts through its permission-protected receiver.
+com.google.firebase.iid.FirebaseInstanceIdReceiver com.google.android.c2dm.permission.SEND

@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math/rand/v2"
 	"sync"
@@ -33,13 +34,16 @@ type Worker struct {
 	// AttemptTimeout bounds one attempt (all parts of one message).
 	AttemptTimeout time.Duration
 
-	wake chan struct{}
+	wake map[string]chan struct{}
 	once sync.Once
 }
 
 func (w *Worker) init() {
 	w.once.Do(func() {
-		w.wake = make(chan struct{}, 1)
+		w.wake = map[string]chan struct{}{"": make(chan struct{}, 1)}
+		for id := range w.Channels {
+			w.wake[id] = make(chan struct{}, 1)
+		}
 		if w.Now == nil {
 			w.Now = time.Now
 		}
@@ -61,21 +65,40 @@ func (w *Worker) init() {
 // Wake asks the worker to look for due deliveries now.
 func (w *Worker) Wake() {
 	w.init()
-	select {
-	case w.wake <- struct{}{}:
-	default:
+	for _, wake := range w.wake {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
 	}
 }
 
 const batchSize = 20
 const idlePoll = 30 * time.Second
 
-// Run processes deliveries until ctx is cancelled.
+// Run processes deliveries until ctx is cancelled. Each channel has its own loop
+// so one channel's throttle does not stall the others.
 func (w *Worker) Run(ctx context.Context) {
 	w.init()
+	if len(w.Channels) == 0 {
+		w.runLoop(ctx, "")
+		return
+	}
+	var wg sync.WaitGroup
+	for name := range w.Channels {
+		wg.Add(1)
+		go func(ch string) {
+			defer wg.Done()
+			w.runLoop(ctx, ch)
+		}(name)
+	}
+	wg.Wait()
+}
+
+func (w *Worker) runLoop(ctx context.Context, channel string) {
 	for {
 		w.Health.WorkerBeat(w.Now())
-		n, err := w.RunOnce(ctx)
+		n, err := w.runOnce(ctx, channel)
 		if ctx.Err() != nil {
 			return
 		}
@@ -86,7 +109,7 @@ func (w *Worker) Run(ctx context.Context) {
 			sleep = 5 * time.Second
 		} else if n >= batchSize {
 			sleep = 0
-		} else if next, ok, err := w.Store.NextDueAt(ctx); err == nil && ok {
+		} else if next, ok, err := w.Store.NextDueAt(ctx, channel); err == nil && ok {
 			if d := next.Sub(w.Now()); d < sleep {
 				sleep = max(d, 0)
 			}
@@ -99,7 +122,7 @@ func (w *Worker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			t.Stop()
 			return
-		case <-w.wake:
+		case <-w.wake[channel]:
 		case <-t.C:
 		}
 		t.Stop()
@@ -109,7 +132,11 @@ func (w *Worker) Run(ctx context.Context) {
 // RunOnce processes all currently due deliveries (up to one batch).
 func (w *Worker) RunOnce(ctx context.Context) (int, error) {
 	w.init()
-	jobs, err := w.Store.DueJobs(ctx, w.Now(), batchSize)
+	return w.runOnce(ctx, "")
+}
+
+func (w *Worker) runOnce(ctx context.Context, channel string) (int, error) {
+	jobs, err := w.Store.DueJobs(ctx, w.Now(), channel, batchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -142,6 +169,9 @@ func (w *Worker) finish(job store.Job, r store.AttemptResult) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	status, err := w.Store.FinishAttempt(ctx, job.Delivery.ID, job.Delivery.MessageID, r, w.Now())
+	if errors.Is(err, store.ErrNotFound) {
+		return
+	}
 	if err != nil {
 		w.Log.Error("record delivery outcome failed", "message", job.Delivery.MessageID, "err", err)
 		w.Health.Error(w.Now(), "投递队列", "无法记录投递结果")
@@ -157,7 +187,11 @@ func (w *Worker) finish(job store.Job, r store.AttemptResult) {
 func (w *Worker) process(ctx context.Context, job store.Job) {
 	now := w.Now()
 	d := job.Delivery
-	deadline := d.CreatedAt.Add(w.MaxAge)
+	maxAge := w.MaxAge
+	if d.Aux {
+		maxAge = time.Hour
+	}
+	deadline := d.CreatedAt.Add(maxAge)
 	final := func(msg string) store.AttemptResult {
 		st := model.DeliveryFailed
 		if d.Uncertain {
@@ -170,7 +204,7 @@ func (w *Worker) process(ctx context.Context, job store.Job) {
 		return
 	}
 	if now.After(deadline) {
-		w.finish(job, final("超过最长重试时间（"+health.Dur(w.MaxAge)+"），已放弃。最后错误："+d.LastError))
+		w.finish(job, final("超过最长重试时间（"+health.Dur(maxAge)+"），已放弃。最后错误："+d.LastError))
 		return
 	}
 	ch, ok := w.Channels[d.Channel]
@@ -179,16 +213,18 @@ func (w *Worker) process(ctx context.Context, job store.Job) {
 		return
 	}
 	if err := w.Store.ClaimDelivery(ctx, d.ID, d.MessageID, now); err != nil {
-		w.Log.Error("claim delivery failed", "message", d.MessageID, "err", err)
+		if !errors.Is(err, store.ErrNotFound) {
+			w.Log.Error("claim delivery failed", "message", d.MessageID, "err", err)
+		}
 		return
 	}
 	w.Notifier.Publish(d.MessageID)
 
 	actx, cancel := context.WithTimeout(ctx, w.AttemptTimeout)
-	res := ch.Deliver(actx, job, func(total, sent int) {
+	res := ch.Deliver(actx, job, func(total, sent int, tgID int64) {
 		pctx, pcancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer pcancel()
-		if err := w.Store.SetPartsProgress(pctx, d.ID, total, sent); err != nil {
+		if err := w.Store.SetPartsProgress(pctx, d.ID, d.MessageID, total, sent, tgID); err != nil {
 			w.Log.Error("record part progress failed", "message", d.MessageID, "err", err)
 		}
 	})
@@ -200,15 +236,21 @@ func (w *Worker) process(ctx context.Context, job store.Job) {
 	switch res.Outcome {
 	case Delivered:
 		r.State = model.DeliveryDelivered
-		w.Health.DeliveryOK(after)
+		if !d.Aux {
+			w.Health.DeliveryOK(after)
+		}
 	case Permanent:
 		r.State = model.DeliveryFailed
 		if d.Uncertain || res.PartsSent > 0 {
 			r.State = model.DeliveryUncertain
 		}
-		w.Health.DeliveryFailed(after, res.FailKind, res.Err)
+		if !d.Aux {
+			w.Health.DeliveryFailed(after, res.FailKind, res.Err)
+		}
 	default:
-		w.Health.DeliveryFailed(after, res.FailKind, res.Err)
+		if !d.Aux {
+			w.Health.DeliveryFailed(after, res.FailKind, res.Err)
+		}
 		delay := w.backoff(d.Attempts + 1)
 		if res.RetryAfter > delay {
 			delay = res.RetryAfter + time.Second

@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"regexp"
 	"strings"
 )
 
@@ -29,7 +30,16 @@ func NewToken(prefix string) string {
 	return prefix + base64.RawURLEncoding.EncodeToString(b[:])
 }
 
-// Hash returns the at-rest digest of a token.
+var (
+	sourceTokenRe = regexp.MustCompile(`^mgs_[A-Za-z0-9_-]{20,}$`)
+	adminTokenRe  = regexp.MustCompile(`^mga_[A-Za-z0-9_-]{20,}$`)
+)
+
+// SourceToken reports whether token has the shape of a source credential.
+func SourceToken(token string) bool { return sourceTokenRe.MatchString(token) }
+
+// AdminToken reports whether token has the shape of an admin credential.
+func AdminToken(token string) bool { return adminTokenRe.MatchString(token) }
 func Hash(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])

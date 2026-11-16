@@ -5,8 +5,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
+	"nekopost/internal/auth"
 	"nekopost/internal/bot"
 	"nekopost/internal/config"
 	"nekopost/internal/delivery"
@@ -17,16 +20,38 @@ import (
 	"nekopost/internal/ratelimit"
 	"nekopost/internal/router"
 	"nekopost/internal/sdnotify"
+	"nekopost/internal/sealbox"
 	"nekopost/internal/status"
 	"nekopost/internal/store"
 	"nekopost/internal/sysinfo"
 	"nekopost/internal/telegram"
+	"nekopost/internal/webpanel"
 )
 
 // Run starts the service and blocks until ctx is cancelled.
 func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logger) error {
 	startedAt := time.Now()
-	st, err := store.Open(cfg.DBPath())
+	mat, err := sealbox.LoadMaterial(sealbox.Location{})
+	if err != nil {
+		return err
+	}
+	var fcm *delivery.FCM
+	fcmPath := cfg.FCMFile
+	if fcmPath == "" && os.Getenv("CREDENTIALS_DIRECTORY") != "" {
+		candidate := filepath.Join(os.Getenv("CREDENTIALS_DIRECTORY"), "nekopost-fcm-sa")
+		if fi, err := os.Stat(candidate); err == nil && fi.Mode().IsRegular() {
+			fcmPath = candidate
+		}
+	}
+	if fcmPath != "" {
+		fcm, err = delivery.NewFCM(ctx, nil, fcmPath, cfg.FCMProject)
+		if err != nil {
+			log.Warn("FCM disabled", "reason", err)
+		}
+	}
+	options := cfg.StoreOptions(mat.Current, mat.Previous)
+	options.EnablePush = fcm != nil
+	st, err := store.Open(cfg.DBPath(), options)
 	if err != nil {
 		return fmt.Errorf("打开数据库失败: %w", err)
 	}
@@ -36,10 +61,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	if err != nil {
 		return err
 	}
-	dedupeKey, err := st.Secret(ctx, "dedupe")
-	if err != nil {
-		return err
-	}
+	dedupeKey := st.DedupeKey()
 	if n, err := st.RecoverInFlight(ctx, startedAt); err != nil {
 		return err
 	} else if n > 0 {
@@ -68,6 +90,11 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		Notifier: notifier,
 		Log:      log.With("component", "delivery"),
 		MaxAge:   cfg.DeliveryMaxAge,
+	}
+
+	if fcm != nil {
+		fcm.Store = st
+		worker.Channels[fcm.Name()] = fcm
 	}
 
 	var fl *filter.Filter
@@ -114,9 +141,15 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	}
 
 	burst := max(10, cfg.SourceRatePerMin/3)
+	publicURL := cfg.Web.PublicURL
+	if publicURL == "" && cfg.Domain != "" && cfg.TLSMode == "autocert" {
+		publicURL = "https://" + cfg.Domain
+	}
 	api := &httpapi.Server{
+		DPoP:           auth.NewDPoP(),
+		PublicURL:      publicURL,
 		Store:          st,
-		Router:         router.Default{Channel: "telegram", Target: "default"},
+		Router:         router.Default{Channel: "telegram", Target: "default", Types: cfg.TelegramTypes},
 		Worker:         worker,
 		Notifier:       notifier,
 		Health:         tracker,
@@ -139,7 +172,6 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			api.FilterTypes[t] = true
 		}
 	}
-	listener.Handler = api.Handler()
 
 	b := &bot.Bot{
 		Client:   tg,
@@ -161,6 +193,36 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		Delivery: worker,
 	}
 
+	panel := &webpanel.Panel{
+		Store: st, Status: statusSvc, Version: version, ClientIP: api.ClientIP,
+		Settings: webpanel.Settings{Timezone: cfg.TimezoneName, RetentionDays: cfg.RetentionDays,
+			BodyRetentionDays: cfg.BodyRetentionDays, CodeRetentionHours: cfg.CodeRetentionHours},
+		Allow: cfg.Web.Allow, NotifyApproval: b.SendWebApproval, NotifySecurity: b.NotifyWebSecurity,
+	}
+	if cfg.Web.Warning != "" {
+		log.Warn("web panel disabled", "reason", cfg.Web.Warning)
+	}
+	if cfg.Web.Enabled() {
+		secret, err := cfg.Web.GoogleSecret()
+		if err != nil {
+			log.Warn("web panel disabled", "reason", err)
+		} else {
+			panel.Keys, err = sealbox.Derive(mat.Current)
+			if err != nil {
+				return err
+			}
+			panel.Google = webpanel.NewGoogle(cfg.Web.GoogleClientID, secret, cfg.Web.PublicURL+"/auth/google/callback")
+		}
+	}
+	if fcm != nil {
+		api.TestPush = fcm.TestPush
+	}
+	api.PairNotify = b.SendPairApproval
+	api.SecurityNotify = b.NotifyWebSecurity
+	api.CookieAdmin = panel.AuthorizeAdmin
+	api.Web = panel.Handler()
+	listener.Handler = api.Handler()
+
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -181,6 +243,9 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	go watchdog(runCtx, st, tracker, log, fatal)
 
 	_ = sdnotify.Ready()
+	if cfg.RetentionAliasWarn != "" {
+		log.Warn(cfg.RetentionAliasWarn)
+	}
 	log.Info("nekopost started", "version", version, "tls", cfg.TLSMode, "domain", cfg.Domain,
 		"start_count", startInfo.StartCount, "filter", cfg.FilterEnabled())
 
@@ -218,12 +283,34 @@ func maintenance(ctx context.Context, st *store.Store, api *httpapi.Server, cfg 
 		} else if n > 0 {
 			log.Info("expired message metadata purged", "count", n)
 		}
-		filteredCutoff := time.Now().Add(-time.Duration(cfg.FilterKeepDays) * 24 * time.Hour)
-		if _, err := st.PurgeFinishedPayloads(ctx, filteredCutoff); err != nil {
-			log.Error("payload purge failed", "err", err)
+		if n, err := st.ExpireBodies(ctx, time.Now()); err != nil {
+			log.Error("body purge failed", "err", err)
+		} else if n > 0 {
+			log.Info("expired message bodies purged", "count", n)
+		}
+		if err := st.ClearStaleFingerprints(ctx, time.Now(), cfg.DedupeWindow); err != nil {
+			log.Error("fingerprint purge failed", "err", err)
+		}
+		if err := st.ShredUnusedDEKs(ctx, time.Now()); err != nil {
+			log.Error("dek shred failed", "err", err)
+		}
+		if err := st.DeleteMigrationBackups(cfg.DataDir, time.Now()); err != nil {
+			log.Warn("migration backup cleanup failed", "err", err)
 		}
 		if err := st.Checkpoint(ctx); err != nil {
 			log.Warn("wal checkpoint failed", "err", err)
+		}
+		if err := st.CleanTombstones(ctx, time.Now()); err != nil {
+			log.Error("tombstone maintenance failed", "err", err)
+		}
+		if err := st.CleanDevices(ctx, time.Now()); err != nil {
+			log.Error("device maintenance failed", "err", err)
+		}
+		if err := st.CleanAudit(ctx, time.Now().Add(-180*24*time.Hour)); err != nil {
+			log.Error("audit retention failed", "err", err)
+		}
+		if err := st.CleanWeb(ctx, time.Now()); err != nil {
+			log.Error("web maintenance failed", "err", err)
 		}
 		api.SourceLimiter.Cleanup()
 		api.FailGuard.Cleanup()

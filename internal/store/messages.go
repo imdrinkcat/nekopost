@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"nekopost/internal/model"
+	"nekopost/internal/sealbox"
 )
 
 // NewDelivery describes one routing target for a new message.
 type NewDelivery struct {
+	Aux     bool
 	Channel string
 	Target  string
 	Silent  bool
@@ -40,13 +42,17 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 	var dupID string
 	var dupStatus string
 	var dupReceived int64
+	var idemStored any
+	if m.IdempotencyKey != "" {
+		idemStored = sealbox.IdemHash(s.box.Dedupe, m.IdempotencyKey)
+	}
 	switch {
 	case m.IdempotencyKey != "":
 		err = tx.QueryRowContext(ctx, "SELECT id, status, received_at FROM messages WHERE source_id = ? AND idem_key = ?",
-			m.SourceID, m.IdempotencyKey).Scan(&dupID, &dupStatus, &dupReceived)
-	case dedupeWindow > 0:
+			m.SourceID, idemStored).Scan(&dupID, &dupStatus, &dupReceived)
+	case dedupeWindow > 0 && m.ContentHash != "":
 		err = tx.QueryRowContext(ctx, `SELECT id, status, received_at FROM messages
-			WHERE source_id = ? AND content_hash = ? AND idem_key IS NULL AND received_at >= ?
+			WHERE source_id = ? AND content_hash = ? AND content_hash != '' AND idem_key IS NULL AND received_at >= ?
 			ORDER BY received_at DESC LIMIT 1`,
 			m.SourceID, m.ContentHash, m.ReceivedAt.Add(-dedupeWindow).UnixMilli()).Scan(&dupID, &dupStatus, &dupReceived)
 	default:
@@ -65,43 +71,66 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 		return InsertResult{}, err
 	}
 
+	if s.enablePush {
+		push, err := pushTargets(ctx, tx, m.OriginDevice, m.ReceivedAt, (m.NeedsClassification || len(targets) > 0 && targets[0].Held))
+		if err != nil {
+			return InsertResult{}, err
+		}
+		targets = append(targets, push...)
+	}
 	states := make([]model.DeliveryState, len(targets))
+	var primary []model.DeliveryState
 	for i, t := range targets {
 		states[i] = model.DeliveryPending
 		if t.Held {
 			states[i] = model.DeliveryHeld
 		}
+		if !t.Aux {
+			primary = append(primary, states[i])
+		}
 	}
-	m.Status = model.AggregateStatus(states)
-	var idem any
-	if m.IdempotencyKey != "" {
-		idem = m.IdempotencyKey
+	m.Status = model.AggregateStatus(primary)
+	if len(primary) == 0 && len(states) > 0 && states[0] == model.DeliveryHeld {
+		m.Status = model.StatusClassifying
 	}
 	var finished any
 	if m.Status.Terminal() {
 		finished = m.ReceivedAt.UnixMilli()
 	}
+	hasCode, late := s.classifyPlain(m.Title, m.Body, m.ReceivedAt, m.OccurredAt)
+	seq, err := nextSeq(ctx, tx)
+	if err != nil {
+		return InsertResult{}, err
+	}
+	bodyState := "none"
+	if len(targets) > 0 {
+		bodyState = "stored"
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO messages(id, source_id, idem_key, content_hash, kind, priority,
-		title_len, body_len, occurred_at, received_at, status, finished_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.SourceID, idem, m.ContentHash, m.Kind, string(m.Priority),
-		len([]rune(m.Title)), len([]rune(m.Body)), ms(m.OccurredAt), m.ReceivedAt.UnixMilli(), string(m.Status), finished); err != nil {
+		title_len, body_len, occurred_at, received_at, status, finished_at, seq, body_state, has_code, late, origin_device)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?,''))`,
+		m.ID, m.SourceID, idemStored, m.ContentHash, m.Kind, string(m.Priority),
+		len([]rune(m.Title)), len([]rune(m.Body)), ms(m.OccurredAt), m.ReceivedAt.UnixMilli(), string(m.Status), finished,
+		seq, bodyState, boolInt(hasCode), late, m.OriginDevice); err != nil {
 		return InsertResult{}, err
 	}
 	if len(targets) > 0 {
-		meta := ""
-		if len(m.Meta) > 0 {
-			b, _ := json.Marshal(m.Meta)
-			meta = string(b)
+		exp := s.expiresAt(m.ReceivedAt, hasCode, string(m.Category))
+		if s.bodyRetention == 0 {
+			keep := s.filteredKeep
+			if keep <= 0 {
+				keep = 7 * 24 * time.Hour
+			}
+			exp = m.ReceivedAt.Add(keep)
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO payloads(message_id, title, body, meta) VALUES(?, ?, ?, ?)",
-			m.ID, m.Title, m.Body, meta); err != nil {
+		if err := s.putBody(ctx, tx, m.ID, m.ReceivedAt, m.Title, m.Body, m.Meta, exp); err != nil {
 			return InsertResult{}, err
 		}
 	}
 	for i, t := range targets {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO deliveries(message_id, channel, target, silent, state, next_attempt_at, created_at)
-			VALUES(?, ?, ?, ?, ?, ?, ?)`, m.ID, t.Channel, t.Target, boolInt(t.Silent), string(states[i]),
-			m.ReceivedAt.UnixMilli(), m.ReceivedAt.UnixMilli()); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO deliveries(message_id, channel, target, silent, state, next_attempt_at, created_at, aux)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, m.ID, t.Channel, t.Target, boolInt(t.Silent), string(states[i]),
+			m.ReceivedAt.UnixMilli(), m.ReceivedAt.UnixMilli(), boolInt(t.Aux)); err != nil {
 			return InsertResult{}, err
 		}
 	}
@@ -120,13 +149,20 @@ type MessageInfo struct {
 // GetMessage returns message metadata and deliveries; the payload is never
 // returned because it may already be purged and is not needed for status.
 func (s *Store) GetMessage(ctx context.Context, id string) (MessageInfo, error) {
+	return getMessage(ctx, s.db, id)
+}
+
+func getMessage(ctx context.Context, db interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, id string) (MessageInfo, error) {
 	var info MessageInfo
 	m := &info.Message
 	var idem sql.NullString
 	var occurred, finished sql.NullInt64
 	var received int64
 	var prio, status, cat string
-	err := s.db.QueryRowContext(ctx, `SELECT id, source_id, idem_key, kind, priority, occurred_at, received_at,
+	err := db.QueryRowContext(ctx, `SELECT id, source_id, idem_key, kind, priority, occurred_at, received_at,
 		status, dup_count, finished_at, category FROM messages WHERE id = ?`, id).
 		Scan(&m.ID, &m.SourceID, &idem, &m.Kind, &prio, &occurred, &received, &status, &m.DupCount, &finished, &cat)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -142,7 +178,7 @@ func (s *Store) GetMessage(ctx context.Context, id string) (MessageInfo, error) 
 	m.OccurredAt = fromMs(occurred)
 	m.ReceivedAt = time.UnixMilli(received)
 	m.FinishedAt = fromMs(finished)
-	rows, err := s.db.QueryContext(ctx, "SELECT "+deliveryCols+" FROM deliveries WHERE message_id = ? ORDER BY id", id)
+	rows, err := db.QueryContext(ctx, "SELECT "+deliveryCols+" FROM deliveries WHERE message_id = ? ORDER BY id", id)
 	if err != nil {
 		return info, err
 	}
@@ -168,28 +204,34 @@ func (s *Store) MessageStatus(ctx context.Context, id string) (model.Status, err
 }
 
 const deliveryCols = `id, message_id, channel, target, silent, state, attempts, parts_total, parts_sent,
-	next_attempt_at, last_attempt_at, delivered_at, last_error, uncertain, created_at`
+	next_attempt_at, last_attempt_at, delivered_at, last_error, uncertain, created_at, aux, acked_at, tg_message_ids`
 
 func scanDelivery(row interface{ Scan(...any) error }) (model.Delivery, error) {
 	var d model.Delivery
-	var silent, uncertain int
-	var state string
+	var silent, uncertain, aux int
+	var state, tgIDs string
 	var next, created int64
-	var last, delivered sql.NullInt64
+	var last, delivered, acked sql.NullInt64
 	err := row.Scan(&d.ID, &d.MessageID, &d.Channel, &d.Target, &silent, &state, &d.Attempts, &d.PartsTotal,
-		&d.PartsSent, &next, &last, &delivered, &d.LastError, &uncertain, &created)
+		&d.PartsSent, &next, &last, &delivered, &d.LastError, &uncertain, &created, &aux, &acked, &tgIDs)
 	d.Silent = silent == 1
 	d.Uncertain = uncertain == 1
+	d.Aux = aux == 1
 	d.State = model.DeliveryState(state)
 	d.NextAttemptAt = time.UnixMilli(next)
 	d.LastAttemptAt = fromMs(last)
 	d.DeliveredAt = fromMs(delivered)
+	d.AckedAt = fromMs(acked)
 	d.CreatedAt = time.UnixMilli(created)
+	if tgIDs != "" {
+		_ = json.Unmarshal([]byte(tgIDs), &d.TGMessageIDs)
+	}
 	return d, err
 }
 
 // Job is everything a channel needs to perform one delivery attempt.
 type Job struct {
+	Seq      int64
 	Delivery model.Delivery
 	Message  model.Message
 	Source   model.Source // Name/Icon may be empty if the source was deleted
@@ -199,18 +241,19 @@ type Job struct {
 }
 
 // DueJobs returns deliveries whose next attempt is due.
-func (s *Store) DueJobs(ctx context.Context, now time.Time, limit int) ([]Job, error) {
+// An empty channel returns every channel.
+func (s *Store) DueJobs(ctx context.Context, now time.Time, channel string, limit int) ([]Job, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.message_id, d.channel, d.target, d.silent, d.state, d.attempts,
 		d.parts_total, d.parts_sent, d.next_attempt_at, d.last_attempt_at, d.delivered_at, d.last_error, d.uncertain, d.created_at,
-		m.source_id, m.kind, m.priority, m.occurred_at, m.received_at, m.category,
-		COALESCE(p.title, ''), COALESCE(p.body, ''), COALESCE(p.meta, ''), p.message_id IS NOT NULL,
+		d.aux, d.acked_at, d.tg_message_ids,
+		m.source_id, m.kind, m.priority, m.occurred_at, m.received_at, m.category, m.seq,
 		COALESCE(s.name, ''), COALESCE(s.icon, '')
 		FROM deliveries d
 		JOIN messages m ON m.id = d.message_id
-		LEFT JOIN payloads p ON p.message_id = d.message_id
 		LEFT JOIN sources s ON s.id = m.source_id
 		WHERE d.state IN ('pending', 'retrying') AND d.next_attempt_at <= ?
-		ORDER BY d.next_attempt_at, d.id LIMIT ?`, now.UnixMilli(), limit)
+		  AND (? = '' OR d.channel = ?)
+		ORDER BY d.next_attempt_at, d.id LIMIT ?`, now.UnixMilli(), channel, channel, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -219,43 +262,53 @@ func (s *Store) DueJobs(ctx context.Context, now time.Time, limit int) ([]Job, e
 	for rows.Next() {
 		var j Job
 		d := &j.Delivery
-		var silent, uncertain, hasPayload int
-		var state, prio, meta, cat string
+		var silent, uncertain, aux int
+		var state, prio, cat, tgIDs string
 		var next, created, received int64
-		var last, delivered, occurred sql.NullInt64
+		var last, delivered, occurred, acked sql.NullInt64
 		if err := rows.Scan(&d.ID, &d.MessageID, &d.Channel, &d.Target, &silent, &state, &d.Attempts,
 			&d.PartsTotal, &d.PartsSent, &next, &last, &delivered, &d.LastError, &uncertain, &created,
-			&j.Message.SourceID, &j.Message.Kind, &prio, &occurred, &received, &cat,
-			&j.Message.Title, &j.Message.Body, &meta, &hasPayload,
+			&aux, &acked, &tgIDs,
+			&j.Message.SourceID, &j.Message.Kind, &prio, &occurred, &received, &cat, &j.Seq,
 			&j.Source.Name, &j.Source.Icon); err != nil {
 			return nil, err
 		}
 		d.Silent = silent == 1
 		d.Uncertain = uncertain == 1
+		d.Aux = aux == 1
 		d.State = model.DeliveryState(state)
 		d.NextAttemptAt = time.UnixMilli(next)
 		d.LastAttemptAt = fromMs(last)
 		d.DeliveredAt = fromMs(delivered)
+		d.AckedAt = fromMs(acked)
 		d.CreatedAt = time.UnixMilli(created)
+		if tgIDs != "" {
+			_ = json.Unmarshal([]byte(tgIDs), &d.TGMessageIDs)
+		}
 		j.Message.ID = d.MessageID
 		j.Message.Priority = model.Priority(prio)
 		j.Message.Category = model.Category(cat)
 		j.Message.OccurredAt = fromMs(occurred)
 		j.Message.ReceivedAt = time.UnixMilli(received)
 		j.Source.ID = j.Message.SourceID
-		if meta != "" {
-			_ = json.Unmarshal([]byte(meta), &j.Message.Meta)
+		if !d.Aux {
+			title, body, meta, ok, err := s.readBody(ctx, d.MessageID)
+			if err != nil {
+				return nil, err
+			}
+			j.Message.Title, j.Message.Body, j.Message.Meta = title, body, meta
+			j.PayloadMissing = !ok
 		}
-		j.PayloadMissing = hasPayload == 0
 		out = append(out, j)
 	}
 	return out, rows.Err()
 }
 
 // NextDueAt returns when the earliest scheduled delivery becomes due.
-func (s *Store) NextDueAt(ctx context.Context) (time.Time, bool, error) {
+func (s *Store) NextDueAt(ctx context.Context, channel string) (time.Time, bool, error) {
 	var next sql.NullInt64
-	err := s.db.QueryRowContext(ctx, "SELECT MIN(next_attempt_at) FROM deliveries WHERE state IN ('pending', 'retrying')").Scan(&next)
+	err := s.db.QueryRowContext(ctx, `SELECT MIN(next_attempt_at) FROM deliveries
+		WHERE state IN ('pending', 'retrying') AND (? = '' OR channel = ?)`, channel, channel).Scan(&next)
 	if err != nil || !next.Valid {
 		return time.Time{}, false, err
 	}
@@ -270,20 +323,30 @@ func (s *Store) ClaimDelivery(ctx context.Context, id int64, msgID string, now t
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "UPDATE deliveries SET state = 'sending', attempts = attempts + 1, last_attempt_at = ? WHERE id = ?",
-		now.UnixMilli(), id); err != nil {
+	res, err := tx.ExecContext(ctx, `UPDATE deliveries SET state = 'sending', attempts = attempts + 1, last_attempt_at = ?
+		WHERE id = ? AND message_id = ? AND state IN ('pending', 'retrying') AND next_attempt_at <= ?`,
+		now.UnixMilli(), id, msgID, now.UnixMilli())
+	if err != nil {
 		return err
 	}
-	if _, err := updateAggregate(ctx, tx, msgID, now); err != nil {
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNotFound
+	}
+	if _, err := s.updateAggregate(ctx, tx, msgID, now); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-// SetPartsProgress records how many parts of a split message were sent, so a
-// retry resumes after the last confirmed part instead of resending everything.
-func (s *Store) SetPartsProgress(ctx context.Context, id int64, total, sent int) error {
-	_, err := s.db.ExecContext(ctx, "UPDATE deliveries SET parts_total = ?, parts_sent = ? WHERE id = ?", total, sent, id)
+// SetPartsProgress records the split-message cursor and Telegram message ID
+// together so a restart cannot preserve the cursor while losing the ID.
+func (s *Store) SetPartsProgress(ctx context.Context, id int64, msgID string, total, sent int, telegramID int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE deliveries SET parts_total = ?, parts_sent = ?,
+		tg_message_ids = CASE WHEN ? = 0 THEN tg_message_ids
+			ELSE json_insert(COALESCE(NULLIF(tg_message_ids, ''), '[]'), '$[#]', ?) END
+		WHERE id = ? AND message_id = ? AND state = 'sending'`, total, sent, telegramID, telegramID, id, msgID)
 	return err
 }
 
@@ -313,20 +376,42 @@ func (s *Store) FinishAttempt(ctx context.Context, id int64, msgID string, r Att
 	if next.IsZero() {
 		next = now
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE deliveries SET state = ?, next_attempt_at = ?, last_error = ?,
-		uncertain = MAX(uncertain, ?), parts_total = ?, parts_sent = ?, delivered_at = COALESCE(?, delivered_at) WHERE id = ?`,
-		string(r.State), next.UnixMilli(), r.LastError, boolInt(r.Uncertain), r.PartsTotal, r.PartsSent, delivered, id); err != nil {
+	res, err := tx.ExecContext(ctx, `UPDATE deliveries SET state = ?, next_attempt_at = ?, last_error = ?,
+		uncertain = MAX(uncertain, ?), parts_total = ?, parts_sent = ?, delivered_at = COALESCE(?, delivered_at)
+		WHERE id = ? AND message_id = ?`,
+		string(r.State), next.UnixMilli(), r.LastError, boolInt(r.Uncertain), r.PartsTotal, r.PartsSent, delivered, id, msgID)
+	if err != nil {
 		return "", err
 	}
-	st, err := updateAggregate(ctx, tx, msgID, now)
+	if n, err := res.RowsAffected(); err != nil {
+		return "", err
+	} else if n == 0 {
+		return "", ErrNotFound
+	}
+	var aux bool
+	if err := tx.QueryRowContext(ctx, "SELECT aux FROM deliveries WHERE id=? AND message_id=?", id, msgID).Scan(&aux); err != nil {
+		return "", err
+	}
+	if aux {
+		seq, err := nextSeq(ctx, tx)
+		if err != nil {
+			return "", err
+		}
+		var status string
+		if err := tx.QueryRowContext(ctx, "UPDATE messages SET seq=? WHERE id=? RETURNING status", seq, msgID).Scan(&status); err != nil {
+			return "", err
+		}
+		return model.Status(status), tx.Commit()
+	}
+	st, err := s.updateAggregate(ctx, tx, msgID, now)
 	if err != nil {
 		return "", err
 	}
 	return st, tx.Commit()
 }
 
-func updateAggregate(ctx context.Context, tx *sql.Tx, msgID string, now time.Time) (model.Status, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT state FROM deliveries WHERE message_id = ?", msgID)
+func (s *Store) updateAggregate(ctx context.Context, tx *sql.Tx, msgID string, now time.Time) (model.Status, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT state FROM deliveries WHERE message_id = ? AND aux = 0", msgID)
 	if err != nil {
 		return "", err
 	}
@@ -344,18 +429,36 @@ func updateAggregate(ctx context.Context, tx *sql.Tx, msgID string, now time.Tim
 		return "", err
 	}
 	status := model.AggregateStatus(states)
+	if len(states) == 0 {
+		var filtered bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM deliveries
+			WHERE message_id=? AND state='filtered')`, msgID).Scan(&filtered); err != nil {
+			return "", err
+		}
+		if filtered {
+			status = model.StatusFiltered
+		}
+	}
 	var finished any
 	if status.Terminal() {
 		finished = now.UnixMilli()
-		// Filtered messages keep their payload for a few days so they can be
-		// rescued; PurgeFinishedPayloads removes it afterwards.
-		if status != model.StatusFiltered {
-			if _, err := tx.ExecContext(ctx, "DELETE FROM payloads WHERE message_id = ?", msgID); err != nil {
+		// V1 mode deletes the body as soon as delivery finishes. Filtered
+		// messages stay until ExpireBodies, so they can still be rescued.
+		// With a retention period the body stays until it expires.
+		if s.bodyRetention == 0 && status != model.StatusFiltered {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM bodies WHERE message_id = ?", msgID); err != nil {
+				return "", err
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE messages SET body_state = 'expired', content_hash = '', idem_key = NULL WHERE id = ?", msgID); err != nil {
 				return "", err
 			}
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE messages SET status = ?, finished_at = ? WHERE id = ?", string(status), finished, msgID); err != nil {
+	seq, err := nextSeq(ctx, tx)
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE messages SET status = ?, finished_at = ?, seq = ? WHERE id = ?", string(status), finished, seq, msgID); err != nil {
 		return "", err
 	}
 	return status, nil
@@ -390,7 +493,7 @@ func (s *Store) RecoverInFlight(ctx context.Context, now time.Time) (int, error)
 		return 0, err
 	}
 	for _, id := range ids {
-		if _, err := updateAggregate(ctx, tx, id, now); err != nil {
+		if _, err := s.updateAggregate(ctx, tx, id, now); err != nil {
 			return 0, err
 		}
 	}
@@ -398,25 +501,163 @@ func (s *Store) RecoverInFlight(ctx context.Context, now time.Time) (int, error)
 	return int(n), tx.Commit()
 }
 
-// PurgeExpired deletes message metadata received before cutoff (deliveries and
-// payloads cascade). Unfinished messages are kept.
+// PurgeExpired deletes message metadata received before cutoff.
+// Deliveries and bodies cascade. Each deleted id is recorded as a tombstone.
+// Unfinished messages are kept.
 func (s *Store) PurgeExpired(ctx context.Context, cutoff time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, "DELETE FROM messages WHERE received_at < ? AND finished_at IS NOT NULL", cutoff.UnixMilli())
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	return res.RowsAffected()
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM messages WHERE received_at < ? AND finished_at IS NOT NULL", cutoff.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	now := s.now()
+	for _, id := range ids {
+		seq, err := nextSeq(ctx, tx)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT INTO tombstones(seq, message_id, at) VALUES(?, ?, ?)", seq, id, now.UnixMilli()); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE id = ?", id); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int64(len(ids)), nil
 }
 
-// PurgeFinishedPayloads removes any payload whose message is finished, except
-// filtered messages that finished after filteredCutoff (still rescuable). For
-// delivered messages the worker already does this on completion; this is a
-// safety net.
-func (s *Store) PurgeFinishedPayloads(ctx context.Context, filteredCutoff time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM payloads WHERE message_id IN (SELECT id FROM messages
-		WHERE finished_at IS NOT NULL AND (status != 'filtered' OR finished_at < ?))`, filteredCutoff.UnixMilli())
+// ExpireBodies removes ciphertext that has reached its retention and whose
+// message is already finished. In-flight messages are kept.
+func (s *Store) ExpireBodies(ctx context.Context, now time.Time) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	return res.RowsAffected()
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT b.message_id FROM bodies b
+		JOIN messages m ON m.id = b.message_id
+		WHERE b.expires_at < ? AND m.finished_at IS NOT NULL`, now.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, id := range ids {
+		seq, err := nextSeq(ctx, tx)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM bodies WHERE message_id = ?", id); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET body_state = 'expired', content_hash = '', idem_key = NULL, seq = ?
+			WHERE id = ?`, seq, id); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int64(len(ids)), nil
+}
+
+// ClearStaleFingerprints blanks content hashes older than the dedupe horizon
+// so a database backup cannot be used to brute-force short codes.
+func (s *Store) ClearStaleFingerprints(ctx context.Context, now time.Time, window time.Duration) error {
+	if window < time.Hour {
+		window = time.Hour
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET content_hash = ''
+		WHERE content_hash != '' AND received_at < ?`, now.Add(-window).UnixMilli())
+	return err
+}
+
+// ShredUnusedDEKs destroys daily keys that nothing references anymore and
+// that are older than the body retention.
+func (s *Store) ShredUnusedDEKs(ctx context.Context, now time.Time) error {
+	horizon := now.Add(-s.bodyRetention - 24*time.Hour)
+	if s.bodyRetention == 0 {
+		horizon = now.Add(-s.filteredKeep - 24*time.Hour)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	day := horizon.UTC().Format("2006-01-02")
+	const unused = "day < ? AND day NOT IN (SELECT key_day FROM bodies)"
+	if _, err := tx.ExecContext(ctx, "UPDATE data_keys SET wrapped = zeroblob(length(wrapped)) WHERE "+unused, day); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM data_keys WHERE "+unused, day); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteMessage removes the message and writes a tombstone. It returns the
+// delivery records from the same transaction for remote cleanup.
+func (s *Store) DeleteMessage(ctx context.Context, id string, now time.Time) (MessageInfo, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return MessageInfo{}, err
+	}
+	defer tx.Rollback()
+	info, err := getMessage(ctx, tx, id)
+	if err != nil {
+		return MessageInfo{}, err
+	}
+	for _, d := range info.Deliveries {
+		if d.State == model.DeliverySending {
+			return MessageInfo{}, ErrDeliveryInFlight
+		}
+	}
+	seq, err := nextSeq(ctx, tx)
+	if err != nil {
+		return MessageInfo{}, err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO tombstones(seq, message_id, at) VALUES(?, ?, ?)", seq, id, now.UnixMilli()); err != nil {
+		return MessageInfo{}, err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE id = ?", id); err != nil {
+		return MessageInfo{}, err
+	}
+	return info, tx.Commit()
+}
+
+func nextSeq(ctx context.Context, tx *sql.Tx) (int64, error) {
+	var v int64
+	err := tx.QueryRowContext(ctx, `UPDATE kv SET v = CAST(CAST(v AS INTEGER) + 1 AS TEXT) WHERE k = 'seq' RETURNING CAST(v AS INTEGER)`).Scan(&v)
+	return v, err
 }

@@ -185,21 +185,23 @@ func ValidKind(k string) bool { return kindRe.MatchString(k) }
 // Title, Body and Meta are the payload; they are kept only until the message
 // reaches a terminal state and are then purged.
 type Message struct {
-	ID             string
-	SourceID       string
-	IdempotencyKey string
-	ContentHash    string
-	Kind           string
-	Priority       Priority
-	Title          string
-	Body           string
-	Meta           map[string]string
-	Category       Category  // set by the content filter ("" = not classified)
-	OccurredAt     time.Time // reported by the client; untrusted, informational only
-	ReceivedAt     time.Time // set by the server
-	Status         Status
-	DupCount       int
-	FinishedAt     time.Time
+	NeedsClassification bool
+	OriginDevice        string
+	ID                  string
+	SourceID            string
+	IdempotencyKey      string
+	ContentHash         string
+	Kind                string
+	Priority            Priority
+	Title               string
+	Body                string
+	Meta                map[string]string
+	Category            Category  // set by the content filter ("" = not classified)
+	OccurredAt          time.Time // reported by the client; untrusted, informational only
+	ReceivedAt          time.Time // set by the server
+	Status              Status
+	DupCount            int
+	FinishedAt          time.Time
 }
 
 // Category is the content filter's verdict for a message.
@@ -269,6 +271,9 @@ type Delivery struct {
 	LastError     string
 	Uncertain     bool // some attempt ended without a definite answer
 	CreatedAt     time.Time
+	Aux           bool
+	AckedAt       time.Time
+	TGMessageIDs  []int64
 }
 
 const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
