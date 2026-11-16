@@ -426,6 +426,7 @@ a.row:active { background: var(--surface-highest); }
 }
 .row-static:not(:has(> .avatar)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title end" "sub sub"; }
 .row-sub.mono { font-size: .8125rem; }
+.list > li.row { border-radius: 0; }
 .key-row { grid-template-areas: "av title end" "av title end"; }
 
 .avatar {
@@ -656,7 +657,7 @@ pre {
     box-sizing: border-box;
   }
   .nav a:hover { background: transparent; }
-  .nav a:hover .i { background: var(--surface-high); border-radius: 999px; }
+  .nav a:not([aria-current]):hover .i { background: var(--surface-high); border-radius: 999px; }
   .nav a .i { box-sizing: border-box; width: 56px; height: 32px; padding: 4px 16px; }
   .nav-group:not(:first-child) { display: block; height: 1px; margin: 6px 16px; background: var(--outline-variant); font-size: 0; overflow: hidden; }
   .content { padding: 32px 32px 64px; }
@@ -677,7 +678,7 @@ pre {
     min-height: 52px; padding: 0 16px;
     border-radius: 999px; font-size: .9375rem; text-align: start;
   }
-  .nav a .i, .nav a[aria-current] .i, .nav a:hover .i { width: 22px; height: 22px; padding: 0; background: none; border-radius: 0; }
+  .nav a .i, .nav a[aria-current] .i, .nav a:not([aria-current]):hover .i { width: 22px; height: 22px; padding: 0; background: none; border-radius: 0; }
   .nav a:hover { background: var(--surface-container); }
   .nav a[aria-current] { background: var(--secondary-container); color: var(--on-secondary-container); }
   .content { padding: 40px 48px 72px; }

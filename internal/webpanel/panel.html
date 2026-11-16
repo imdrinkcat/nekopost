@@ -162,7 +162,7 @@
 </section>
 <section class="card">
 <h2 class="card-title">投递</h2>
-<ul class="list">{{range .Message.Deliveries}}<li class="row row-static delivery"><span class="avatar avatar-icon" aria-hidden="true">{{template "icon" "i-send"}}</span><span class="row-title"><strong>{{channelLabel .Channel}}</strong><span class="mono muted">{{.PartsSent}} / {{.PartsTotal}} 段</span></span><span class="row-sub">{{template "chip" (deliveryBadge .State)}}{{if not .AckedAt.IsZero}}<span class="chip tone-ok">{{template "icon" "i-paw-check"}}✓✓ 已取回</span>{{end}}</span>{{if .LastError}}<p class="row-error" dir="auto">{{visible .LastError}}</p>{{end}}</li>{{else}}<li class="empty empty-plain"><p class="empty-text">暂无投递记录</p></li>{{end}}</ul>
+<ul class="list">{{range .Message.Deliveries}}<li class="row row-static delivery"><span class="avatar avatar-icon" aria-hidden="true">{{template "icon" "i-send"}}</span><span class="row-title"><strong>{{channelLabel .Channel}}</strong>{{if .PartsTotal}}<span class="mono muted">{{.PartsSent}} / {{.PartsTotal}} 段</span>{{end}}</span><span class="row-sub">{{template "chip" (deliveryBadge .State)}}{{if not .AckedAt.IsZero}}<span class="chip tone-ok">{{template "icon" "i-paw-check"}}✓✓ 已取回</span>{{end}}</span>{{if .LastError}}<p class="row-error" dir="auto">{{visible .LastError}}</p>{{end}}</li>{{else}}<li class="empty empty-plain"><p class="empty-text">暂无投递记录</p></li>{{end}}</ul>
 </section>
 {{else if eq .Tab "filtered"}}
 <header class="page-head"><h1>已过滤</h1><p class="lede">内容过滤判定为不需要推送的消息。保留期内可以打开详情找回并转发。</p></header>
