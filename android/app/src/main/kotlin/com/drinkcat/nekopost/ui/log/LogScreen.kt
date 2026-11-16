@@ -422,7 +422,7 @@ private fun LogDetailPane(item: ForwardLogItem, onBack: (() -> Unit)?, onCopy: (
  * queue's own markers; the raw code stays in brackets for troubleshooting.
  */
 @Composable
-internal fun errorText(code: String): String {
+internal fun errorText(code: String, withCode: Boolean = true): String {
     @StringRes val res = when {
         code == "UnknownHostException" -> R.string.err_unknown_host
         code == "SocketTimeoutException" || code == "InterruptedIOException" -> R.string.err_timeout
@@ -439,7 +439,7 @@ internal fun errorText(code: String): String {
         code.endsWith("Exception") -> R.string.err_network
         else -> return code
     }
-    return stringResource(R.string.err_with_code, stringResource(res), code)
+    return if (withCode) stringResource(R.string.err_with_code, stringResource(res), code) else stringResource(res)
 }
 
 /** Queued → attempts → outcome, as a small vertical timeline. */
@@ -457,8 +457,9 @@ private fun Timeline(item: ForwardLogItem) {
             add(
                 TimelineStep(
                     attempts,
-                    item.lastHttpStatus?.let { "HTTP $it" } ?: item.lastError?.let { errorText(it) }.orEmpty(),
+                    "",
                     if (item.status == ForwardStatus.Retrying) StatusTone.Warning else StatusTone.Pending,
+                    note = item.lastHttpStatus?.let { "HTTP $it" } ?: item.lastError?.let { errorText(it, withCode = false) }.orEmpty(),
                 ),
             )
         }
@@ -479,7 +480,12 @@ private fun Timeline(item: ForwardLogItem) {
                     }
                 }
                 Spacer(Modifier.width(NekoTokens.Spacing.m))
-                Text(s.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    Text(s.label, style = MaterialTheme.typography.bodyMedium)
+                    if (s.note.isNotEmpty()) {
+                        Text(s.note, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 if (s.detail.isNotEmpty()) {
                     Text(s.detail, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -488,7 +494,8 @@ private fun Timeline(item: ForwardLogItem) {
     }
 }
 
-private data class TimelineStep(val label: String, val detail: String, val tone: StatusTone)
+/** [detail] sits at the end of the row (a time); [note] goes under the label. */
+private data class TimelineStep(val label: String, val detail: String, val tone: StatusTone, val note: String = "")
 
 private fun ForwardStatus.outcomeLabel(): Int = when (this) {
     ForwardStatus.Accepted -> R.string.timeline_accepted
