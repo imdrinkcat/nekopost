@@ -107,6 +107,8 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.compose.material3.adaptive.navigation.suite)
+    implementation(libs.material3.adaptive.layout)
+    implementation(libs.androidx.window)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.play.services.code.scanner)
 

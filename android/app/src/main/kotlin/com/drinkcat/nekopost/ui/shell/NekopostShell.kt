@@ -20,30 +20,25 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drinkcat.nekopost.R
 import com.drinkcat.nekopost.core.forwarder.ForwardLogItem
-import com.drinkcat.nekopost.core.forwarder.ForwarderController
 import com.drinkcat.nekopost.core.forwarder.ForwarderState
 import com.drinkcat.nekopost.core.forwarder.OtpHealth
+import com.drinkcat.nekopost.core.forwarder.SendTestResult
+import com.drinkcat.nekopost.core.rules.SmsSenderRule
 import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.core.ui.fold.Posture
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
+import com.drinkcat.nekopost.system.FoldDebugInfo
+import com.drinkcat.nekopost.system.InstalledApp
 import com.drinkcat.nekopost.ui.forward.ForwardScreen
 import com.drinkcat.nekopost.ui.log.LogScreen
 import com.drinkcat.nekopost.ui.settings.SettingsScreen
-import kotlinx.coroutines.launch
 
 /** Top-level destinations. */
 enum class Destination(@param:StringRes val label: Int, val icon: ImageVector) {
@@ -83,6 +78,13 @@ fun navigationTypeFor(fold: FoldState, windowWidth: Dp): NavigationSuiteType = w
     else -> NavigationSuiteType.ShortNavigationBarCompact
 }
 
+/** Progress of the "发送测试消息" button. */
+sealed interface TestSendState {
+    data object Idle : TestSendState
+    data object Sending : TestSendState
+    data class Done(val result: SendTestResult) : TestSendState
+}
+
 /** Everything the shell renders; screenshot tests build it from FakeForwarderData. */
 @Immutable
 data class ShellUiState(
@@ -90,6 +92,15 @@ data class ShellUiState(
     val log: List<ForwardLogItem>,
     val otp: OtpHealth,
     val appVersion: String,
+    val testSend: TestSendState = TestSendState.Idle,
+    /** Required setup steps still open (shown as a banner on 转发). */
+    val setupPending: Int = 0,
+    /** Launcher apps for the notification picker; null while loading. */
+    val apps: List<InstalledApp>? = null,
+    val smsRules: List<SmsSenderRule> = emptyList(),
+    /** The foldable debug panel may be unlocked (debug build or developer options on). */
+    val debugPanelAvailable: Boolean = false,
+    val foldDebug: FoldDebugInfo? = null,
 )
 
 /** UI events. Defaults are no-ops so previews and tests can omit them. */
@@ -97,37 +108,15 @@ data class ShellUiState(
 data class ShellActions(
     val onSmsEnabledChange: (Boolean) -> Unit = {},
     val onNotificationsEnabledChange: (Boolean) -> Unit = {},
-    val onScanEnrollment: () -> Unit = {},
+    val onNotificationAppsChange: (Set<String>) -> Unit = {},
+    val onSmsRulesChange: (List<SmsSenderRule>) -> Unit = {},
+    val onOpenSetup: () -> Unit = {},
     val onSendTest: () -> Unit = {},
     val onRetryNow: () -> Unit = {},
+    val onClearFailed: () -> Unit = {},
     val onUnenroll: () -> Unit = {},
+    val onCopy: (String) -> Unit = {},
 )
-
-/** Stateful entry point: collects the controller and keeps the selected destination. */
-@Composable
-fun NekopostRoot(controller: ForwarderController, fold: FoldState, appVersion: String) {
-    val forwarderState by controller.state.collectAsStateWithLifecycle()
-    val logFlow = remember(controller) { controller.observeLog() }
-    val otpFlow = remember(controller) { controller.otpHealth() }
-    val log by logFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val otp by otpFlow.collectAsStateWithLifecycle(initialValue = OtpHealth.Empty)
-    var destination by rememberSaveable { mutableStateOf(Destination.Forward) }
-    val scope = rememberCoroutineScope()
-    val actions = ShellActions(
-        onSmsEnabledChange = controller::setSmsEnabled,
-        onNotificationsEnabledChange = controller::setNotificationsEnabled,
-        onSendTest = { scope.launch { controller.sendTest() } },
-        onRetryNow = controller::retryNow,
-        onUnenroll = controller::unenroll,
-    )
-    NekopostShell(
-        state = ShellUiState(forwarderState, log, otp, appVersion),
-        fold = fold,
-        destination = destination,
-        onDestinationChange = { destination = it },
-        actions = actions,
-    )
-}
 
 /** Stateless adaptive shell: navigation suite + the selected screen. */
 @Composable
@@ -138,6 +127,7 @@ fun NekopostShell(
     onDestinationChange: (Destination) -> Unit,
     actions: ShellActions,
     modifier: Modifier = Modifier,
+    memory: ShellMemory = rememberShellMemory(),
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val navType = navigationTypeFor(fold, maxWidth)
@@ -163,9 +153,9 @@ fun NekopostShell(
             ) {
                 val mode = paneModeFor(fold, maxWidth)
                 when (destination) {
-                    Destination.Forward -> ForwardScreen(state, fold, mode, actions)
-                    Destination.Log -> LogScreen(state, fold, mode)
-                    Destination.Settings -> SettingsScreen(state, fold, mode, actions)
+                    Destination.Forward -> ForwardScreen(state, fold, mode, actions, memory, onShowLog = { onDestinationChange(Destination.Log) })
+                    Destination.Log -> LogScreen(state, fold, mode, memory, onCopy = actions.onCopy)
+                    Destination.Settings -> SettingsScreen(state, fold, mode, actions, memory)
                 }
             }
         }

@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Common actions -->
+    <string name="action_back">返回</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_clear">清除</string>
+
+    <!-- Relative time -->
+    <string name="time_just_now">刚刚</string>
+    <string name="time_minutes_ago">%1$d 分钟前</string>
+    <string name="time_hours_ago">%1$d 小时前</string>
+    <string name="time_today">今天</string>
+    <string name="time_yesterday">昨天</string>
+    <string name="event_with_kind">%1$s · %2$s</string>
+
+    <!-- Health ring parts and their states -->
+    <string name="part_server">服务器</string>
+    <string name="part_sms">短信</string>
+    <string name="part_notifications">通知</string>
+    <string name="part_queue">队列</string>
+    <string name="part_otp">验证码</string>
+    <string name="part_battery">电池</string>
+    <string name="state_not_enrolled">未配对</string>
+    <string name="state_source_disabled">来源已停用</string>
+    <string name="state_credential_rejected">凭证被拒绝</string>
+    <string name="state_connected">已连接</string>
+    <string name="state_off">已关闭</string>
+    <string name="state_missing_permission">已开启 · 缺少短信权限</string>
+    <string name="state_realtime">已开启 · 实时接收</string>
+    <string name="state_no_apps">已开启 · 还没有选择应用</string>
+    <string name="state_listener_missing">已开启 · 未授予通知使用权</string>
+    <string name="state_apps_count">已开启 · %1$d 个应用</string>
+    <string name="state_queue_empty">全部送达</string>
+    <string name="state_queue_pending">%1$d 条待发送</string>
+    <string name="state_queue_failed">%1$d 条待发送 · %2$d 条失败</string>
+    <string name="state_battery_ok">不受电池优化限制</string>
+    <string name="state_battery_restricted">受电池优化限制</string>
+
+    <!-- 转发 -->
+    <string name="status_title">转发状态</string>
+    <string name="queue_clear_failed">清除失败项</string>
+    <string name="test_title">发送测试消息</string>
+    <string name="test_body">发一条测试通知到服务器，确认整条邮路畅通。</string>
+    <string name="test_sending">正在发送…</string>
+    <string name="test_result_accepted">服务器已接收 · %1$s</string>
+    <string name="test_result_duplicate">服务器已有这条测试消息（已去重）</string>
+    <string name="test_result_queued">暂时发不出去（%1$s），已在本机排队，会自动重试</string>
+    <string name="test_result_rejected">服务器拒收：%1$s</string>
+    <string name="test_result_not_enrolled">还没有配对服务器</string>
+    <string name="backlog_title">补漏扫描发现 %1$d 条积压消息</string>
+    <string name="backlog_body">这些短信是在应用没有运行或被系统延迟时收到的。确认后会全部补交到服务器，并照常推送。</string>
+    <string name="backlog_submit_all">全部补交 %1$d 条</string>
+    <string name="backlog_show_log">查看记录</string>
+    <string name="backlog_later">稍后</string>
+    <string name="setup_banner">还有 %1$d 项设置未完成</string>
+    <string name="setup_banner_action">继续设置</string>
+    <string name="otp_realtime">实时到达</string>
+    <string name="otp_reconciled">补漏发现</string>
+    <string name="otp_median_delay">中位延迟</string>
+    <string name="otp_max_delay_label">最长延迟</string>
+    <string name="otp_delayed_advice">补漏扫描每小时运行一次，被扣留的验证码最终也会送达，但可能已经过期。可以在设置向导的「验证码自测」中重新检查。</string>
+    <string name="monitor_conveyor_title">实时传送带</string>
+    <string name="monitor_conveyor_empty">还没有转发记录。新消息会从下面的投信口进来。</string>
+
+    <!-- 记录 -->
+    <string name="filter_all">全部</string>
+    <string name="filter_delivered">已送达</string>
+    <string name="filter_pending">排队中</string>
+    <string name="filter_failed">失败</string>
+    <string name="filter_skipped">已跳过</string>
+    <string name="filter_all_kinds">全部类型</string>
+    <string name="log_filter_empty">没有符合筛选条件的记录。</string>
+    <string name="log_attempt_n">第 %1$d 次尝试</string>
+    <string name="log_duplicate_short">已去重</string>
+    <string name="log_detail_title">记录详情</string>
+    <string name="log_timeline">投递过程</string>
+    <string name="log_metadata">元数据</string>
+    <string name="log_updated">最后更新</string>
+    <string name="log_copy_id">复制消息 ID</string>
+    <string name="log_privacy_note">猫邮局不在手机上保存消息正文。完整内容请在服务器或 Telegram 中查看。</string>
+    <string name="timeline_queued">写入本机队列</string>
+    <string name="timeline_attempts">已尝试 %1$d 次</string>
+    <string name="timeline_waiting">等待下一次发送</string>
+    <string name="timeline_accepted">服务器已接收</string>
+    <string name="timeline_duplicate">服务器已有，已去重</string>
+    <string name="timeline_failed">被拒收，不再重试</string>
+    <string name="timeline_skipped">按本机规则跳过，未上传</string>
+
+    <!-- 设置 -->
+    <string name="settings_apps_off">通知转发已关闭</string>
+    <string name="settings_sms_rules">短信发件人规则</string>
+    <string name="settings_sms_rules_none">没有规则：转发全部短信</string>
+    <string name="settings_sms_rules_count">%1$d 条规则</string>
+    <string name="settings_setup">设置向导</string>
+    <string name="settings_setup_done">所有检查都已通过</string>
+    <string name="settings_setup_body">重新检查权限、电池和封面屏设置，或者再做一次验证码自测。</string>
+    <string name="settings_setup_open">打开设置向导</string>
+    <string name="settings_security_body">生物识别应用锁会在后续版本加入。转发记录只包含发件人和状态，不含消息内容。</string>
+    <string name="settings_server_note">来源凭证加密保存在本机，界面上不会显示。</string>
+    <string name="settings_unenroll_summary">删除本机凭证、队列和记录</string>
+    <string name="apps_master">转发通知</string>
+    <string name="apps_master_detail">已选择 %1$d 个应用。默认一个都不转发。</string>
+    <string name="apps_search">搜索应用名称或包名</string>
+    <string name="apps_section_selected">已选择（%1$d）</string>
+    <string name="apps_section_others">其他应用</string>
+    <string name="apps_section_blocked">不能选择</string>
+    <string name="apps_blocked_reason">Telegram 系应用和猫邮局自己的通知会被再次转发，形成回环。</string>
+    <string name="apps_none_found">没有找到匹配的应用。</string>
+    <string name="rules_intro">默认转发所有短信。规则从上到下匹配，第一条命中的规则生效；* 匹配任意字符，空格和短横线会被忽略。</string>
+    <string name="rules_list_title">规则</string>
+    <string name="rules_empty">还没有规则，所有短信都会转发。</string>
+    <string name="rules_delete">删除规则 %1$s</string>
+    <string name="rules_action_forward">转发</string>
+    <string name="rules_action_skip">不转发</string>
+    <string name="rules_add_title">添加规则</string>
+    <string name="rules_pattern_label">发件人</string>
+    <string name="rules_add">添加</string>
+    <string name="rules_error_empty">请输入发件人号码或名称</string>
+    <string name="rules_error_too_long">太长了（最多 64 个字符）</string>
+    <string name="rules_error_invalid">包含不能使用的字符</string>
+    <string name="rules_error_duplicate">已经有这条规则</string>
+    <string name="rules_error_too_many">规则太多了（最多 100 条）</string>
+    <string name="rules_try_title">试一试</string>
+    <string name="rules_try_label">输入一个发件人</string>
+    <string name="rules_try_hit">命中第 %1$d 条规则（%2$s）</string>
+    <string name="rules_try_default">没有命中规则，按默认转发</string>
+    <string name="unenroll_open">解除配对…</string>
+    <string name="unenroll_sheet_title">解除与「%1$s」的配对？</string>
+    <string name="unenroll_consequence_token">删除本机保存的来源凭证，这台手机立即停止转发。</string>
+    <string name="unenroll_consequence_queue">队列中还有 %1$d 条消息没有送出，会和转发记录一起被删除。</string>
+    <string name="unenroll_consequence_log">转发记录会被删除。</string>
+    <string name="unenroll_consequence_server">服务器上的来源和已送达的消息不受影响。如需彻底停用，请在服务器上吊销这个来源的凭证。</string>
+    <string name="unenroll_consequence_irreversible">无法撤销。再次使用需要重新扫码配对。</string>
+    <string name="unenroll_hold">按住 1.5 秒解除配对</string>
+    <string name="about_cat_label">摸摸猫</string>
+    <string name="about_taps_remaining">再点 %1$d 次</string>
+    <string name="about_debug_unavailable">折叠屏调试面板只在调试版本或开启开发者选项后可用。</string>
+    <string name="about_body">猫邮局是一个自托管的消息网关。这台手机把收到的短信和选定应用的通知转发到你自己的服务器，再由服务器投递到 Telegram 等渠道。</string>
+    <string name="about_privacy">应用不含任何统计、广告或崩溃上报 SDK，只和你配对的服务器通信。</string>
+    <string name="debug_title">折叠屏调试</string>
+    <string name="debug_window_px">窗口（px）</string>
+    <string name="debug_window_dp">窗口（dp）</string>
+    <string name="debug_density">密度</string>
+    <string name="debug_font_scale">字体缩放</string>
+    <string name="debug_width_class">宽度级别</string>
+    <string name="debug_height_class">高度级别</string>
+    <string name="debug_posture">推导姿态</string>
+    <string name="debug_hinge_angle">铰链角度</string>
+    <string name="debug_folding_feature">FoldingFeature</string>
+    <string name="debug_no_feature">当前窗口没有 FoldingFeature</string>
+    <string name="debug_copy_spec">复制 spec</string>
+
+    <!-- Setup wizard -->
+    <string name="setup_wizard_name">设置向导</string>
+    <string name="setup_progress">第 %1$d 步，共 %2$d 步</string>
+    <string name="setup_close">关闭设置向导</string>
+    <string name="setup_back">上一步</string>
+    <string name="setup_next">下一步</string>
+    <string name="setup_begin">开始</string>
+    <string name="setup_skip">稍后再说</string>
+    <string name="setup_start_using">开始使用</string>
+    <string name="setup_go_fix">去处理</string>
+    <string name="setup_i_did_it">我已完成</string>
+    <string name="setup_open_app_info">打开应用信息</string>
+    <string name="setup_guide_oneui">在 One UI 上</string>
+    <string name="step_done">已完成</string>
+    <string name="step_needs_action">需要处理</string>
+    <string name="step_optional">可选</string>
+    <string name="step_not_applicable">不适用</string>
+
+    <string name="setup_welcome_title">欢迎来到猫邮局</string>
+    <string name="setup_welcome_summary">这台手机将成为你的消息来源：收到的短信和选定应用的通知会立即转发到你自己的服务器。接下来逐项检查权限，每一步都会实时显示是否完成。</string>
+    <string name="setup_welcome_privacy">消息只发往你配对的服务器。本机的转发记录只保存发件人和状态，不保存内容。</string>
+    <string name="setup_install_title">安装须知</string>
+    <string-array name="setup_install_notes">
+        <item>如果安装被拦截：在「设置 › 安全与隐私 › 自动拦截程序」中暂时关闭，装好后可以再打开。它也可能隐藏「允许受限设置」选项。</item>
+        <item>系统提示「未验证的开发者」时，确认安装包来自你自己的 GitHub Release 后再继续。</item>
+        <item>用电脑执行 adb install 安装，可以跳过「允许受限设置」这一步。</item>
+    </string-array>
+
+    <string name="setup_enroll_title">连接你的服务器</string>
+    <string name="setup_enroll_summary">在服务器上运行 nekopost source add --qr，然后扫描终端里显示的二维码。</string>
+    <string name="setup_identity_forward">仅转发</string>
+    <string name="setup_identity_forward_detail">把这台手机登记为消息来源，转发短信和通知。</string>
+    <string name="setup_identity_device">完整设备</string>
+    <string name="setup_identity_device_detail">在手机上收消息、审批登录。后续版本提供。</string>
+    <string name="setup_enroll_scan">扫描二维码</string>
+    <string name="setup_enroll_scan_hint">扫码由 Google Play 服务完成，猫邮局不需要相机权限。</string>
+    <string name="setup_enroll_paste_label">或粘贴配对链接</string>
+    <string name="setup_enroll_paste_clipboard">从剪贴板粘贴</string>
+    <string name="setup_enroll_check">检查链接</string>
+    <string name="setup_enroll_scanner_unavailable">无法启动扫码（需要 Google Play 服务）。请在电脑上复制配对链接，再粘贴到上面。</string>
+    <string name="setup_enroll_confirm_title">确认配对</string>
+    <string name="setup_enroll_confirm_warning">只扫描你自己服务器上显示的二维码。配对后，这台手机的短信会发往上面的服务器。</string>
+    <string name="setup_enroll_confirm">确认配对</string>
+    <string name="setup_enroll_retry">重试</string>
+    <string name="setup_enroll_verifying">正在验证凭证…</string>
+    <string name="setup_enroll_done">已配对「%1$s」</string>
+    <string name="enrollment_token">凭证</string>
+    <string name="enroll_error_not_link">这不是猫邮局的配对二维码。</string>
+    <string name="enroll_error_version">配对链接的版本比这个应用新，请先更新应用。</string>
+    <string name="enroll_error_kind">这是设备配对码，不是消息来源的二维码。仅转发模式请扫描 nekopost source add --qr 的二维码。</string>
+    <string name="enroll_error_malformed">配对链接不完整或被改动过，请重新复制或扫码。</string>
+    <string name="enroll_error_url">配对链接里的服务器地址无效。</string>
+    <string name="enroll_error_insecure">服务器地址必须使用 https。</string>
+    <string name="enroll_error_source_id">配对链接里的来源 ID 无效。</string>
+    <string name="enroll_error_token">配对链接里的凭证格式不对。</string>
+    <string name="enroll_error_name">配对链接里的来源名称无效。</string>
+    <string name="enroll_failure_network">连不上服务器。请检查网络和服务器地址后重试。</string>
+    <string name="enroll_failure_pinning">服务器证书校验失败，连接已中止。</string>
+    <string name="enroll_failure_unauthorized">服务器拒绝了这个凭证，二维码可能已过期或已被轮换。请在服务器上重新生成。</string>
+    <string name="enroll_failure_disabled">这个来源已在服务器上停用。</string>
+    <string name="enroll_failure_server">服务器返回了意外的结果。</string>
+    <string name="enroll_failure_already">这台手机已经配对过了。</string>
+    <string name="enroll_failure_with_status">%1$s（HTTP %2$d）</string>
+
+    <string name="setup_restricted_title">允许受限设置</string>
+    <string name="setup_restricted_summary">Android 13 起，从网页或文件安装的应用默认不能申请短信权限和通知使用权，需要先在「应用信息」里手动解除限制。</string>
+    <string name="setup_restricted_missing_hint">看不到这个选项？先在下一步申请一次短信权限，被系统拦下后菜单里才会出现；也请确认自动拦截程序已关闭。</string>
+    <string name="setup_restricted_blocked">短信权限被系统拦截了，看起来受限设置还没有解除。</string>
+    <string-array name="path_restricted">
+        <item>设置</item>
+        <item>应用</item>
+        <item>Nekopost</item>
+        <item>⋮ 更多</item>
+        <item>允许受限设置</item>
+    </string-array>
+
+    <string name="setup_sms_title">短信权限</string>
+    <string name="setup_sms_summary">接收短信用于实时转发；读取短信用于补漏扫描，补交手机休眠或系统延迟期间漏掉的短信。只处理开启转发之后收到的短信，不会上传旧短信。</string>
+    <string name="setup_sms_request">授予短信权限</string>
+    <string name="setup_sms_blocked">系统没有弹出授权窗口。请回到上一步允许受限设置，或者在「应用信息 › 权限 › 短信」中手动允许。</string>
+
+    <string name="setup_listener_title">通知使用权</string>
+    <string name="setup_listener_summary">读取你选定应用的通知并转发。默认一个应用都不转发，之后在「设置 › 通知转发应用」中逐个勾选。</string>
+    <string name="setup_listener_open">打开通知使用权设置</string>
+    <string-array name="path_listener">
+        <item>通知使用权</item>
+        <item>Nekopost</item>
+        <item>允许</item>
+    </string-array>
+
+    <string name="setup_post_title">通知权限</string>
+    <string name="setup_post_summary">猫邮局只在转发出问题时提醒你，例如消息超过 30 分钟没能送出，或者服务器拒绝了这台手机的凭证。</string>
+    <string name="setup_post_request">允许通知</string>
+
+    <string name="setup_battery_title">电池</string>
+    <string name="setup_battery_summary">转发由系统广播和后台任务驱动，没有常驻通知。为了不被 One UI 深度休眠，请解除电池优化。</string>
+    <string name="setup_battery_request">解除电池优化</string>
+    <string name="setup_battery_oneui_title">再加一道保险：从不休眠的应用</string>
+    <string name="setup_battery_oneui_pause">另外，在「应用信息」中关闭「应用未使用时暂停活动」。</string>
+    <string name="setup_battery_open_settings">打开电池优化列表</string>
+    <string-array name="path_never_sleeping">
+        <item>设置</item>
+        <item>电池</item>
+        <item>后台使用限制</item>
+        <item>从不休眠的应用</item>
+        <item>添加 Nekopost</item>
+    </string-array>
+
+    <string name="setup_cover_title">封面屏</string>
+    <string name="setup_cover_summary">合上手机后让猫邮局继续显示在封面屏上，展开时也会停在你刚才看的地方。</string>
+    <string name="setup_cover_flex">另外，在「设置 › 高级功能 › 实验室」中为 Nekopost 关闭 Flex 模式面板：猫邮局原生支持桌面姿态。</string>
+    <string name="setup_cover_open">打开显示设置</string>
+    <string-array name="path_cover_screen">
+        <item>设置</item>
+        <item>显示</item>
+        <item>在封面屏上继续使用应用</item>
+        <item>Nekopost</item>
+        <item>始终</item>
+    </string-array>
+
+    <string name="setup_otp_title">验证码自测</string>
+    <string name="setup_otp_summary">Android 17 可能会把验证码短信扣留最多 3 小时。做一次自测，确认这台手机能实时收到。</string>
+    <string name="setup_otp_send_from_other">用另一台手机给本机发这样一条短信：</string>
+    <string name="setup_otp_sample">【测试】您的验证码是 123456</string>
+    <string name="setup_otp_waiting">还没有收到验证码短信。收到后这里会显示是否实时到达。</string>
+    <string name="setup_otp_ok">实时到达，最长延迟 %1$s。</string>
+    <string name="setup_otp_later">稍后再测</string>
+
+    <string name="setup_finish_title">完成</string>
+    <string name="setup_finish_summary">盖章开通</string>
+    <string name="setup_finish_ready">邮路已开通</string>
+    <string name="setup_finish_ready_detail">新短信和通知会立即转发。转发页会一直显示健康状态。</string>
+    <string name="setup_finish_partial">差一点就好了</string>
+    <string name="setup_finish_partial_detail">还有 %1$d 项没有完成，转发可能不完整。随时可以从转发页或设置里回来继续。</string>
+    <string name="setup_stamp_ready">已开通</string>
+    <string name="setup_stamp_partial">待完善</string>
+</resources>
