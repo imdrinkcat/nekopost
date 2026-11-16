@@ -17,10 +17,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        unitTests {
+            // Robolectric needs the merged manifest (receivers, services) and resources.
+            isIncludeAndroidResources = true
+        }
+    }
+
     lint {
         abortOnError = true
         disable += setOf("OldTargetApi", "GradleDependency", "AndroidGradlePluginVersion", "NewerVersionAvailable")
     }
+}
+
+tasks.withType<Test>().configureEach {
+    maxHeapSize = "2g"
 }
 
 dependencies {
@@ -29,6 +40,7 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.room.runtime)
     ksp(libs.room.compiler)
     implementation(libs.work.runtime)
@@ -39,4 +51,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.okhttp.tls)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

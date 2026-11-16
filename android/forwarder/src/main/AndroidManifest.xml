@@ -1,8 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Components (SmsReceiver, NotificationListener, BootReceiver) and permissions
-  are added here in M1. Every exported component must also be added to
-  android/config/exported-components.txt, which CI checks against the merged
-  manifest.
+  Forwarder components (design §8.3–8.5). Every exported component must also
+  be listed in android/config/exported-components.txt with its protecting
+  permission; CI checks the merged manifest against that list.
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- SMS permissions imply telephony; the app still installs without it. -->
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Real-time SMS (SMS_RECEIVED). -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <!-- Inbox scan that catches SMS the broadcast missed (SmsReconciler). -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- App names and the notification app picker; no QUERY_ALL_PACKAGES. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application>
+        <!-- Only the system holds BROADCAST_SMS, so other apps cannot inject fake SMS. -->
+        <receiver
+            android:name="com.drinkcat.nekopost.forwarder.sms.SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          Both actions are protected broadcasts (only the system can send
+          them); the receiver checks the action, takes no extras and only
+          schedules an inbox scan and an upload.
+        -->
+        <receiver
+            android:name="com.drinkcat.nekopost.forwarder.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name="com.drinkcat.nekopost.forwarder.notify.NekoNotificationListener"
+            android:exported="true"
+            android:label="@string/fwd_notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+            <!-- Ongoing notifications are never forwarded; do not even deliver them. -->
+            <meta-data
+                android:name="android.service.notification.default_filter_types"
+                android:value="conversations|alerting|silent" />
+        </service>
+    </application>
+</manifest>

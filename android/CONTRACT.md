@@ -32,6 +32,8 @@ interface ForwarderController {
     fun setSmsEnabled(enabled: Boolean)
     fun setNotificationsEnabled(enabled: Boolean)
     fun setNotificationApps(packages: Set<String>)   // NotificationAppPolicy-blocked packages are dropped
+    fun setNotificationRule(packageName: String, rule: NotificationRule?)  // M1; null = NotificationRule.Default
+    fun resolveSmsBacklog(upload: Boolean)           // M1; answers ForwarderState.smsBacklog ("补交" / "全部跳过")
     fun reportPermissions(status: PermissionStatus)  // the UI detects permissions and reports them
     fun observeLog(): Flow<List<ForwardLogItem>>     // latest 50, newest first, metadata only
     fun otpHealth(): Flow<OtpHealth>
@@ -55,8 +57,10 @@ data class ForwarderState(
     val lastSuccess: DeliveryEvent? = null,
     val lastFailure: FailureEvent? = null,
     val paused: PauseReason? = null,
+    val notificationRules: Map<String, NotificationRule> = emptyMap(),  // M1
+    val smsBacklog: SmsBacklog? = null,                                 // M1: > 50 unsent SMS wait for the user
 ) { val isEnrolled: Boolean }
-fun ForwarderState.health(): ForwarderHealth   // NotEnrolled, Idle, NeedsPermission, Paused, Backlog, Healthy
+fun ForwarderState.health(): ForwarderHealth   // NotEnrolled, Idle, NeedsPermission, Paused, Backlog (queue or smsBacklog), Healthy
 
 data class Enrollment(val serverUrl: String, val sourceId: String, val sourceName: String, val enrolledAt: Instant) { val serverHost: String }
 data class PermissionStatus(val receiveSms: Boolean, val readSms: Boolean, val notificationListener: Boolean,
@@ -66,6 +70,14 @@ data class DeliveryEvent(val at: Instant, val kind: ForwardKind)
 data class FailureEvent(val at: Instant, val reason: FailureReason, val httpStatus: Int? = null, val detail: String? = null)
 enum class FailureReason { Network, CertificatePinning, Unauthorized, SourceDisabled, Rejected, RateLimited, Server }
 enum class PauseReason { Unauthorized, SourceDisabled }
+
+data class SmsBacklog(val count: Int, val oldestAt: Instant?, val detectedAt: Instant) { companion object { const val Threshold = 50 } }
+enum class MessagePriority(val wire: String) { Low("low"), Normal("normal"), High("high") }
+data class NotificationRule(val mode: Mode = Mode.All, val keywords: List<String> = emptyList(),
+                            val includeTitle: Boolean = true, val priority: MessagePriority = MessagePriority.Normal) {
+    enum class Mode { All, IncludeKeywords, ExcludeKeywords }
+    fun accepts(title: String?, text: String?): Boolean   // case-insensitive substring match; blank keywords ignored
+}
 
 enum class ForwardKind { Sms, Notification, Test }
 enum class ForwardStatus { Queued, Sending, Retrying, Accepted, Duplicate, Failed, Paused, Skipped }
@@ -93,20 +105,36 @@ Semantics the implementation must keep:
 | `unenroll` | Delete token, outbox, log, DataStore and Keystore aliases. Irreversible. |
 | `ForwardLogItem.title` | SMS: originating address as-is; notification: app label; never the body. |
 | `ForwardStatus` | 202 → `Accepted`; 200 duplicate → `Duplicate`; network/429/5xx → `Retrying`; 413/415/422 → `Failed` (kept 7 days); 401/403 → `Paused` (queue kept, `ForwarderState.paused` set); local rule → `Skipped`. |
-| Uploads | `POST /v1/messages`, JSON `{title, body, type: "sms"|"notification", priority, occurred_at (RFC 3339), meta{}}`, header `Idempotency-Key`; SMS keys are `"sms:" + hex(HMAC-SHA256(device_secret, subId‖addr‖tsMillis‖body))[:32]`, notification keys a persisted random UUID. Honour `Retry-After`. See `docs/api.md`. |
-| `OtpHealth` | Code SMS over the last 7 days: counted as realtime when delivered by `SMS_RECEIVED`, as reconciled when first seen by the inbox scan. |
+| Uploads | `POST /v1/messages`, JSON `{title, body, type: "sms"|"notification"|"test", priority, occurred_at (RFC 3339, whole seconds, local offset), meta{}}`, header `Idempotency-Key`; SMS keys are `"sms:" + hex(HMAC-SHA256(device_secret, subId‖addr‖tsMillis‖body))[:32]` where `‖` is U+0000 and `subId`/`tsMillis` are decimal (tsMillis = SMSC time of the first segment; inbox `date_sent`), notification and test keys a persisted random UUID. Fields are clipped to the server limits (title 256, body 12 000 code points, meta 16 × 256). Honour `Retry-After` (seconds or HTTP date); otherwise back off 30 s × 2ⁿ up to 30 min; the first retryable failure pushes the whole queue back. No redirects, no logging interceptor. See `docs/api.md`. |
+| `sendTest` | `type: "test"`, sent at once even while paused (doubles as a credential check; success clears `paused`). |
+| SMS payload | `title` = originating address as-is (no contact lookup, no READ_CONTACTS), `occurred_at` = SMSC time, `meta.sim` = `"SIM 1"`/`"SIM 2"` on dual-SIM phones (slot index, no READ_PHONE_STATE), `meta.parts` for multipart, `meta.via = "reconciler"` when found by the inbox scan. |
+| Reconciler | Start point `last_seen_id` = inbox MAX(_id) at enroll / SMS enable / first READ_SMS grant (never 0). Each scan only considers `date >= max(now − 72 h, enabled_at)`. More than 50 candidates → nothing uploaded, `smsBacklog` set until `resolveSmsBacklog`. SMS already captured by the broadcast (keyed fingerprint of sender + body, SMSC time ± 1 h) are skipped. Runs at boot / app update, app start and hourly with network. |
+| Notifications | Only selected packages, never `NotificationAppPolicy.blockedPackages` or this app. Skips ongoing, foreground-service, group-summary, `progress`/`transport`/`call`/`service`, media and progress-bar notifications. Title `"<应用名> · <通知标题>"` (rule `includeTitle = false` → app name only), body `EXTRA_BIG_TEXT` → `EXTRA_TEXT` → text lines; MessagingStyle: newest message only (`"sender: text"` in groups). Dedupe (key + content hash) 10 min; 30 per app per minute, the rest merged into one low-priority `"<应用名> · N 条通知"` message (`meta.coalesced = N`). System placeholder text (or no title and no text) → body `系统隐藏了验证码内容`, `meta.redacted = true`. Text equal to an SMS captured in the last 2 min → `Skipped` (`sms_duplicate`). `meta.pkg`, `meta.channel`. |
+| Retention | Failed rows 7 days, pending rows 30 days or 5 000 rows (oldest dropped, log says `expired` / `queue_full`), accepted-key digests and SMS fingerprints 7 days, log 500 rows. |
+| `OtpHealth` | Code SMS over the last 7 days: counted as realtime when delivered by `SMS_RECEIVED`, as reconciled when first seen by the inbox scan. Delay = first seen − SMSC time; median over broadcast deliveries, max over all. |
 | `setNotificationApps` | Filter through `NotificationAppPolicy.isSelectable` (Telegram clients and this app would loop). |
 
 `FakeForwarderController` (in `:core`) implements everything in memory;
 `FakeForwarderData` holds deterministic sample data (`Now` = 2026-11-16 10:20 JST)
 for previews and screenshot tests.
 
-`:forwarder` provides `com.drinkcat.nekopost.forwarder.AndroidForwarderController(context: Context, scope: CoroutineScope)`.
-In M0 it is an in-memory stub; M1 fills in SmsReceiver, SmsReconciler,
-NotificationListener, the Room outbox (Tink AEAD payloads, AAD = row id),
-the WorkManager + OkHttp uploader with ISRG Root X1/X2 SPKI pins (1-year
-expiry, fail-open after), HMAC idempotency keys and per-app rules — keeping
-the class name and constructor. Room's compiler runs through KSP (already wired).
+`:forwarder` provides `com.drinkcat.nekopost.forwarder.AndroidForwarderController(context: Context, scope: CoroutineScope)`
+(M1). Receivers, the listener and workers share one process-wide
+`ForwarderGraph` with it:
+
+| Piece | Implementation |
+|---|---|
+| `sms.SmsReceiver` | static `SMS_RECEIVED`, `android:permission="android.permission.BROADCAST_SMS"`; parses PDUs, merges by (address, subscription), persists under `goAsync()`, expedited upload |
+| `sms.SmsReconciler` | `Telephony.Sms.Inbox` scan (see table above) |
+| `notify.NekoNotificationListener` | `BIND_NOTIFICATION_LISTENER_SERVICE`; `requestRebind` on disconnect |
+| `BootReceiver` | `BOOT_COMPLETED` / `MY_PACKAGE_REPLACED` (protected broadcasts) → scan + flush |
+| Outbox | Room `nekopost-forwarder.db` (outbox, log, sent-key digests, SMS fingerprints); payload = request JSON sealed with Tink AES-256-GCM, AAD = `nekopost/outbox/<row id>` |
+| Keys | Tink keyset `fwd` in prefs `nekopost_fwd_keyset`, wrapped by Keystore key `nekopost_ks_fwd` (StrongBox when available, no user auth); token and 32-byte device secret sealed in prefs `nekopost_fwd_secrets` |
+| Settings | DataStore `nekopost_forwarder` (enrollment, switches, apps, rules, start point, pause, last success/failure, backlog) |
+| Uploads | WorkManager: `nekopost-upload` (expedited on API 31+, APPEND_OR_REPLACE, network), `nekopost-upload-later` (Retry-After / backoff), `nekopost-reconcile`, hourly `nekopost-reconcile-hourly`; no foreground service |
+| TLS | OkHttp `CertificatePinner` with ISRG Root X1, X2 and Gen-Y Root YE, YR SPKI SHA-256 (`upload.ServerPins`); skipped after `EXPIRES_AT` = 2027-11-16 (fail open) — bump it every release |
+
+Room's compiler runs through KSP; schema export is off until the first migration.
 
 ## 2. Enrollment QR link (`core.enroll.EnrollmentLink`)
 
