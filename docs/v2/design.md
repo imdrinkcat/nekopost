@@ -889,7 +889,8 @@ Strict-Transport-Security: max-age=63072000; includeSubDomains   （现有）
 
 - `onMessageReceived`：`t:"msg"` → 用 `k_dev` `GET /v1/inbox/{id}`，Tink 加密写入缓存，弹通知；超时或离线则先发通用通知「Nekopost：N 条新消息」，打开 App 后拉取并原地更新同一条通知。
 - 通知渠道：`验证码`（高，有声）、`消息`、`系统告警`、`确认`（高）、`安全`（高）。**没有前台服务渠道**。
-- **通知文本默认只显示「发件人 · 类别」**，不显示 preview 和正文（其他通知监听器、手表镜像都能读到本地通知）；可按类别开启「通知显示摘要」（经过 §4.4 打码）。所有通知 `setLocalOnly(true)`。
+- ~~通知文本默认只显示「发件人 · 类别」~~ **0.3 起按用户要求改为「像普通收消息的软件」**：标题是发件人，正文是预览，验证码直接显示「验证码 123456」并带「复制验证码」；设置 › 消息通知 可退回只显示「来源 · 类别」。一条消息一条通知（tag = 消息 ID），多条合并为「N 条新消息」摘要；BigTextStyle，不用 MessagingStyle（消息来自很多来源，不是双向会话）。所有通知 `setLocalOnly(true)`、不允许系统生成的智能操作。代价：其他通知监听器能读到通知里的验证码（Android 15+ 对不受信任的监听器打码）。
+- 0.3 起 `t:"msg"` 在 `onMessageReceived` 里最多等 8 秒直接取详情（`?via=push&ack=1`），按类别发到正确的通道；超时才发「系统」通道的通用提示，并用加急 WorkManager 原地替换。`t:"read"`/`t:"gone"` 取消对应通知；每次刷新后按列表对账，已读、过期、删除的通知都会消失。点通知经非导出的 `OpenMessageActivity` 把消息 ID 交给进程内导航，解锁后打开那条消息。
 - 锁屏：`VISIBILITY_PRIVATE` + `publicVersion`（「Nekopost · 1 条验证码」）。
 - 通知操作：「复制验证码」（`setAuthenticationRequired(true)`）、「标为已读」。其他端标已读后收到 `t:"sync"`，取消对应通知。
 - 前台连接 `/v1/events`，进入后台 5 秒后断开。
@@ -906,7 +907,7 @@ Strict-Transport-Security: max-age=63072000; includeSubDomains   （现有）
 
 - **Room 中只有这些字段是明文**：`id`、`seq`、时间、类别、来源 ID、状态、`has_code`、`body_expires_at`。其余内容一律经 Tink AEAD 加密（AAD = 行 ID）。
 - **保护边界（如实说明）**：Keystore 密钥不可导出，拿到 Room 文件的人（备份、文件提取）解不开；但 root 或代码注入后可以在设备上直接调用 `ks_main` 解密。应用锁只挡「拿到已解锁手机的人」。
-- **应用锁**：冷启动、无交互超过 N 分钟（默认 1 分钟，可选「立即」）后，用 `BiometricPrompt(BIOMETRIC_STRONG | DEVICE_CREDENTIAL)` 解锁界面；按**无交互**计时（常亮的值守台也会上锁）；折叠时可选「合上即锁」（§10）。
+- **应用锁**（0.3 起锁整个应用，不只是收件箱）：冷启动、离开应用超过宽限期（默认 30 秒，可选立即 / 1 / 5 分钟）、关闭屏幕（立即）、无交互超过 N 分钟（默认 5 分钟，可选 1 / 15 分钟 / 从不；比原定 1 分钟宽松，因为现在转发页也在锁内）后，用 `BiometricPrompt(BIOMETRIC_STRONG | DEVICE_CREDENTIAL)` 解锁；折叠时默认遮挡，可选「合上即锁」或不处理（§10）。值守台显示时暂停无交互计时（它不显示验证码）。应用自己打开的外部界面（扫码、验证、权限对话框、系统设置、分享、旁边窗口）登记为「预期中的外部活动」，在各自期限内回来不锁定，结果保存在进程级而不是界面状态里（修复 0.2.1 扫码结果丢失）。锁定时界面保持组合、不绘制、清空语义。没有安全锁屏时应用锁不生效并提示，不会把用户锁在外面。从通知复制验证码只要求手机已解锁，不经过应用锁（「一键复制」的有意取舍）。
 - **本地保留期自己执行**：启动时、每日任务、每次显示前都检查 `body_expires_at` 与 `code_retention_hours`（来自 `/v1/session`），到期即删；`sync` 中 `body_state` 变为 `expired`/`deleted` 时也立即删除。Room 执行 `PRAGMA secure_delete=ON`。
 - **离线兜底**：超过 72 小时没有成功 sync，清空全部正文缓存，只保留元数据。
 - 剪贴板：复制验证码时设置 `ClipDescription.EXTRA_IS_SENSITIVE`；60 秒后如果仍是我们复制的内容就清除；优先引导拖放（§10）。
