@@ -130,7 +130,7 @@ fun SettingsScreen(state: ShellUiState, fold: FoldState, mode: PaneMode, actions
                     twoPane = false,
                     showDetail = chosen != null,
                     onBack = onBack,
-                    list = { SettingsList(items, null, state, header = false, onSelect) },
+                    list = { SettingsList(items, null, state, header = true, onSelect, title = false) },
                     detail = { SettingsDetail(chosen ?: SettingsItem.Account, state, fold, actions, memory, onBack = onBack, tabletop = true) },
                 )
             },
@@ -164,12 +164,13 @@ private fun SettingsList(
     state: ShellUiState,
     header: Boolean,
     onSelect: (SettingsItem) -> Unit,
+    title: Boolean = true,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = NekoTokens.Spacing.l, end = NekoTokens.Spacing.l, bottom = NekoTokens.Spacing.xl),
     ) {
-        item(key = "title") {
+        if (title) item(key = "title") {
             Text(
                 stringResource(R.string.settings_title),
                 style = MaterialTheme.typography.headlineSmall,
@@ -178,7 +179,9 @@ private fun SettingsList(
         }
         if (header) {
             item(key = "identity") {
-                IdentityCard(state, selected = selected == SettingsItem.Account, onClick = { onSelect(SettingsItem.Account) })
+                Column(Modifier.padding(top = if (title) 0.dp else NekoTokens.Spacing.l)) {
+                    IdentityCard(state, selected = selected == SettingsItem.Account, onClick = { onSelect(SettingsItem.Account) })
+                }
             }
         }
         val sections = items.groupBy { it.section }
