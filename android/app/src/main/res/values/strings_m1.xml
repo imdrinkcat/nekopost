@@ -291,4 +291,18 @@
 
     <!-- A confirm button was tapped through another app's overlay (tapjacking defence). -->
     <string name="touch_obscured">屏幕上有其他应用的悬浮窗挡住了按钮，这次点击已忽略。请关闭悬浮窗后再试。</string>
+    <string name="err_with_code">%1$s（%2$s）</string>
+    <string name="err_unknown_host">找不到服务器地址，可能没有联网</string>
+    <string name="err_timeout">连接超时</string>
+    <string name="err_connect">无法连接到服务器</string>
+    <string name="err_network">网络错误</string>
+    <string name="err_tls">安全连接失败，服务器证书未通过校验</string>
+    <string name="err_unauthorized">凭证无效或已被吊销</string>
+    <string name="err_source_disabled">来源已在服务器上停用</string>
+    <string name="err_rate_limited">发送太频繁，稍后自动重试</string>
+    <string name="err_too_large">内容太长，服务器拒收</string>
+    <string name="err_rejected">服务器认为内容格式不正确</string>
+    <string name="err_expired">重试时间已过，已放弃</string>
+    <string name="err_queue_full">本机队列已满，已丢弃</string>
+    <string name="err_server">服务器暂时出错</string>
 </resources>

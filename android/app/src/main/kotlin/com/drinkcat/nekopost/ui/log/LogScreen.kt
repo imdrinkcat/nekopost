@@ -396,7 +396,7 @@ private fun LogDetailPane(item: ForwardLogItem, onBack: (() -> Unit)?, onCopy: (
             }
             KeyValueRow(stringResource(R.string.log_attempts), item.attempts.toString(), mono = true)
             item.lastHttpStatus?.let { KeyValueRow(stringResource(R.string.log_http), it.toString(), mono = true) }
-            item.lastError?.let { KeyValueRow(stringResource(R.string.log_error), it, mono = true) }
+            item.lastError?.let { KeyValueRow(stringResource(R.string.log_error), errorText(it)) }
             item.serverMessageId?.let { id ->
                 KeyValueRow(stringResource(R.string.log_server_id), id, mono = true)
                 if (onCopy != null) {
@@ -416,6 +416,32 @@ private fun LogDetailPane(item: ForwardLogItem, onBack: (() -> Unit)?, onCopy: (
     }
 }
 
+/**
+ * Explains a stored error code in Chinese. Codes are exception class names
+ * (network failures), server error codes (docs/api.md), "http_NNN" or the
+ * queue's own markers; the raw code stays in brackets for troubleshooting.
+ */
+@Composable
+internal fun errorText(code: String): String {
+    @StringRes val res = when {
+        code == "UnknownHostException" -> R.string.err_unknown_host
+        code == "SocketTimeoutException" || code == "InterruptedIOException" -> R.string.err_timeout
+        code == "ConnectException" || code == "NoRouteToHostException" -> R.string.err_connect
+        code.startsWith("SSL") || code == "certificate_pinning" -> R.string.err_tls
+        code == "unauthorized" -> R.string.err_unauthorized
+        code == "source_disabled" -> R.string.err_source_disabled
+        code == "rate_limited" || code == "too_many_auth_failures" || code == "busy" -> R.string.err_rate_limited
+        code == "payload_too_large" -> R.string.err_too_large
+        code.startsWith("invalid_") || code == "validation_failed" || code == "unsupported_media_type" -> R.string.err_rejected
+        code == "expired" -> R.string.err_expired
+        code == "queue_full" -> R.string.err_queue_full
+        code.startsWith("http_5") || code == "internal_error" -> R.string.err_server
+        code.endsWith("Exception") -> R.string.err_network
+        else -> return code
+    }
+    return stringResource(R.string.err_with_code, stringResource(res), code)
+}
+
 /** Queued → attempts → outcome, as a small vertical timeline. */
 @Composable
 private fun Timeline(item: ForwardLogItem) {
@@ -431,7 +457,7 @@ private fun Timeline(item: ForwardLogItem) {
             add(
                 TimelineStep(
                     attempts,
-                    item.lastHttpStatus?.let { "HTTP $it" } ?: item.lastError.orEmpty(),
+                    item.lastHttpStatus?.let { "HTTP $it" } ?: item.lastError?.let { errorText(it) }.orEmpty(),
                     if (item.status == ForwardStatus.Retrying) StatusTone.Warning else StatusTone.Pending,
                 ),
             )
