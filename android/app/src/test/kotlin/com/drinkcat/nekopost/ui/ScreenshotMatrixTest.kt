@@ -17,6 +17,32 @@ import com.drinkcat.nekopost.core.forwarder.QueueStats
 import com.drinkcat.nekopost.core.forwarder.SendTestResult
 import com.drinkcat.nekopost.core.forwarder.SmsBacklog
 import com.drinkcat.nekopost.core.ui.fold.FoldState
+import com.drinkcat.nekopost.inbox.DropNoteContent
+import com.drinkcat.nekopost.inbox.FakeInboxData
+import com.drinkcat.nekopost.inbox.PairThisPhonePane
+import com.drinkcat.nekopost.inbox.PairUi
+import com.drinkcat.nekopost.inbox.PairActions
+import com.drinkcat.nekopost.inbox.SortingDeskContent
+import com.drinkcat.nekopost.inbox.SortingUi
+import com.drinkcat.nekopost.inbox.WatchDeskContent
+import com.drinkcat.nekopost.inbox.WatchUi
+import com.drinkcat.nekopost.inbox.ui.InboxActions
+import com.drinkcat.nekopost.inbox.ui.InboxFilter
+import com.drinkcat.nekopost.inbox.ui.InboxScreen
+import com.drinkcat.nekopost.inbox.ui.InboxUiState
+import com.drinkcat.nekopost.inbox.ui.InboxUnpaired
+import com.drinkcat.nekopost.lock.LockIssue
+import com.drinkcat.nekopost.lock.LockReason
+import com.drinkcat.nekopost.lock.LockScreen
+import com.drinkcat.nekopost.lock.LockState
+import com.drinkcat.nekopost.ui.settings.AdminPage
+import com.drinkcat.nekopost.ui.settings.LockSettingsUi
+import com.drinkcat.nekopost.ui.settings.NotifySettingsUi
+import com.drinkcat.nekopost.ui.shell.InboxMemory
+import com.drinkcat.nekopost.ui.shell.PaneMode
+import com.drinkcat.nekopost.ui.shell.paneModeFor
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
 import com.drinkcat.nekopost.ui.settings.SettingsItem
 import com.drinkcat.nekopost.ui.settings.UnenrollSheetContent
 import com.drinkcat.nekopost.ui.setup.EnrollUiState
@@ -111,7 +137,13 @@ class ScreenshotMatrixTest(private val case: Case) {
         )
 
         @Composable
-        private fun Shell(state: ShellUiState, fold: FoldState, destination: Destination, memory: () -> ShellMemory = { ShellMemory() }) {
+        private fun Shell(
+            state: ShellUiState,
+            fold: FoldState,
+            destination: Destination,
+            inbox: InboxUiState? = null,
+            memory: () -> ShellMemory = { ShellMemory() },
+        ) {
             NekopostShell(
                 state = state,
                 fold = fold,
@@ -119,8 +151,28 @@ class ScreenshotMatrixTest(private val case: Case) {
                 onDestinationChange = {},
                 actions = ShellActions(),
                 memory = remember { memory() },
+                inboxContent = inbox?.let { ui -> @Composable { mode: PaneMode -> InboxScreen(ui, fold, mode, InboxActions()) } },
             )
         }
+
+        /** The inbox alone, in the pane mode the shell would give it (no navigation bar). */
+        @Composable
+        private fun Inbox(ui: InboxUiState, fold: FoldState) {
+            Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
+                BoxWithConstraints {
+                    InboxScreen(ui, fold, paneModeFor(fold, maxWidth), InboxActions())
+                }
+            }
+        }
+
+        @Composable
+        private fun Plain(content: @Composable () -> Unit) {
+            Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) { content() }
+        }
+
+        private val device = Samples.thisDevice
+        private val reader = enrolled.copy(device = device, inboxUnread = 3, lock = LockSettingsUi(foldable = true))
+        private val admin = reader.copy(admin = Samples.admin)
 
         @Composable
         private fun Wizard(snapshot: SetupSnapshot, step: SetupStep, fold: FoldState, enroll: EnrollUiState = EnrollUiState.Idle) {
@@ -131,7 +183,41 @@ class ScreenshotMatrixTest(private val case: Case) {
             testSend = TestSendState.Done(SendTestResult.Accepted("m_01JB7QAB12CD34EF56GH78JK9M")),
         )
 
+        private val cover = listOf(Fold8.Cover)
+        private val coverFlat = listOf(Fold8.Cover, Fold8.InnerFlat)
+
         val screens = listOf(
+            // 消息 (requirement 3): a messaging app's list and detail.
+            Screen("shell_inbox") { Shell(reader, it, Destination.Inbox, inbox = FakeInboxData.list) },
+            Screen("inbox_detail_otp") { Shell(reader, it, Destination.Inbox, inbox = FakeInboxData.withDetail(FakeInboxData.otpDetail)) },
+            Screen("inbox_detail_expired", cover) { Inbox(FakeInboxData.withDetail(FakeInboxData.expired), it) },
+            Screen("inbox_empty", coverFlat) { Inbox(InboxUiState(), it) },
+            Screen("inbox_empty_notifications_off", cover) { Inbox(InboxUiState(notificationsBlocked = true), it) },
+            Screen("inbox_loading", cover) { Inbox(InboxUiState(loading = true), it) },
+            Screen("inbox_offline", cover) {
+                Inbox(FakeInboxData.list.copy(offlineSince = FakeForwarderData.Now.minus(Duration.ofHours(3))), it)
+            },
+            Screen("inbox_error", cover) { Inbox(InboxUiState(error = "连不上服务器，请检查网络。"), it) },
+            Screen("inbox_search", coverFlat) { Inbox(FakeInboxData.list.copy(query = "验证码", searchedQuery = "验证码", rows = listOf(FakeInboxData.otp)), it) },
+            Screen("inbox_search_none", cover) { Inbox(InboxUiState(query = "发票", searchedQuery = "发票"), it) },
+            Screen("inbox_filter_codes", cover) { Inbox(FakeInboxData.list.copy(filter = InboxFilter.Codes), it) },
+            Screen("inbox_unpaired", coverFlat) { Plain { InboxUnpaired(revoked = false, onPair = {}) } },
+            Screen("pair_entry", cover) { Plain { PairThisPhonePane(PairUi(name = "Galaxy Z Fold8", server = "https://osaka.drinkcat.com/"), PairActions(onBack = {})) } },
+            Screen("pair_number", cover) { Plain { PairThisPhonePane(PairUi(name = "Galaxy Z Fold8", number = "27"), PairActions(onBack = {})) } },
+            // 应用锁 (requirement 1).
+            Screen("lock_locked") { LockScreen(LockState.Locked(LockReason.ColdStart), it, issue = null, onUnlock = {}) },
+            Screen("lock_lockout", cover) { LockScreen(LockState.Locked(LockReason.Idle), it, issue = LockIssue.Lockout, onUnlock = {}) },
+            Screen("lock_curtain", cover) { LockScreen(LockState.Curtain, it, issue = null, onUnlock = {}) },
+            // Fold tools, moved out of the main flow.
+            Screen("watch_desk", listOf(Fold8.InnerTabletop)) {
+                Plain { WatchDeskContent(WatchUi(FakeInboxData.rows.take(4), connected = true), it, {}, {}, {}, {}) }
+            },
+            Screen("sorting_desk", listOf(Fold8.InnerTabletop, Fold8.InnerFlat)) {
+                Plain { SortingDeskContent(SortingUi(FakeInboxData.long.copy(body = FakeInboxData.long.preview)), it, {}, {}, {}, {}, {}) }
+            },
+            Screen("drop_note", cover) {
+                Plain { DropNoteContent("记得周五前续费域名", {}, dragEnabled = false, onDragEnabledChange = {}, message = null, pending = false, onSend = {}, onBack = {}) }
+            },
             Screen("forward") { Shell(sentTest, it, Destination.Forward) },
             Screen("forward_attention") { Shell(attention, it, Destination.Forward) },
             Screen("forward_unenrolled") { Shell(unenrolled, it, Destination.Forward) },
@@ -149,6 +235,38 @@ class ScreenshotMatrixTest(private val case: Case) {
             Screen("unenroll_sheet", devices = listOf(Fold8.Cover)) {
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
                     UnenrollSheetContent(FakeForwarderData.enrollment, device = null, pending = 1, onConfirm = {}, onCancel = {})
+                }
+            },
+            Screen("unenroll_sheet_both", devices = listOf(Fold8.Cover)) {
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                    UnenrollSheetContent(FakeForwarderData.enrollment, device = device, pending = 0, onConfirm = {}, onCancel = {})
+                }
+            },
+            Screen("settings_reader") { Shell(admin, it, Destination.Settings) },
+            Screen("settings_account", cover) { Shell(admin, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.Account) } },
+            Screen("settings_lock", coverFlat) { Shell(reader, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.AppLock) } },
+            Screen("settings_lock_insecure", cover) {
+                Shell(reader.copy(lock = LockSettingsUi(enabled = true, secure = false)), it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.AppLock) }
+            },
+            Screen("settings_notifications", coverFlat) { Shell(admin, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.Notifications) } },
+            Screen("settings_notifications_unpaired", cover) {
+                Shell(enrolled.copy(notify = NotifySettingsUi(permission = false)), it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.Notifications) }
+            },
+            Screen("settings_admin", cover) { Shell(admin, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.Admin) } },
+            Screen("settings_devices", coverFlat) {
+                Shell(admin, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.Admin, adminPage = AdminPage.Devices) }
+            },
+            Screen("settings_add_device", cover) {
+                Shell(admin, it, Destination.Settings) { ShellMemory(settingsItem = SettingsItem.Admin, adminPage = AdminPage.AddDevice) }
+            },
+            Screen("settings_pairing_claimed", listOf(Fold8.Cover, Fold8.InnerTabletop)) {
+                Shell(admin.copy(admin = Samples.admin.copy(pairing = Samples.pairingClaimed)), it, Destination.Settings) {
+                    ShellMemory(settingsItem = SettingsItem.Admin, adminPage = AdminPage.AddDevice)
+                }
+            },
+            Screen("settings_pairing_open", cover) {
+                Shell(admin.copy(admin = Samples.admin.copy(pairing = Samples.pairingOpen)), it, Destination.Settings) {
+                    ShellMemory(settingsItem = SettingsItem.Admin, adminPage = AdminPage.AddDevice)
                 }
             },
             Screen("setup_welcome") { Wizard(Samples.snapshot(), SetupStep.Welcome, it) },

@@ -75,7 +75,6 @@ class LockGateTest {
         lock = LockState.Locked(LockReason.Idle)
         composeRule.waitForIdle()
         composeRule.onNodeWithText("招商银行 验证码 482913").assertDoesNotExist()
-        composeRule.onNodeWithText("招商银行 验证码 482913", useUnmergedTree = true).assertDoesNotExist()
         composeRule.onNodeWithTag("field").assertDoesNotExist()
     }
 

@@ -15,6 +15,14 @@ import androidx.compose.ui.test.performClick
 import com.drinkcat.nekopost.core.forwarder.FakeForwarderData
 import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
+import com.drinkcat.nekopost.inbox.FakeInboxData
+import com.drinkcat.nekopost.inbox.ui.InboxActions
+import com.drinkcat.nekopost.inbox.ui.InboxFilter
+import com.drinkcat.nekopost.inbox.ui.InboxScreen
+import com.drinkcat.nekopost.inbox.ui.InboxUiState
+import com.drinkcat.nekopost.lock.LockGate
+import com.drinkcat.nekopost.lock.LockReason
+import com.drinkcat.nekopost.lock.LockState
 import com.drinkcat.nekopost.ui.log.LogKindFilter
 import com.drinkcat.nekopost.ui.log.LogStatusFilter
 import com.drinkcat.nekopost.ui.settings.SettingsItem
@@ -63,19 +71,80 @@ class ContinuityTest {
     private var destination by mutableStateOf(Destination.Log)
     private val memory = ShellMemory()
 
+    private var lock by mutableStateOf<LockState>(LockState.Unlocked)
+
+    /** The inbox as the root drives it: selection lives in ShellMemory, nowhere else. */
+    private fun inboxState(): InboxUiState {
+        val id = memory.inbox.selectedId
+        val detail = FakeInboxData.rows.firstOrNull { it.id == id }?.let { if (it.id == FakeInboxData.otp.id) FakeInboxData.otpDetail else it }
+        return FakeInboxData.list.copy(selectedId = id, detail = detail, query = memory.inbox.query, filter = memory.inbox.filter)
+    }
+
     private fun show() {
         composeRule.setContent {
             TestHarness {
-                NekopostShell(
-                    state = state,
-                    fold = fold,
-                    destination = destination,
-                    onDestinationChange = { destination = it },
-                    actions = ShellActions(),
-                    memory = memory,
-                )
+                LockGate(lock, fold, issue = null, onUnlock = {}) {
+                    NekopostShell(
+                        state = state,
+                        fold = fold,
+                        destination = destination,
+                        onDestinationChange = { destination = it },
+                        actions = ShellActions(),
+                        memory = memory,
+                        inboxContent = { mode ->
+                            InboxScreen(
+                                inboxState(),
+                                fold,
+                                mode,
+                                InboxActions(
+                                    onOpen = { memory.inbox.selectedId = it },
+                                    onBack = { memory.inbox.selectedId = null },
+                                    onFilter = { memory.inbox.filter = it },
+                                ),
+                                listState = memory.inbox.listState,
+                            )
+                        },
+                    )
+                }
             }
         }
+    }
+
+    @Test
+    @Config(qualifiers = "w933dp-h704dp-land-420dpi")
+    fun inboxSelectionFollowsPosturesAndTheLock() {
+        destination = Destination.Inbox
+        show()
+        val id = FakeInboxData.otp.id
+        // Cover: a tap opens the message full screen.
+        composeRule.onNodeWithTag("inbox_row_$id").performClick()
+        composeRule.onNodeWithTag("inbox_detail_$id").assertIsDisplayed()
+        composeRule.onNodeWithTag("otp_card").assertIsDisplayed()
+
+        // Unfold: list and the same message side by side (① 展开即达).
+        fold = FoldState.Flat
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("inbox_two_pane").assertExists()
+        composeRule.onNodeWithTag("inbox_detail_$id").assertIsDisplayed()
+        composeRule.onNodeWithTag("inbox_row_$id").assertIsDisplayed()
+
+        // Tabletop: the message above the hinge, the list below.
+        fold = FoldState.tabletop()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("inbox_tabletop").assertExists()
+        composeRule.onNodeWithTag("inbox_detail_$id").assertIsDisplayed()
+
+        // The lock hides it and gives it back unchanged.
+        composeRule.onNodeWithTag("inbox_filter_Codes").performClick()
+        lock = LockState.Locked(LockReason.Background)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("inbox_detail_$id").assertDoesNotExist()
+        lock = LockState.Unlocked
+        fold = FoldState.Cover
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("inbox_detail_$id").assertIsDisplayed()
+        assertEquals(id, memory.inbox.selectedId)
+        assertEquals(InboxFilter.Codes, memory.inbox.filter)
     }
 
     @Test
@@ -147,6 +216,9 @@ class ContinuityTest {
             kindFilter = LogKindFilter.Notification
             settingsItem = SettingsItem.SmsRules
             appQuery = "line"
+            inbox.selectedId = FakeInboxData.otp.id
+            inbox.query = "银行"
+            inbox.filter = InboxFilter.Unread
         }
         tester.emulateSavedInstanceStateRestore()
         val m = restored!!
@@ -155,6 +227,9 @@ class ContinuityTest {
         assertEquals(LogKindFilter.Notification, m.kindFilter)
         assertEquals(SettingsItem.SmsRules, m.settingsItem)
         assertEquals("line", m.appQuery)
+        assertEquals(FakeInboxData.otp.id, m.inbox.selectedId)
+        assertEquals("银行", m.inbox.query)
+        assertEquals(InboxFilter.Unread, m.inbox.filter)
     }
 
     /**

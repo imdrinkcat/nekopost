@@ -19,6 +19,12 @@ import com.drinkcat.nekopost.core.ui.theme.NekopostTheme
 import com.drinkcat.nekopost.system.FoldDebugInfo
 import com.drinkcat.nekopost.system.InstalledApp
 import com.drinkcat.nekopost.ui.setup.DeviceTraits
+import com.drinkcat.nekopost.ui.settings.AdminDevice
+import com.drinkcat.nekopost.ui.settings.AdminSource
+import com.drinkcat.nekopost.ui.settings.AdminUi
+import com.drinkcat.nekopost.ui.settings.DeviceRole
+import com.drinkcat.nekopost.ui.settings.PairingUi
+import com.drinkcat.nekopost.ui.settings.ThisDeviceUi
 import com.drinkcat.nekopost.ui.setup.SetupSnapshot
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
@@ -99,6 +105,32 @@ object Samples {
             posture = "Flat", hingeAngle = 180f,
         )
     }
+
+    /** This phone paired as an admin (full) device. */
+    val thisDevice = ThisDeviceUi(
+        name = "Fold8 主力机",
+        serverHost = "osaka.drinkcat.com",
+        deviceId = "d_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        canRead = true,
+        canSend = true,
+        canAdmin = true,
+        pushState = "ok",
+        telegramTypes = listOf("sms"),
+        serverKnown = true,
+    )
+
+    val admin = AdminUi(
+        devices = listOf(
+            AdminDevice("d_ABCDEFGHIJKLMNOPQRSTUVWXYZ", "Fold8 主力机", "SM-F9770", DeviceRole.Full, "ok", revoked = false, suspended = false, self = true),
+            AdminDevice("d_BCDEFGHIJKLMNOPQRSTUVWXYZA", "iPhone", "iPhone 17", DeviceRole.Receiver, "ok", revoked = false, suspended = false, self = false),
+            AdminDevice("d_CDEFGHIJKLMNOPQRSTUVWXYZAB", "备用机", "Pixel 9a", DeviceRole.Sender, "", revoked = false, suspended = false, self = false),
+            AdminDevice("d_DEFGHIJKLMNOPQRSTUVWXYZABC", "旧手机", "Galaxy S21", DeviceRole.Receiver, "", revoked = true, suspended = false, self = false),
+        ),
+        sources = listOf(AdminSource("fold8", "Fold8 主力机", true), AdminSource("github", "GitHub Actions", true)),
+    )
+
+    val pairingOpen = PairingUi(id = "p_ABCDEFGHIJKLMNOPQRSTUVWXYZ", name = "iPhone", shortCode = "7K4M-2Q9X-HD")
+    val pairingClaimed = pairingOpen.copy(state = "claimed", claimedBy = "iPhone · iPhone 17", choices = listOf("27", "63", "81"))
 
     fun snapshot(
         enrolled: Boolean = false,
