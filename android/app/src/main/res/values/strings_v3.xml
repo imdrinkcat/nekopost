@@ -6,9 +6,12 @@
 
     <!-- App lock -->
     <string name="lock_title">猫邮局已锁定</string>
-    <string name="lock_unlock">解锁（指纹或屏幕锁）</string>
+    <string name="lock_unlock">解锁</string>
+    <string name="lock_unlock_hint">用指纹或手机的屏幕锁解锁</string>
+    <string name="lock_retry_in">%1$d 秒后可重试</string>
     <string name="lock_prompt_title">解锁猫邮局</string>
     <string name="lock_off_prompt">验证身份以关闭应用锁</string>
+    <string name="lock_change_prompt">验证身份以放宽应用锁</string>
     <string name="lock_curtain_title">内容已遮挡</string>
     <string name="lock_curtain_tap">轻点显示</string>
     <string name="lock_issue_lockout">尝试次数过多，请稍后再试</string>
@@ -90,11 +93,18 @@
     <string name="inbox_code_copied">已复制</string>
     <string name="inbox_code_copied_toast">已复制验证码，60 秒后自动清除</string>
     <string name="inbox_code_missing">暂时取不到验证码，请打开消息查看</string>
-    <string name="inbox_code_tap_hint">轻点复制 · 长按拖到其他应用</string>
+    <string name="inbox_code_drag_hint">复制后 60 秒自动清除 · 长按卡片可拖到其他应用</string>
     <string name="inbox_code_clear_hint">复制后 60 秒自动清除</string>
     <string name="inbox_code_clip_label">猫邮局验证码</string>
-    <string name="inbox_body_copied">已复制正文</string>
+    <string name="inbox_body_clip_label">猫邮局消息</string>
+    <string name="inbox_body_copied">已复制正文，60 秒后自动清除</string>
     <string name="inbox_body_expired">正文已过期</string>
+    <string name="inbox_kind_sms">短信</string>
+    <string name="inbox_kind_notification">通知</string>
+    <string name="inbox_kind_note">便签</string>
+    <string name="inbox_kind_script">消息</string>
+    <string name="inbox_sender_category_kind">%1$s%2$s</string>
+    <string name="inbox_sender_expired">已过期的消息</string>
     <string name="inbox_body_expired_detail">正文已过期，服务器上只保留发件人和类别。</string>
     <string name="inbox_body_expires">正文将于 %1$s 删除</string>
     <string name="inbox_detail_unavailable">暂时打不开这条消息。</string>
@@ -353,6 +363,11 @@
     <string name="pairing_state_rejected">已拒绝</string>
     <string name="pairing_state_contested">配对码被多台设备使用，已作废</string>
     <string name="pairing_state_expired">已过期</string>
+    <string name="pairing_state_cancelled">已作废</string>
+    <string name="pairing_cancel">作废配对码</string>
+    <string name="pairing_expires_minutes">%1$d 分钟内有效</string>
+    <string name="pairing_expires_seconds">%1$d 秒后失效</string>
+    <string name="pairing_expires_now">即将失效</string>
     <string name="pairing_qr_hold">按住显示二维码</string>
     <string name="pairing_qr_spent">二维码已收起，可以使用配对码</string>
     <string name="pairing_qr_label">设备配对二维码</string>

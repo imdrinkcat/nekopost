@@ -63,6 +63,16 @@ object NekoTextStyles {
         fontFeatureSettings = "tnum",
     )
 
+    /** The verification code (§9.4): 36/44 Mono 500, +0.12em, shown in groups of three. */
+    val otp = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontSize = 36.sp,
+        lineHeight = 44.sp,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 0.12.em,
+        fontFeatureSettings = "tnum",
+    )
+
     /** Large statistic numbers (queue size, counts). */
     val statNumber = TextStyle(
         fontFamily = FontFamily.Default,

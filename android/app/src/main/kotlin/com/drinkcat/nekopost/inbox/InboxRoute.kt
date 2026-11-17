@@ -1,7 +1,5 @@
 package com.drinkcat.nekopost.inbox
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -127,6 +125,7 @@ internal fun InboxRoute(
     val codeMissing = stringResource(R.string.inbox_code_missing)
     val bodyCopied = stringResource(R.string.inbox_body_copied)
     val clipLabel = stringResource(R.string.inbox_code_clip_label)
+    val bodyClipLabel = stringResource(R.string.inbox_body_clip_label)
 
     if (state.paired == false || (state.revoked && !state.canRead)) {
         if (memory.subScreen == InboxSubScreen.Pair) {
@@ -235,7 +234,8 @@ internal fun InboxRoute(
                 }
             },
             onCopyBody = { body ->
-                context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(clipLabel, body))
+                // Bodies usually contain the code: same sensitive, self-clearing clipboard as codes.
+                SensitiveClipboard.copy(context, bodyClipLabel, body)
                 toast = bodyCopied
             },
             onOpenAdjacent = { id -> if (!adjacent) openAdjacent(context, id) },

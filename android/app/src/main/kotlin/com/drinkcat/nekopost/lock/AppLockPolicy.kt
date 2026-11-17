@@ -15,7 +15,7 @@ enum class Eligibility {
 }
 
 /** What happens when the phone is folded shut while the inner display shows content (design §10.4 ⑥). */
-enum class FoldCloseBehavior { Curtain, Lock, Off }
+enum class FoldCloseBehavior(val strength: Int) { Curtain(1), Lock(2), Off(0) }
 
 sealed interface LockState {
     /** Turned off in settings, or nothing to protect. */
@@ -54,11 +54,11 @@ enum class ExternalKind(val deadlineMillis: Long) {
     QrScanner(5 * 60_000L),
     Biometric(2 * 60_000L),
     Permission(2 * 60_000L),
-    SystemSettings(10 * 60_000L),
-    Share(5 * 60_000L),
+    SystemSettings(3 * 60_000L),
+    Share(2 * 60_000L),
 
     /** Our own adjacent window: the process stays in front, so this only matters if both windows stop. */
-    Adjacent(10 * 60_000L),
+    Adjacent(5 * 60_000L),
 }
 
 /**
@@ -89,6 +89,14 @@ class AppLockPolicy(
     private val guards = mutableListOf<Guard>()
     private var nextGuardId = 1L
 
+    /**
+     * The lock that was in force (or due) when eligibility lapsed to
+     * [Eligibility.NoSecureLock]. A brief flap (an OEM keyguard or biometric HAL
+     * answering wrongly once) must not open the app: when eligibility returns,
+     * this lock is restored instead of starting unlocked.
+     */
+    private var lapsedLock: LockReason? = null
+
     private data class Guard(val id: Long, val kind: ExternalKind, val since: Long)
 
     init {
@@ -112,15 +120,35 @@ class AppLockPolicy(
      */
     fun update(settings: LockSettings, eligibility: Eligibility) {
         val wasActive = active
+        val before = state
         this.settings = settings
         this.eligibility = eligibility
         if (!active) {
+            if (wasActive && lapses) {
+                lapsedLock = when (before) {
+                    is LockState.Locked -> before.reason
+                    LockState.Curtain -> LockReason.Fold
+                    else -> null
+                }
+            } else if (!lapses) {
+                lapsedLock = null
+            }
             state = baseline()
         } else if (!wasActive) {
-            state = LockState.Unlocked
-            lastInteraction = clock()
+            val restore = lapsedLock
+            lapsedLock = null
+            if (restore != null) {
+                lock(restore)
+            } else {
+                state = LockState.Unlocked
+                lastInteraction = clock()
+            }
         }
     }
+
+    /** Inactive only because the secure lock screen seems gone; the user still wants the lock. */
+    private val lapses: Boolean
+        get() = settings.enabled && eligibility == Eligibility.NoSecureLock
 
     fun onStart() {
         started = true
@@ -128,7 +156,7 @@ class AppLockPolicy(
         val guarded = stoppedGuards
         stoppedAt = null
         stoppedGuards = emptyList()
-        if (since == null || !active || state.hidesContent) return
+        if (since == null || state.hidesContent) return
         val away = clock() - since
         val allowed = if (guarded.isNotEmpty()) {
             // An activity we started was in front: its own deadline replaces the grace period.
@@ -137,7 +165,11 @@ class AppLockPolicy(
             settings.graceMillis
         }
         val expired = if (guarded.isEmpty() && settings.graceMillis == 0L) true else away > allowed
-        if (expired) lock(LockReason.Background) else lastInteraction = clock()
+        when {
+            active -> if (expired) lock(LockReason.Background) else lastInteraction = clock()
+            // Eligibility flapped while we were away: remember the due lock for when it returns.
+            lapses && expired -> lapsedLock = LockReason.Background
+        }
     }
 
     fun onStop() {
@@ -155,6 +187,7 @@ class AppLockPolicy(
     /** The screen went off: lock at once, even during an external flow (its result is kept, not dropped). */
     fun onScreenOff() {
         if (active && !state.hidesContent) lock(LockReason.ScreenOff)
+        if (lapses && lapsedLock == null) lapsedLock = LockReason.ScreenOff
     }
 
     fun touch() {
@@ -162,19 +195,11 @@ class AppLockPolicy(
     }
 
     /**
-     * The 值守台 (§10.4 ④) is meant to sit unattended on a table: while it is
-     * shown the idle timeout is paused (it never reveals a code without
-     * authentication). Leaving it restarts the idle clock.
+     * Called every second while the app is in front. Nothing pauses the idle
+     * timeout, not even the 值守台 with the screen kept on (§10.4 ④ 常亮不阻止应用锁).
      */
-    var idleSuspended: Boolean = false
-        set(value) {
-            field = value
-            lastInteraction = clock()
-        }
-
-    /** Called every second while the app is in front. */
     fun tick() {
-        if (!started || !active || state != LockState.Unlocked || idleSuspended) return
+        if (!started || !active || state != LockState.Unlocked) return
         val idle = settings.idleMillis ?: return
         val now = clock()
         if (guards.any { now - it.since <= it.kind.deadlineMillis }) return

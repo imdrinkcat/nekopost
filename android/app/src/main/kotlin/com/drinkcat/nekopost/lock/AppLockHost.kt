@@ -24,9 +24,6 @@ import com.drinkcat.nekopost.system.DeviceAuth
 /** The app lock as the content sees it (auto-read waits for unlock; danger dialogs close on lock). */
 val LocalAppLock = compositionLocalOf { LockUiState(LockState.Disabled, 0) }
 
-/** Pauses the idle timeout while true (the 值守台); a no-op outside the app. */
-val LocalIdleSuspender = compositionLocalOf<(Boolean) -> Unit> { {} }
-
 /**
  * Connects [AppLock] to an activity: shows [LockGate], opens the system prompt
  * by itself once per lock episode while this window has focus (not again after
@@ -69,7 +66,7 @@ fun AppLockHost(lock: AppLock, fold: FoldState, content: @Composable () -> Unit)
         lastPosture = fold.posture
     }
     DisposableEffect(Unit) { onDispose { signal?.cancel() } }
-    CompositionLocalProvider(LocalAppLock provides ui, LocalIdleSuspender provides lock::suspendIdle) {
+    CompositionLocalProvider(LocalAppLock provides ui) {
         LockGate(ui.state, fold, issue, onUnlock = ::prompt) { content() }
     }
 }

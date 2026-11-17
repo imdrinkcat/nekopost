@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
 import android.app.NotificationManager
+import android.app.KeyguardManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -36,6 +37,13 @@ object InboxNotifier {
     const val SUMMARY_TAG = "nekopost.summary"
     const val TEST_TAG = "nekopost.test"
     private const val EXTRA_LINE = "com.drinkcat.nekopost.SUMMARY_LINE"
+    private const val EXTRA_REDACTED = "com.drinkcat.nekopost.REDACTED"
+
+    /** The device is locked (keyguard showing or not yet unlocked since boot). */
+    fun isDeviceLocked(context: Context): Boolean {
+        val keyguard = context.getSystemService(KeyguardManager::class.java) ?: return true
+        return keyguard.isDeviceLocked || keyguard.isKeyguardLocked
+    }
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -65,7 +73,7 @@ object InboxNotifier {
     /** The rich notification of one message; replaces its placeholder. */
     fun post(context: Context, item: InboxMessage, showContent: Boolean, copied: Boolean = false) {
         val texts = NotificationTexts.from(context)
-        val spec = NotificationFormatter.format(item, showContent, texts)
+        val spec = NotificationFormatter.format(item, showContent, texts, deviceLocked = isDeviceLocked(context))
         val builder = base(context, spec.channel, spec.title, if (copied) texts.copied else spec.text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(if (copied) texts.copied else spec.bigText))
             .setSubText(spec.subText)
@@ -74,7 +82,12 @@ object InboxNotifier {
             .setContentIntent(openIntent(context, item.id))
             .setGroup(NotificationFormatter.GROUP)
             .setOnlyAlertOnce(true)
-            .addExtras(Bundle().apply { putString(EXTRA_LINE, spec.summaryLine) })
+            .addExtras(
+                Bundle().apply {
+                    putString(EXTRA_LINE, spec.summaryLine)
+                    putBoolean(EXTRA_REDACTED, spec.redacted)
+                },
+            )
         spec.whenMillis?.let { builder.setWhen(it).setShowWhen(true) }
         if (spec.copyAction && !copied) {
             builder.addAction(
@@ -93,6 +106,22 @@ object InboxNotifier {
         if (item.hasCode) builder.setTimeoutAfter(30 * 60_000L)
         notify(context, item.id, builder.build())
         refreshSummary(context)
+    }
+
+    /**
+     * After the unlock (ACTION_USER_PRESENT): notifications posted while locked
+     * get their sender, text and 复制验证码 back, quietly (setOnlyAlertOnce).
+     * [load] reads the message from the encrypted cache.
+     */
+    suspend fun revealAfterUnlock(context: Context, showContent: Boolean, load: suspend (String) -> InboxMessage?) {
+        if (isDeviceLocked(context)) return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val redacted = runCatching { manager.activeNotifications.toList() }.getOrDefault(emptyList())
+            .filter { it.tag != null && messagePattern.matches(it.tag) && it.notification.extras.getBoolean(EXTRA_REDACTED) }
+        for (note in redacted) {
+            val item = runCatching { load(note.tag) }.getOrNull() ?: continue
+            post(context, item, showContent)
+        }
     }
 
     /** The fetch did not finish in time: a quiet generic notice, replaced by [post] later. */

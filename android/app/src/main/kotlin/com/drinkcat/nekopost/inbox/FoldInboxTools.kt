@@ -55,7 +55,7 @@ import com.drinkcat.nekopost.core.ui.theme.NekoTextStyles
 import com.drinkcat.nekopost.core.ui.theme.StatusTone
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
 import com.drinkcat.nekopost.inbox.ui.SourceAvatar
-import com.drinkcat.nekopost.lock.LocalIdleSuspender
+import com.drinkcat.nekopost.inbox.ui.senderLabel
 import com.drinkcat.nekopost.system.AuthOutcome
 import com.drinkcat.nekopost.system.DeviceAuth
 import com.drinkcat.nekopost.ui.common.SubScreenTopBar
@@ -153,7 +153,7 @@ fun SortingDeskContent(
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.m)) {
                                 SourceAvatar(item, 40.dp)
                                 Column(Modifier.weight(1f)) {
-                                    Text(item.displaySender, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(item.senderLabel(), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(
                                         listOf(item.sourceName, item.category).filter(String::isNotBlank).joinToString(" · "),
                                         style = MaterialTheme.typography.bodySmall,
@@ -312,7 +312,7 @@ private fun WatchLine(row: InboxMessage) {
         SourceAvatar(row, 36.dp)
         Text(
             if (row.hasCode) {
-                stringResource(R.string.watch_code_arrived, row.sourceName.ifBlank { row.displaySender })
+                stringResource(R.string.watch_code_arrived, row.sourceName.ifBlank { row.category })
             } else {
                 listOf(row.displaySender, row.category).filter(String::isNotBlank).joinToString(" · ")
             },
@@ -353,14 +353,9 @@ internal fun WatchDesk(controller: DeviceInbox, state: InboxState, fold: FoldSta
     var visibleCode by remember { mutableStateOf<String?>(null) }
     var prompt by remember { mutableStateOf<CancellationSignal?>(null) }
     val flipTitle = stringResource(R.string.watch_flip_title)
-    val suspendIdle = LocalIdleSuspender.current
-    DisposableEffect(Unit) {
-        suspendIdle(true)
-        onDispose {
-            suspendIdle(false)
-            prompt?.cancel()
-        }
-    }
+    // Keeping the screen on never pauses the app lock (§10.4 ④ 常亮不阻止应用锁): the idle
+    // timeout runs as usual, and once it fires the whole app, desk included, is locked.
+    DisposableEffect(Unit) { onDispose { prompt?.cancel() } }
     LaunchedEffect(visibleCode) {
         if (visibleCode != null) {
             delay(30_000)

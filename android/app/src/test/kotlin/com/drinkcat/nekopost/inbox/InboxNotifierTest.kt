@@ -2,6 +2,7 @@ package com.drinkcat.nekopost.inbox
 
 import android.Manifest
 import android.app.Application
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
@@ -22,6 +23,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.time.Instant
+import kotlinx.coroutines.runBlocking
 
 /** Posting, grouping, privacy and clearing of message notifications. */
 @RunWith(RobolectricTestRunner::class)
@@ -144,5 +146,30 @@ class InboxNotifierTest {
         InboxNotifier.post(app, otp, showContent = true)
         assertNull(posted(otp.id))
         assertFalse(InboxNotifier.canPost(app as Context))
+    }
+
+    @Test
+    fun postedWhileLockedIsRedactedAndRevealedAfterTheUnlock() {
+        val keyguard = shadowOf(app.getSystemService(KeyguardManager::class.java))
+        keyguard.setIsDeviceLocked(true)
+        keyguard.setKeyguardLocked(true)
+        InboxNotifier.post(app, otp, showContent = true)
+        val locked = posted(otp.id)!!
+        val shown = locked.extras.getCharSequence(Notification.EXTRA_TITLE).toString() +
+            locked.extras.getCharSequence(Notification.EXTRA_TEXT) + locked.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
+        assertFalse(shown.contains("482913"))
+        assertFalse(shown.contains("95555"))
+        assertTrue(locked.actions.none { it.title.toString() == "复制验证码" })
+
+        // Still locked: nothing is revealed.
+        runBlocking { InboxNotifier.revealAfterUnlock(app, showContent = true) { otp } }
+        assertFalse(posted(otp.id)!!.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("482913"))
+
+        keyguard.setIsDeviceLocked(false)
+        keyguard.setKeyguardLocked(false)
+        runBlocking { InboxNotifier.revealAfterUnlock(app, showContent = true) { id -> otp.takeIf { it.id == id } } }
+        val open = posted(otp.id)!!
+        assertEquals("95555", open.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertTrue(open.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("482913"))
     }
 }

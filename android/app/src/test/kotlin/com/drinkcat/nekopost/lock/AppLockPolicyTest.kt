@@ -92,24 +92,24 @@ class AppLockPolicyTest {
     }
 
     @Test
-    fun idleNeverAndWatchDeskSuspendIdle() {
+    fun idleNever() {
         val never = unlockedInFront(LockSettings(idleMillis = null))
         advance(60 * 60_000L)
         never.tick()
         assertEquals(LockState.Unlocked, never.state)
+    }
 
-        val watch = unlockedInFront(LockSettings(idleMillis = 60_000))
-        watch.idleSuspended = true
-        advance(10 * 60_000L)
-        watch.tick()
-        assertEquals(LockState.Unlocked, watch.state)
-        // Leaving the watch desk restarts the idle clock rather than locking at once.
-        watch.idleSuspended = false
-        watch.tick()
-        assertEquals(LockState.Unlocked, watch.state)
-        advance(61_000)
-        watch.tick()
-        assertEquals(LockState.Locked(LockReason.Idle), watch.state)
+    @Test
+    fun watchDeskLeftOnTheTableStillLocks() {
+        // §10.4 ④ 常亮不阻止应用锁: the screen is kept on and nobody touches the phone;
+        // nothing pauses the idle clock, so leaving the desk afterwards needs the owner.
+        val p = unlockedInFront(LockSettings(idleMillis = 5 * 60_000L))
+        repeat(6 * 60) {
+            advance(1_000)
+            p.tick()
+        }
+        assertEquals(LockState.Locked(LockReason.Idle), p.state)
+        assertTrue(p.state.hidesContent)
     }
 
     // ------------------------------------------------ 扫码的时候不能被打断
@@ -165,7 +165,7 @@ class AppLockPolicyTest {
         p.onResume()
         assertEquals(LockState.Unlocked, p.state)
         p.expectExternal(ExternalKind.SystemSettings)
-        goBackground(p, 4 * 60_000L)
+        goBackground(p, 2 * 60_000L)
         p.onResume()
         assertEquals(LockState.Unlocked, p.state)
     }
@@ -253,5 +253,44 @@ class AppLockPolicyTest {
         assertEquals(LockState.Disabled, p.state)
         p.update(LockSettings(enabled = true), Eligibility.Eligible)
         assertEquals(LockState.Unlocked, p.state)
+    }
+
+    @Test
+    fun eligibilityFlapWhileAwayKeepsTheDueLock() {
+        // onStop, then on return the keyguard answers "not secure" once, then recovers.
+        val p = unlockedInFront()
+        p.onStop()
+        advance(10 * 60_000L)
+        p.update(LockSettings(), Eligibility.NoSecureLock)
+        p.onStart()
+        assertEquals(LockState.Unavailable, p.state)
+        p.update(LockSettings(), Eligibility.Eligible)
+        assertEquals(LockState.Locked(LockReason.Background), p.state)
+    }
+
+    @Test
+    fun eligibilityFlapWhileLockedRestoresTheLock() {
+        val p = policy()
+        p.onStart()
+        p.update(LockSettings(), Eligibility.NoSecureLock)
+        p.update(LockSettings(), Eligibility.Eligible)
+        assertEquals(LockState.Locked(LockReason.ColdStart), p.state)
+    }
+
+    @Test
+    fun eligibilityFlapDuringAShortTripStaysUnlocked() {
+        val p = unlockedInFront()
+        p.onStop()
+        advance(5_000)
+        p.update(LockSettings(), Eligibility.NoSecureLock)
+        p.onStart()
+        p.update(LockSettings(), Eligibility.Eligible)
+        assertEquals(LockState.Unlocked, p.state)
+    }
+
+    @Test
+    fun guardDeadlinesStayShort() {
+        // A guard replaces the grace period for the whole trip, so it must stay short.
+        ExternalKind.entries.forEach { assertTrue("$it", it.deadlineMillis <= 5 * 60_000L) }
     }
 }

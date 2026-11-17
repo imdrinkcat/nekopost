@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -25,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -52,6 +54,7 @@ import com.drinkcat.nekopost.ui.common.DangerRow
 import com.drinkcat.nekopost.ui.common.GroupDivider
 import com.drinkcat.nekopost.ui.common.NavRow
 import com.drinkcat.nekopost.ui.common.SettingsGroup
+import com.drinkcat.nekopost.ui.common.LocalSpacedSettingsColumn
 import com.drinkcat.nekopost.ui.common.SettingsSection
 import com.drinkcat.nekopost.ui.forward.HealthPill
 import com.drinkcat.nekopost.ui.forward.HealthRing
@@ -298,10 +301,11 @@ private fun IdentityCard(state: ShellUiState, selected: Boolean, onClick: () -> 
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-            }
-            if (e != null) {
-                Spacer(Modifier.width(NekoTokens.Spacing.s))
-                HealthPill(state.forwarder)
+                // On its own line: the host is never cut off by the pill in a narrow list pane.
+                if (e != null) {
+                    Spacer(Modifier.height(NekoTokens.Spacing.xs))
+                    HealthPill(state.forwarder)
+                }
             }
         }
     }
@@ -362,6 +366,7 @@ private fun SettingsDetail(
                     .padding(bottom = NekoTokens.Spacing.xl),
                 verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.m),
             ) {
+                CompositionLocalProvider(LocalSpacedSettingsColumn provides true) {
                 when (item) {
                     SettingsItem.Account -> AccountPane(state, actions)
                     SettingsItem.Notifications -> NotificationsPane(state, actions.settings)
@@ -369,6 +374,7 @@ private fun SettingsDetail(
                     SettingsItem.AppLock -> AppLockPane(state.lock, actions.settings)
                     SettingsItem.About -> AboutPane(state, memory, actions.onCopy)
                     else -> Unit
+                }
                 }
             }
         }

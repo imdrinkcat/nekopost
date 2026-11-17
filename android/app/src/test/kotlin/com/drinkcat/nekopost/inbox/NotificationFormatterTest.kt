@@ -146,4 +146,18 @@ class NotificationFormatterTest {
         assertEquals("C", NotificationFormatter.avatarLabel("", "ci"))
         assertEquals("?", NotificationFormatter.avatarLabel("", " "))
     }
+
+    @Test
+    fun postedWhileLockedCarriesOnlyThePublicText() {
+        val spec = NotificationFormatter.format(otp, showContent = true, texts = texts, deviceLocked = true)
+        val everything = listOf(spec.title, spec.text, spec.bigText, spec.subText.orEmpty(), spec.summaryLine, spec.avatarLabel).joinToString("|")
+        assertFalse(everything.contains("482913"))
+        assertFalse(everything.contains("95555"))
+        assertFalse(everything.contains("招商"))
+        assertEquals("猫邮局", spec.title)
+        assertEquals("1 条验证码", spec.text)
+        assertFalse(spec.copyAction)
+        assertTrue(spec.redacted)
+        assertFalse(NotificationFormatter.format(otp, showContent = true, texts = texts).redacted)
+    }
 }

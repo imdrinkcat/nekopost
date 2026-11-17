@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
+import java.time.Instant
 import java.security.Signature
 
 /**
@@ -201,7 +202,10 @@ internal class AdminController(
                     require(bytes.size < 65536)
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
                 }.getOrNull()
-                mutable.update { it.copy(pairing = PairingUi(id = id, name = name, shortCode = reply.optString("short_code"), qr = qr)) }
+                val expires = Instant.now().plusSeconds(reply.optLong("expires_in", 300).coerceIn(0, 3600))
+                mutable.update {
+                    it.copy(pairing = PairingUi(id = id, name = name, shortCode = reply.optString("short_code"), qr = qr, expiresAt = expires))
+                }
                 follow(id)
             } catch (e: CancellationException) {
                 throw e
@@ -223,6 +227,7 @@ internal class AdminController(
                     val s = inbox.manage("GET", listOf("v1", "admin", "pairings", id))
                     val choices = s.optJSONArray("choices").strings().filter { Regex("[0-9]{2}").matches(it) }
                     val state = s.optString("state")
+                    val expires = InboxMessage.parseTimestamp(s.optString("expires_at"))
                     mutable.update { ui ->
                         val p = ui.pairing?.takeIf { it.id == id } ?: return@update ui
                         ui.copy(
@@ -230,10 +235,12 @@ internal class AdminController(
                                 state = state,
                                 choices = choices,
                                 claimedBy = listOf(s.optString("name"), s.optString("model")).filter(String::isNotBlank).joinToString(" · ").ifBlank { null },
+                                expiresAt = expires ?: p.expiresAt,
+                                checkedAt = Instant.now(),
                             ),
                         )
                     }
-                    if (state in setOf("done", "rejected", "contested", "expired")) break
+                    if (state in setOf("done", "rejected", "contested", "expired", "cancelled")) break
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -261,6 +268,23 @@ internal class AdminController(
                 mutable.update { it.copy(pairing = it.pairing?.copy(result = failure(e))) }
             } finally {
                 mutable.update { it.copy(pairing = it.pairing?.copy(deciding = false)) }
+            }
+        }
+    }
+
+    /** 作废配对码: DELETE /v1/admin/pairings/{id} while nobody has claimed it (no biometric needed). */
+    fun cancelPairing() {
+        val p = mutable.value.pairing ?: return
+        scope.launch {
+            try {
+                inbox.manage("DELETE", listOf("v1", "admin", "pairings", p.id))
+                poll?.cancel()
+                poll = null
+                mutable.update { ui -> ui.copy(pairing = ui.pairing?.takeIf { it.id == p.id }?.copy(state = "cancelled")) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mutable.update { ui -> ui.copy(pairing = ui.pairing?.copy(result = failure(e))) }
             }
         }
     }

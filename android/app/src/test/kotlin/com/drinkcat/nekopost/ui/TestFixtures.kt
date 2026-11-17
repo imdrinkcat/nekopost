@@ -129,7 +129,12 @@ object Samples {
         sources = listOf(AdminSource("fold8", "Fold8 主力机", true), AdminSource("github", "GitHub Actions", true)),
     )
 
-    val pairingOpen = PairingUi(id = "p_ABCDEFGHIJKLMNOPQRSTUVWXYZ", name = "iPhone", shortCode = "7K4M-2Q9X-HD")
+    val pairingOpen = PairingUi(
+        id = "p_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        name = "iPhone",
+        shortCode = "7K4M-2Q9X-HD",
+        expiresAt = FakeForwarderData.Now.plusSeconds(4 * 60 + 12),
+    )
     val pairingClaimed = pairingOpen.copy(state = "claimed", claimedBy = "iPhone · iPhone 17", choices = listOf("27", "63", "81"))
 
     fun snapshot(

@@ -123,24 +123,29 @@ object NekoTokens {
     }
 
     /**
-     * Source avatars in the inbox and on notifications: tonal (container,
-     * content) pairs taken from the palettes above, picked by a stable hash of
-     * the source so a sender always gets the same colour.
+     * Sender avatars in the inbox and on notifications: tonal (container,
+     * content) pairs picked by a stable hash of the sender, so a sender always
+     * gets the same colour. Hues of their own: The status colours (§9.3 retrying amber,
+     * uncertain lavender) and the solid primary of the verification code stay
+     * exclusive to their meaning, so an avatar never reads as a state.
      */
     object Avatar {
+        val roseContainerLight = Color(0xFFFFD9E2)
+        val roseLight = Color(0xFF7E2949)
+        val indigoContainerLight = Color(0xFFDFE0FF)
+        val indigoLight = Color(0xFF3A3F8F)
+
         val light = listOf(
-            Light.primaryContainer to Light.onPrimaryContainer,
             Light.secondaryContainer to Light.onSecondaryContainer,
             Light.tertiaryContainer to Light.onTertiaryContainer,
-            Status.retryingContainerLight to Status.retryingLight,
-            Status.uncertainContainerLight to Status.uncertainLight,
+            roseContainerLight to roseLight,
+            indigoContainerLight to indigoLight,
         )
         val dark = listOf(
-            Dark.primaryContainer to Dark.onPrimaryContainer,
             Dark.secondaryContainer to Dark.onSecondaryContainer,
             Dark.tertiaryContainer to Dark.onTertiaryContainer,
-            Status.retryingContainerDark to Status.retryingDark,
-            Status.uncertainContainerDark to Status.uncertainDark,
+            roseLight to roseContainerLight,
+            indigoLight to indigoContainerLight,
         )
 
         fun index(key: String): Int = Math.floorMod(key.hashCode(), light.size)

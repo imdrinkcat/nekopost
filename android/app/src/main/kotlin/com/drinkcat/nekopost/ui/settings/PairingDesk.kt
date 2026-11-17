@@ -26,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -49,7 +51,9 @@ import com.drinkcat.nekopost.core.ui.component.StatusPill
 import com.drinkcat.nekopost.core.ui.theme.NekoTextStyles
 import com.drinkcat.nekopost.core.ui.theme.StatusTone
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
+import com.drinkcat.nekopost.ui.LocalNow
 import com.drinkcat.nekopost.ui.common.FootNote
+import java.time.Duration
 import kotlinx.coroutines.delay
 
 /** The pairing has not been used, rejected or expired yet. */
@@ -69,15 +73,18 @@ fun PairingDeskContent(
     showQrHere: Boolean,
     onChoose: (String) -> Unit,
     onCopy: (String) -> Unit,
+    onCancel: () -> Unit,
     onDone: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().testTag("pairing_desk"), verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.m)) {
-        StatusPill(stateText(ui), stateTone(ui), large = true)
+        // A state, not a button: the small pill.
+        StatusPill(stateText(ui), stateTone(ui))
         when {
             ui.state == "claimed" && ui.choices.isNotEmpty() -> NumberMatch(ui, onChoose)
             ui.live -> {
                 if (showQrHere) HoldQr(ui)
                 CodeCard(ui, onCopy)
+                Expiry(ui, onCancel)
                 FootNote(stringResource(R.string.pairing_desk_where))
             }
             else -> {
@@ -113,6 +120,7 @@ private fun stateText(ui: PairingUi): String = stringResource(
         "done" -> R.string.pairing_state_done
         "rejected" -> R.string.pairing_state_rejected
         "contested" -> R.string.pairing_state_contested
+        "cancelled" -> R.string.pairing_state_cancelled
         else -> R.string.pairing_state_expired
     },
 )
@@ -192,6 +200,37 @@ private fun CodeCard(ui: PairingUi, onCopy: (String) -> Unit) {
                 Spacer(Modifier.width(NekoTokens.Spacing.xs))
                 Text(stringResource(R.string.pairing_copy))
             }
+        }
+    }
+}
+
+/** 「4 分钟后失效」 and 作废配对码 (the code is valid for 5 minutes; voiding it needs no biometric). */
+@Composable
+private fun Expiry(ui: PairingUi, onCancel: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        val expires = ui.expiresAt
+        val text = if (expires != null && ui.state == "open") {
+            val seconds = Duration.between(LocalNow.current(), expires).seconds
+            when {
+                seconds <= 0 -> stringResource(R.string.pairing_expires_now)
+                seconds < 60 -> stringResource(R.string.pairing_expires_seconds, seconds.toInt())
+                else -> stringResource(R.string.pairing_expires_minutes, ((seconds + 59) / 60).toInt())
+            }
+        } else {
+            ""
+        }
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).padding(start = NekoTokens.Spacing.xs).testTag("pairing_expiry"),
+        )
+        if (ui.state == "open") {
+            TextButton(
+                onClick = onCancel,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.heightIn(min = NekoTokens.Touch.minTarget).testTag("pairing_cancel"),
+            ) { Text(stringResource(R.string.pairing_cancel)) }
         }
     }
 }

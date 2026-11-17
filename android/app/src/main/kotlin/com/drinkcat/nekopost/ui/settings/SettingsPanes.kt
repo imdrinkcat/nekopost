@@ -27,6 +27,7 @@ import com.drinkcat.nekopost.ui.common.NoticeCard
 import com.drinkcat.nekopost.ui.common.SettingsGroup
 import com.drinkcat.nekopost.ui.common.SettingsSection
 import com.drinkcat.nekopost.ui.common.SwitchRow
+import com.drinkcat.nekopost.ui.common.StaticValueRow
 import com.drinkcat.nekopost.ui.common.ValueRow
 import com.drinkcat.nekopost.ui.formatDateTime
 import com.drinkcat.nekopost.ui.shell.ShellActions
@@ -79,7 +80,8 @@ fun AccountPane(state: ShellUiState, actions: ShellActions) {
     } else {
         SettingsGroup {
             InfoRow(stringResource(R.string.account_device_name), d.name.ifBlank { "—" })
-            InfoRow(stringResource(R.string.enrollment_server), d.serverHost, mono = true)
+            // The server once: only repeated here when the two identities use different servers.
+            if (e == null || e.serverHost != d.serverHost) InfoRow(stringResource(R.string.enrollment_server), d.serverHost, mono = true)
             InfoRow(stringResource(R.string.account_device_role), roleText(d))
             InfoRow(stringResource(R.string.account_device_id), d.deviceId.take(12) + "…", mono = true)
         }
@@ -264,7 +266,7 @@ fun AppLockPane(lock: LockSettingsUi, actions: SettingsActions) {
             )
         }
         GroupDivider(inset = false)
-        InfoRow(stringResource(R.string.lock_settings_screen_off), stringResource(R.string.lock_settings_screen_off_value))
+        StaticValueRow(stringResource(R.string.lock_settings_screen_off), stringResource(R.string.lock_settings_screen_off_value))
     }
     FootNote(stringResource(R.string.lock_settings_scope))
     if (lock.foldable) {

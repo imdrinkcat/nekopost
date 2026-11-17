@@ -23,7 +23,7 @@ internal class DeviceVault(private val context: Context) {
             .build()
         if (!manager.isUsingKeystore) {
             context.deleteSharedPreferences("nekopost_inbox_keyset")
-            error("安全存储不可用")
+            error("secure storage unavailable")
         }
         return manager.keysetHandle.getPrimitive(RegistryConfiguration.get(), Aead::class.java).also {
             primitive = it

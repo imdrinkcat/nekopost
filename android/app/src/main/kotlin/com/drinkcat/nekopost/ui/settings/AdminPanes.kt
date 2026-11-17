@@ -21,7 +21,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
@@ -42,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +58,7 @@ import com.drinkcat.nekopost.R
 import com.drinkcat.nekopost.core.ui.component.EmptyState
 import com.drinkcat.nekopost.core.ui.component.HoldToConfirmButton
 import com.drinkcat.nekopost.core.ui.component.NekoIcons
+import com.drinkcat.nekopost.ui.common.LocalSpacedSettingsColumn
 import com.drinkcat.nekopost.core.ui.component.StatusPill
 import com.drinkcat.nekopost.core.ui.theme.NekoTextStyles
 import com.drinkcat.nekopost.core.ui.theme.StatusTone
@@ -107,9 +108,15 @@ fun AdminPane(
 }
 
 @Composable
-private fun Page(title: String, onBack: (() -> Unit)?, tag: String, content: @Composable () -> Unit) {
+private fun Page(
+    title: String,
+    onBack: (() -> Unit)?,
+    tag: String,
+    trailing: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     Column(Modifier.fillMaxSize().testTag(tag)) {
-        SubScreenTopBar(title, onBack)
+        SubScreenTopBar(title, onBack, trailing = trailing)
         Column(
             Modifier
                 .weight(1f)
@@ -117,7 +124,7 @@ private fun Page(title: String, onBack: (() -> Unit)?, tag: String, content: @Co
                 .padding(horizontal = NekoTokens.Spacing.l)
                 .padding(bottom = NekoTokens.Spacing.xl),
             verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.m),
-        ) { content() }
+        ) { CompositionLocalProvider(LocalSpacedSettingsColumn provides true) { content() } }
     }
 }
 
@@ -150,7 +157,7 @@ private fun AdminHome(ui: AdminUi, onBack: (() -> Unit)?, onOpen: (AdminPage) ->
             GroupDivider()
             NavRow(stringResource(R.string.admin_sources), stringResource(R.string.admin_sources_detail), NekoIcons.PostBox, onClick = { onOpen(AdminPage.Sources) })
             GroupDivider()
-            NavRow(stringResource(R.string.admin_keys), stringResource(R.string.admin_keys_detail), Icons.Filled.Lock, onClick = { onOpen(AdminPage.Keys) })
+            NavRow(stringResource(R.string.admin_keys), stringResource(R.string.admin_keys_detail), NekoIcons.Key, onClick = { onOpen(AdminPage.Keys) })
             GroupDivider()
             NavRow(stringResource(R.string.admin_audit), stringResource(R.string.admin_audit_detail), Icons.Filled.Person, onClick = { onOpen(AdminPage.Audit) })
             GroupDivider()
@@ -164,12 +171,13 @@ private fun AdminHome(ui: AdminUi, onBack: (() -> Unit)?, onOpen: (AdminPage) ->
 @Composable
 private fun DevicesPage(ui: AdminUi, device: ThisDeviceUi?, actions: AdminActions, onBack: () -> Unit, onAdd: () -> Unit) {
     var revoke by rememberSaveable(LocalAppLock.current.epoch) { mutableStateOf<String?>(null) }
-    Page(stringResource(R.string.admin_devices), onBack, "admin_devices") {
-        Button(onClick = onAdd, modifier = Modifier.fillMaxWidth().heightIn(min = NekoTokens.Touch.minTarget)) {
-            Icon(Icons.Filled.Add, contentDescription = null)
-            Spacer(Modifier.width(NekoTokens.Spacing.s))
-            Text(stringResource(R.string.admin_add_device))
+    // The big 添加设备 button lives on 设备与管理; here a ＋ in the top bar is enough.
+    val add: @Composable () -> Unit = {
+        IconButton(onClick = onAdd, modifier = Modifier.testTag("admin_devices_add")) {
+            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.admin_add_device))
         }
+    }
+    Page(stringResource(R.string.admin_devices), onBack, "admin_devices", trailing = add) {
         Feedback(ui, actions)
         val list = ui.devices
         when {
@@ -263,7 +271,14 @@ private fun AddDevicePage(ui: AdminUi, actions: AdminActions, tabletop: Boolean,
     val pairing = ui.pairing
     if (pairing != null) {
         Page(stringResource(R.string.admin_add_device), onBack, "admin_pairing") {
-            PairingDeskContent(pairing, showQrHere = !tabletop, onChoose = actions.onChoosePairing, onCopy = actions.onCopySecret, onDone = onBack)
+            PairingDeskContent(
+                pairing,
+                showQrHere = !tabletop,
+                onChoose = actions.onChoosePairing,
+                onCopy = actions.onCopySecret,
+                onCancel = actions.onCancelPairing,
+                onDone = onBack,
+            )
         }
         return
     }

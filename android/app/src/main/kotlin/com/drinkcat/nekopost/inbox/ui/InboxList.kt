@@ -3,6 +3,13 @@
 package com.drinkcat.nekopost.inbox.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.drinkcat.nekopost.ui.common.NoticeBar
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.AssistChip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -73,7 +80,6 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -321,13 +327,23 @@ private fun FilterRow(state: InboxUiState, mode: PaneMode, actions: InboxActions
         }
         // Tabletop: the fold tools sit on the lower half, next to the filters.
         if (mode == PaneMode.TopBottom) {
-            Spacer(Modifier.width(NekoTokens.Spacing.s))
-            FilterChip(selected = false, onClick = { actions.onOpenTool(InboxSubScreen.Watch) }, label = { Text(stringResource(R.string.inbox_tool_watch)) })
+            // Tools, not filters: assist chips with an icon, after a divider.
+            VerticalDivider(Modifier.height(24.dp).padding(horizontal = NekoTokens.Spacing.xs))
+            ToolChip(stringResource(R.string.inbox_tool_watch), NekoIcons.CoverScreen) { actions.onOpenTool(InboxSubScreen.Watch) }
             if (state.canAdmin) {
-                FilterChip(selected = false, onClick = { actions.onOpenTool(InboxSubScreen.Sorting) }, label = { Text(stringResource(R.string.inbox_tool_sorting)) })
+                ToolChip(stringResource(R.string.inbox_tool_sorting), NekoIcons.PostBox) { actions.onOpenTool(InboxSubScreen.Sorting) }
             }
         }
     }
+}
+
+@Composable
+private fun ToolChip(label: String, icon: ImageVector, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(label) },
+        leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize)) },
+    )
 }
 
 @Composable
@@ -335,7 +351,7 @@ private fun Banners(state: InboxUiState, actions: InboxActions) {
     val offline = state.offlineSince
     if (offline != null && state.rows.isNotEmpty()) {
         val hours = Duration.between(offline, LocalNow.current()).toHours().coerceAtLeast(0)
-        NoticeCard(
+        NoticeBar(
             text = if (hours < 1) {
                 stringResource(R.string.inbox_offline_recent)
             } else {
@@ -347,7 +363,7 @@ private fun Banners(state: InboxUiState, actions: InboxActions) {
             modifier = Modifier.padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.xs),
         )
     } else if (state.error != null && state.rows.isNotEmpty() && !state.revoked) {
-        NoticeCard(
+        NoticeBar(
             text = state.error,
             tone = StatusTone.Error,
             action = stringResource(R.string.action_retry),
@@ -515,7 +531,7 @@ fun MessageRow(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xxs)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            message.displaySender,
+                            message.senderLabel(),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = if (unread) FontWeight.Bold else FontWeight.Normal,
                             maxLines = 1,
@@ -531,12 +547,13 @@ fun MessageRow(
                             )
                         }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (message.hasCode && !message.expired) {
-                            CodeChip(onCopyCode)
-                            Spacer(Modifier.width(NekoTokens.Spacing.s))
-                        }
+                    // Fixed height: a row with a code is exactly as tall as any other row.
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(24.dp)) {
                         PreviewText(message, Modifier.weight(1f))
+                        if (message.hasCode && !message.expired) {
+                            Spacer(Modifier.width(NekoTokens.Spacing.s))
+                            CodeChip(copyLabel, onCopyCode)
+                        }
                         if (unread) {
                             Spacer(Modifier.width(NekoTokens.Spacing.s))
                             Box(
@@ -565,13 +582,12 @@ private fun PreviewText(message: InboxMessage, modifier: Modifier) {
         Text(
             stringResource(R.string.inbox_body_expired),
             style = MaterialTheme.typography.bodyMedium,
-            fontStyle = FontStyle.Italic,
             color = MaterialTheme.colorScheme.outline,
             maxLines = 1,
             modifier = modifier,
         )
     } else {
-        val text = message.preview.lineSequence().map(String::trim).firstOrNull(String::isNotBlank)
+        val text = maskedPreview(message.preview.lineSequence().map(String::trim).firstOrNull(String::isNotBlank))
             ?: message.category.ifBlank { message.sourceName }
         Text(
             text,
@@ -584,24 +600,52 @@ private fun PreviewText(message: InboxMessage, modifier: Modifier) {
     }
 }
 
-/** 「验证码」 with a copy icon: one tap copies the code (fetched if needed) to the sensitive clipboard. */
+/**
+ * The server masks codes as runs of 「*」; in a list that reads like a broken
+ * row, so the run becomes a neutral 「••••••」.
+ */
+internal fun maskedPreview(preview: String?): String? = preview?.replace(Regex("\\*{3,}"), "••••••")
+
+/**
+ * The name on the row. Once the body has expired the server no longer sends a
+ * sender; the row is then named by category and kind (「快递短信」), not by the
+ * forwarding phone, which would read as a message from the user's own phone.
+ */
 @Composable
-private fun CodeChip(onCopy: () -> Unit) {
-    Surface(
-        onClick = onCopy,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        modifier = Modifier.heightIn(min = 32.dp).testTag("code_chip"),
+fun InboxMessage.senderLabel(): String {
+    displaySender.takeIf(String::isNotBlank)?.let { return it }
+    val kindWord = stringResource(
+        when (kind) {
+            MessageKind.Sms -> R.string.inbox_kind_sms
+            MessageKind.Notification -> R.string.inbox_kind_notification
+            MessageKind.Note -> R.string.inbox_kind_note
+            MessageKind.Script -> R.string.inbox_kind_script
+        },
+    )
+    return if (category.isNotBlank()) stringResource(R.string.inbox_sender_category_kind, category, kindWord) else stringResource(R.string.inbox_sender_expired)
+}
+
+/**
+ * Solid primary (§9.3: the code is the most prominent element of the app), in
+ * the preview line's fixed 24dp so a row with a code is as tall as any other.
+ * The pill itself is a small target; the row's long-press menu and its
+ * accessibility action copy the code too.
+ */
+@Composable
+private fun CodeChip(label: String, onCopy: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xs),
+        modifier = Modifier
+            .height(24.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary)
+            .clickable(onClickLabel = label, role = Role.Button, onClick = onCopy)
+            .padding(horizontal = NekoTokens.Spacing.s)
+            .testTag("code_chip"),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xs),
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-        ) {
-            Icon(NekoIcons.Copy, contentDescription = null, modifier = Modifier.size(16.dp))
-            Text(stringResource(R.string.inbox_code_chip), style = MaterialTheme.typography.labelLarge)
-        }
+        Icon(NekoIcons.Copy, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
+        Text(stringResource(R.string.inbox_code_chip), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary)
     }
 }
 
@@ -614,9 +658,10 @@ fun SourceAvatar(message: InboxMessage, size: Dp) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val palette = if (dark) NekoTokens.Avatar.dark else NekoTokens.Avatar.light
     // One colour per conversation (sender), like a messaging app's contact avatars.
+    val name = message.senderLabel()
     val key = message.displaySender.ifBlank { message.sourceId }
     val (container, content) = palette[NekoTokens.Avatar.index(key)]
-    val label = NotificationFormatter.avatarLabel(message.sourceIcon, message.displaySender)
+    val label = NotificationFormatter.avatarLabel(message.sourceIcon, name)
     Box(Modifier.size(size)) {
         Surface(shape = CircleShape, color = container, contentColor = content, modifier = Modifier.size(size)) {
             Box(contentAlignment = Alignment.Center) {
@@ -658,7 +703,7 @@ private fun EnvelopeCard(message: InboxMessage, actions: InboxActions) {
         Row(Modifier.padding(NekoTokens.Spacing.m), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.inbox_envelope_title), style = MaterialTheme.typography.labelLarge)
-                Text(message.displaySender, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(message.senderLabel(), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             TextButton(onClick = { actions.onOpen(message.id) }) { Text(stringResource(R.string.inbox_envelope_open)) }
             TextButton(onClick = actions.onDismissEnvelope) { Text(stringResource(R.string.action_close)) }

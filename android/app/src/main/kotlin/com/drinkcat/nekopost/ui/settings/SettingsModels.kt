@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.drinkcat.nekopost.R
 import com.drinkcat.nekopost.core.ui.component.NekoIcons
 import com.drinkcat.nekopost.lock.FoldCloseBehavior
+import java.time.Instant
 
 /** Groups of the settings list, in order; [Danger] is always last. */
 enum class SettingsGroupKind(@param:StringRes val label: Int) {
@@ -150,6 +151,10 @@ data class PairingUi(
     val choices: List<String> = emptyList(),
     val deciding: Boolean = false,
     val result: String? = null,
+    /** The code stops working at this time (5 minutes after creation). */
+    val expiresAt: Instant? = null,
+    /** Last status poll: the desk recomposes with it, which keeps the countdown current. */
+    val checkedAt: Instant? = null,
 )
 
 /** 设置 › 设备与管理 as rendered; lists are null until loaded. */
@@ -183,6 +188,7 @@ data class AdminActions(
     val onRevokeKey: (String) -> Unit = {},
     val onChoosePairing: (String) -> Unit = {},
     val onClosePairing: () -> Unit = {},
+    val onCancelPairing: () -> Unit = {},
     val onDismissSecret: () -> Unit = {},
     val onCopySecret: (String) -> Unit = {},
 )

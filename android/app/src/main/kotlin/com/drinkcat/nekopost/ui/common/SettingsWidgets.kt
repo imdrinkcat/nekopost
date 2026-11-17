@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -30,6 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,16 +58,44 @@ import com.drinkcat.nekopost.core.ui.token.NekoTokens
  * toggleable as a whole.
  */
 
+/**
+ * True inside a settings page whose column already spaces its children
+ * (spacedBy 12dp): section headers then drop most of their own padding, so a
+ * header sits as close to its group as on the settings home.
+ */
+val LocalSpacedSettingsColumn = staticCompositionLocalOf { false }
+
 @Composable
 fun SettingsSection(label: String, modifier: Modifier = Modifier) {
+    val spaced = LocalSpacedSettingsColumn.current
     Text(
         label,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
         modifier = modifier
-            .padding(start = NekoTokens.Spacing.l, top = NekoTokens.Spacing.l, bottom = NekoTokens.Spacing.s)
+            .padding(
+                start = NekoTokens.Spacing.l,
+                top = if (spaced) NekoTokens.Spacing.xs else NekoTokens.Spacing.l,
+                bottom = if (spaced) 0.dp else NekoTokens.Spacing.s,
+            )
             .semantics { heading() },
     )
+}
+
+/** A fixed value in a settings group, styled like [ValueRow] but not clickable. */
+@Composable
+fun StaticValueRow(title: String, value: String, modifier: Modifier = Modifier) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.s),
+    ) {
+        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(NekoTokens.Spacing.m))
+        Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 /** Rows on one tonal container, separated by inset dividers ([GroupDivider]). */
@@ -310,6 +340,35 @@ fun FootNote(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun DangerRow(title: String, summary: String? = null, icon: ImageVector? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
     NavRow(title = title, summary = summary, icon = icon, danger = true, modifier = modifier, onClick = onClick)
+}
+
+/** A one-line tonal notice (offline, error) with a trailing action; about 48–56dp tall. */
+@Composable
+fun NoticeBar(
+    text: String,
+    tone: StatusTone,
+    modifier: Modifier = Modifier,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    val colors = NekopostTheme.colors.tone(tone)
+    Surface(shape = MaterialTheme.shapes.medium, color = colors.container, contentColor = colors.content, modifier = modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.heightIn(min = 48.dp).padding(start = NekoTokens.Spacing.l, end = NekoTokens.Spacing.xs),
+        ) {
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(vertical = NekoTokens.Spacing.s),
+            )
+            if (action != null && onAction != null) {
+                TextButton(onClick = onAction, colors = ButtonDefaults.textButtonColors(contentColor = colors.content)) { Text(action) }
+            }
+        }
+    }
 }
 
 /** A tonal notice (warning / info) with an optional action. */

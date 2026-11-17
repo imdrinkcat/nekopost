@@ -126,6 +126,16 @@ object NekoIcons {
         }
     }
 
+    /** A key: credentials (admin API keys). */
+    val Key: ImageVector by lazy {
+        icon("Key") {
+            circle(7.5f, 12f, 4f)
+            moveTo(11.5f, 12f); lineTo(21f, 12f)
+            moveTo(17f, 12f); lineTo(17f, 15.5f)
+            moveTo(20f, 12f); lineTo(20f, 14.5f)
+        }
+    }
+
     /** Terminal prompt: messages sent by scripts. */
     val Script: ImageVector by lazy {
         icon("Script") {

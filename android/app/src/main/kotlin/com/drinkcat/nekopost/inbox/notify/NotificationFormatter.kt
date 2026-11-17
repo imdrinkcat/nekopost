@@ -50,6 +50,8 @@ data class NotificationSpec(
     /** First letter / emoji for the large-icon avatar, and the key of its colour. */
     val avatarLabel: String,
     val avatarKey: String,
+    /** Posted while the device was locked: the content shows only the public text until the next unlock. */
+    val redacted: Boolean = false,
 )
 
 /**
@@ -74,8 +76,34 @@ object NotificationFormatter {
         else -> CHANNEL_MESSAGES
     }
 
-    fun format(item: InboxMessage, showContent: Boolean, texts: NotificationTexts): NotificationSpec {
+    /**
+     * [deviceLocked]: the phone is locked right now. Android shows the public
+     * version on the lock screen only when the user chose to hide sensitive
+     * content, and the default on AOSP and One UI shows everything; so a
+     * notification posted while locked carries the public text as its content
+     * too, and [InboxNotifier.revealAfterUnlock] replaces it after the unlock.
+     */
+    fun format(item: InboxMessage, showContent: Boolean, texts: NotificationTexts, deviceLocked: Boolean = false): NotificationSpec {
         val source = item.sourceName.ifBlank { item.sourceId }
+        val publicText = if (item.hasCode) texts.publicCode else texts.publicMessage
+        if (deviceLocked) {
+            return NotificationSpec(
+                id = item.id,
+                channel = channelFor(item),
+                title = texts.appTitle,
+                text = publicText,
+                subText = null,
+                bigText = publicText,
+                whenMillis = item.receivedAt?.toEpochMilli(),
+                publicTitle = texts.appTitle,
+                publicText = publicText,
+                copyAction = false,
+                summaryLine = publicText,
+                avatarLabel = avatarLabel("", texts.appTitle),
+                avatarKey = texts.appTitle,
+                redacted = true,
+            )
+        }
         val origin = listOf(source, item.category).filter(String::isNotBlank).joinToString(" · ").ifBlank { texts.newMessage }
         val sender = clip(item.displaySender.ifBlank { texts.appTitle }, TITLE_MAX)
         val code = item.otp?.takeIf(String::isNotBlank)
@@ -116,7 +144,7 @@ object NotificationFormatter {
             bigText = big,
             whenMillis = item.receivedAt?.toEpochMilli(),
             publicTitle = texts.appTitle,
-            publicText = if (item.hasCode) texts.publicCode else texts.publicMessage,
+            publicText = publicText,
             copyAction = code != null || (item.hasCode && !item.expired),
             summaryLine = summary,
             avatarLabel = avatarLabel(item.sourceIcon, if (showContent) sender else source),

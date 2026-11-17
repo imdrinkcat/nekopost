@@ -36,13 +36,15 @@ object DeviceAuth {
     const val UNLOCK_AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG or
         BiometricManager.Authenticators.DEVICE_CREDENTIAL
 
-    /** True when the device has a secure lock screen the app lock can rely on. */
-    fun canUnlock(context: Context): Boolean {
-        val keyguard = context.getSystemService(KeyguardManager::class.java)
-        val biometric = context.getSystemService(BiometricManager::class.java)
-        return keyguard?.isDeviceSecure == true &&
-            biometric?.canAuthenticate(UNLOCK_AUTHENTICATORS) == BiometricManager.BIOMETRIC_SUCCESS
-    }
+    /**
+     * True when the device has a secure lock screen the app lock can rely on.
+     * Only the keyguard decides: with a PIN, pattern or password the
+     * DEVICE_CREDENTIAL half of the prompt always works, and
+     * BiometricManager.canAuthenticate is not reliable on every OEM HAL (a single
+     * wrong answer must not switch the lock off).
+     */
+    fun canUnlock(context: Context): Boolean =
+        context.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
 
     /**
      * Biometric or screen lock (BIOMETRIC_STRONG | DEVICE_CREDENTIAL). Returns a

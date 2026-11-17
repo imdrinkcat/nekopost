@@ -39,6 +39,8 @@ class InboxActionReceiver : BroadcastReceiver() {
                 InboxReadWorker.enqueue(context, id)
             }
             ACTION_COPY -> {
+                // setAuthenticationRequired is enforced only from Android 12; minSdk is 11.
+                if (InboxNotifier.isDeviceLocked(context)) return
                 val pending = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
                     try {

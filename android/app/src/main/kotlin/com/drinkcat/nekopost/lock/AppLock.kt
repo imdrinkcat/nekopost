@@ -112,9 +112,6 @@ class AppLock(
 
     fun foldClosed() = drive { onFoldClosed() }
 
-    /** The 值守台 is shown: pause the idle timeout (screen-off and leaving the app still lock). */
-    fun suspendIdle(on: Boolean) = drive { idleSuspended = on }
-
     fun lockNow() = drive { lockNow(LockReason.Manual) }
 
     fun unlocked() = drive { unlocked() }

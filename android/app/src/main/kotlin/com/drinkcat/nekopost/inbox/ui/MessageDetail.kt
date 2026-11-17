@@ -7,6 +7,9 @@ import android.os.PersistableBundle
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,7 +36,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,11 +58,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.drinkcat.nekopost.lock.LocalAppLock
 import com.drinkcat.nekopost.R
 import com.drinkcat.nekopost.core.ui.component.NekoIcons
@@ -142,12 +143,16 @@ fun MessageDetailPane(
     }
     Column(modifier.fillMaxSize().then(paging).testTag("inbox_detail_${message.id}")) {
         DetailTopBar(message, mode, state.tools, actions)
+        // Tabletop: the detail is the upper half and ends at the hinge, so it keeps
+        // clear of it (§10.2) and fades out instead of slicing a line in half.
+        val hinge = mode == PaneMode.TopBottom
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         Column(
             Modifier
-                .weight(1f)
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = NekoTokens.Spacing.l)
-                .padding(bottom = NekoTokens.Spacing.xl),
+                .padding(bottom = if (hinge) NekoTokens.Spacing.xxxl else NekoTokens.Spacing.xl),
             verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.l),
         ) {
             Header(message)
@@ -159,6 +164,17 @@ fun MessageDetailPane(
             }
             Body(message, state.detailLoading)
             Footer(message)
+        }
+        if (hinge) {
+            val surface = MaterialTheme.colorScheme.surface
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(NekoTokens.Spacing.xl)
+                    .background(Brush.verticalGradient(listOf(surface.copy(alpha = 0f), surface))),
+            )
+        }
         }
     }
 }
@@ -180,7 +196,7 @@ private fun DetailTopBar(message: InboxMessage, mode: PaneMode, tools: Boolean, 
             Spacer(Modifier.width(NekoTokens.Spacing.xs))
         }
         Text(
-            message.displaySender,
+            message.senderLabel(),
             style = MaterialTheme.typography.titleLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -283,28 +299,43 @@ fun OtpCard(message: InboxMessage, code: String, cover: Boolean, copied: Boolean
                 }
             } else {
                 Text(
-                    code,
-                    style = NekoTextStyles.mono.copy(fontSize = 40.sp, letterSpacing = 6.sp),
+                    groupCode(code),
+                    style = NekoTextStyles.otp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.testTag("otp_code"),
                 )
             }
-            if (cover) {
-                Text(stringResource(R.string.inbox_code_tap_hint), style = MaterialTheme.typography.bodySmall)
-            } else {
-                FilledTonalButton(
-                    onClick = onCopy,
-                    modifier = Modifier.heightIn(min = NekoTokens.Touch.minTarget).testTag("otp_copy"),
-                ) {
-                    Icon(NekoIcons.Copy, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(NekoTokens.Spacing.s))
-                    Text(stringResource(R.string.inbox_copy_code))
-                }
-                Text(stringResource(R.string.inbox_code_clear_hint), style = MaterialTheme.typography.bodySmall)
+            // Solid primary on the primaryContainer card: same hue family in light and dark.
+            Button(
+                onClick = {
+                    onCopy()
+                    if (cover) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                },
+                modifier = Modifier
+                    .then(
+                        if (cover) {
+                            Modifier.fillMaxWidth().heightIn(min = NekoTokens.Touch.coverPrimaryTarget)
+                        } else {
+                            Modifier.heightIn(min = NekoTokens.Touch.minTarget)
+                        },
+                    )
+                    .testTag("otp_copy"),
+            ) {
+                Icon(NekoIcons.Copy, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(NekoTokens.Spacing.s))
+                Text(stringResource(R.string.inbox_copy_code))
             }
+            Text(
+                stringResource(if (cover) R.string.inbox_code_drag_hint else R.string.inbox_code_clear_hint),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
+
+/** 「482 913」: groups of three for reading (§9.4); copying keeps the plain code. */
+internal fun groupCode(code: String): String =
+    if (code.length >= 6 && code.none(Char::isWhitespace)) code.chunked(3).joinToString(" ") else code
 
 /** Only the digits leave the app, and only by an explicit drag (design §10.4 ⑧). */
 private fun startCodeDrag(view: View, code: String, label: String) {
@@ -327,7 +358,6 @@ private fun Body(message: InboxMessage, loading: Boolean) {
         message.expired -> Text(
             stringResource(R.string.inbox_body_expired_detail),
             style = MaterialTheme.typography.bodyLarge,
-            fontStyle = FontStyle.Italic,
             color = MaterialTheme.colorScheme.outline,
         )
         else -> Text(message.preview, style = MaterialTheme.typography.bodyLarge)

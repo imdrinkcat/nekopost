@@ -25,6 +25,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -38,12 +42,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.drinkcat.nekopost.R
-import com.drinkcat.nekopost.core.ui.component.SleepingCat
 import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.core.ui.fold.HingeAwareSplit
 import com.drinkcat.nekopost.core.ui.fold.Posture
 import com.drinkcat.nekopost.core.ui.fold.SplitAxis
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
+import kotlinx.coroutines.delay
 
 /** Something the lock screen should say after a failed attempt; a plain cancel says nothing. */
 sealed interface LockIssue {
@@ -103,21 +107,19 @@ fun LockScreen(lock: LockState, fold: FoldState, issue: LockIssue?, onUnlock: ()
                 verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.m),
                 modifier = Modifier.fillMaxWidth().padding(NekoTokens.Spacing.xl),
             ) {
-                Box {
-                    SleepingCat(size = 96.dp)
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        modifier = Modifier.size(36.dp).align(Alignment.BottomEnd),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Filled.Lock,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
+                // A security screen: a plain lock, no cat (§9.5).
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(80.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.Lock,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(36.dp),
+                        )
                     }
                 }
                 Text(
@@ -132,6 +134,27 @@ fun LockScreen(lock: LockState, fold: FoldState, issue: LockIssue?, onUnlock: ()
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
+                if (!curtain) {
+                    Text(
+                        stringResource(R.string.lock_unlock_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+        // Too many attempts: the button waits instead of inviting another failure.
+        var wait by remember { mutableIntStateOf(0) }
+        LaunchedEffect(issue) {
+            if (issue == LockIssue.Lockout) {
+                wait = LOCKOUT_WAIT_SECONDS
+                while (wait > 0) {
+                    delay(1_000)
+                    wait--
+                }
+            } else {
+                wait = 0
             }
         }
         val controls: @Composable () -> Unit = {
@@ -154,12 +177,16 @@ fun LockScreen(lock: LockState, fold: FoldState, issue: LockIssue?, onUnlock: ()
                 } else {
                     Button(
                         onClick = onUnlock,
+                        enabled = wait == 0,
                         modifier = Modifier
                             .widthIn(min = 220.dp)
                             .heightIn(min = NekoTokens.Touch.coverPrimaryTarget)
                             .testTag("lock_unlock"),
                     ) {
-                        Text(stringResource(R.string.lock_unlock), style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (wait > 0) stringResource(R.string.lock_retry_in, wait) else stringResource(R.string.lock_unlock),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                     }
                 }
             }
@@ -205,3 +232,5 @@ private fun reasonText(lock: LockState): Int = when (lock) {
     }
     else -> R.string.lock_reason_cold
 }
+
+private const val LOCKOUT_WAIT_SECONDS = 30

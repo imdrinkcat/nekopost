@@ -542,7 +542,7 @@ Telegram 管理员（V1 的数字 ID 校验）能用 V1 菜单、号码匹配确
 | DELETE | `/v1/admin/devices/{id}` | W⁺ / D⁺ | 吊销设备 |
 | POST | `/v1/admin/devices/{id}/test-push` | W / D:admin:write | 测试推送（`t:"ping"`），回传 ack 后显示往返时间 |
 | POST | `/v1/admin/pairings` | W⁺ / D⁺ | 创建配对 |
-| GET / DELETE | `/v1/admin/pairings/{id}` | W / D:admin:read · W / D:admin:write | 查看 / 取消 |
+| GET / DELETE | `/v1/admin/pairings/{id}` | W / D:admin:read · W / D:admin:write | 查看（含 `expires_at`）/ 作废未被申请的配对码（不需重新认证） |
 | GET | `/v1/admin/sessions` | W / D:admin:read | 会话与可信浏览器 |
 | DELETE / POST | `/v1/admin/sessions/{id}` · `/v1/admin/trusted-browsers/{id}` · `/v1/admin/sessions/revoke-others` | W⁺ / D⁺ | 吊销他人会话 / 可信浏览器 / 退出其他所有会话 |
 | GET | `/v1/admin/keys` | W / D:admin:read | `mga_` 列表 |
@@ -907,7 +907,7 @@ Strict-Transport-Security: max-age=63072000; includeSubDomains   （现有）
 
 - **Room 中只有这些字段是明文**：`id`、`seq`、时间、类别、来源 ID、状态、`has_code`、`body_expires_at`。其余内容一律经 Tink AEAD 加密（AAD = 行 ID）。
 - **保护边界（如实说明）**：Keystore 密钥不可导出，拿到 Room 文件的人（备份、文件提取）解不开；但 root 或代码注入后可以在设备上直接调用 `ks_main` 解密。应用锁只挡「拿到已解锁手机的人」。
-- **应用锁**（0.3 起锁整个应用，不只是收件箱）：冷启动、离开应用超过宽限期（默认 30 秒，可选立即 / 1 / 5 分钟）、关闭屏幕（立即）、无交互超过 N 分钟（默认 5 分钟，可选 1 / 15 分钟 / 从不；比原定 1 分钟宽松，因为现在转发页也在锁内）后，用 `BiometricPrompt(BIOMETRIC_STRONG | DEVICE_CREDENTIAL)` 解锁；折叠时默认遮挡，可选「合上即锁」或不处理（§10）。值守台显示时暂停无交互计时（它不显示验证码）。应用自己打开的外部界面（扫码、验证、权限对话框、系统设置、分享、旁边窗口）登记为「预期中的外部活动」，在各自期限内回来不锁定，结果保存在进程级而不是界面状态里（修复 0.2.1 扫码结果丢失）。锁定时界面保持组合、不绘制、清空语义。没有安全锁屏时应用锁不生效并提示，不会把用户锁在外面。从通知复制验证码只要求手机已解锁，不经过应用锁（「一键复制」的有意取舍）。
+- **应用锁**（0.3 起锁整个应用，不只是收件箱）：冷启动、离开应用超过宽限期（默认 30 秒，可选立即 / 1 / 5 分钟）、关闭屏幕（立即）、无交互超过 N 分钟（默认 5 分钟，可选 1 / 15 分钟 / 从不；比原定 1 分钟宽松，因为现在转发页也在锁内）后，用 `BiometricPrompt(BIOMETRIC_STRONG | DEVICE_CREDENTIAL)` 解锁；折叠时默认遮挡，可选「合上即锁」或不处理（§10）。值守台常亮也不暂停无交互计时（§10.4 ④ 常亮不阻止应用锁），到时间整个应用锁定，离开值守台须先解锁。应用自己打开的外部界面（扫码、验证、权限对话框、系统设置、分享、旁边窗口）登记为「预期中的外部活动」，在各自期限内回来不锁定，结果保存在进程级而不是界面状态里（修复 0.2.1 扫码结果丢失）。锁定时界面保持组合、不绘制、清空语义。没有安全锁屏时应用锁不生效并提示，不会把用户锁在外面。从通知复制验证码只要求手机已解锁，不经过应用锁（「一键复制」的有意取舍）。
 - **本地保留期自己执行**：启动时、每日任务、每次显示前都检查 `body_expires_at` 与 `code_retention_hours`（来自 `/v1/session`），到期即删；`sync` 中 `body_state` 变为 `expired`/`deleted` 时也立即删除。Room 执行 `PRAGMA secure_delete=ON`。
 - **离线兜底**：超过 72 小时没有成功 sync，清空全部正文缓存，只保留元数据。
 - 剪贴板：复制验证码时设置 `ClipDescription.EXTRA_IS_SENSITIVE`；60 秒后如果仍是我们复制的内容就清除；优先引导拖放（§10）。

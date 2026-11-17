@@ -34,15 +34,15 @@ internal data class PairingInput(val server: HttpUrl, val code: String) {
     companion object {
         fun manual(server: String, code: String): PairingInput {
             val raw = server.trim()
-            val url = raw.toHttpUrlOrNull() ?: error("服务器地址无效")
+            val url = raw.toHttpUrlOrNull() ?: error("invalid server URL")
             require(url.isHttps && url.encodedPath == "/" && url.query == null && url.fragment == null &&
-                url.username.isEmpty() && url.password.isEmpty()) { "请输入 HTTPS 服务器地址" }
+                url.username.isEmpty() && url.password.isEmpty()) { "server must be a bare HTTPS origin" }
             val normalized = code.trim()
             val short = normalized.replace("-", "").uppercase(java.util.Locale.ROOT)
             return PairingInput(url, when {
                 shortPattern.matches(short) -> short
                 longPattern.matches(normalized) -> normalized
-                else -> error("配对码格式无效")
+                else -> error("invalid pairing code")
             })
         }
 
@@ -64,7 +64,7 @@ internal data class PairingInput(val server: HttpUrl, val code: String) {
             val uri = Uri.parse(value)
             require(uri.scheme == "nekopost" && uri.authority == "enroll" && uri.path.isNullOrEmpty() &&
                 uri.fragment == null && uri.queryParameterNames == setOf("v", "kind", "url", "code") &&
-                uri.queryParameterNames.all { uri.getQueryParameters(it).size == 1 }) { "设备配对二维码无效" }
+                uri.queryParameterNames.all { uri.getQueryParameters(it).size == 1 }) { "invalid device pairing link" }
             require(uri.getQueryParameter("v") == "1" && uri.getQueryParameter("kind") == "device")
             return manual(uri.getQueryParameter("url").orEmpty(), uri.getQueryParameter("code").orEmpty())
         }
@@ -87,7 +87,7 @@ internal data class DeviceSession(
 
     companion object {
         fun decode(raw: String): DeviceSession = JSONObject(raw).let {
-            val server = it.getString("url").toHttpUrlOrNull() ?: error("服务器地址无效")
+            val server = it.getString("url").toHttpUrlOrNull() ?: error("invalid server URL")
             require(server.isHttps && server.username.isEmpty() && server.password.isEmpty())
             DeviceSession(server, it.getString("id"), it.getString("token"), it.getString("source"),
                 it.optString("scopes").split(",").filter(String::isNotBlank).toSet())
@@ -97,7 +97,8 @@ internal data class DeviceSession(
     override fun toString(): String = "DeviceSession(${server.host})"
 }
 
-internal class ApiFailure(val status: Int, val code: String) : IllegalStateException("服务端请求失败（$status）")
+/** Diagnostic messages only: the UI maps failures to string resources (DeviceInbox.failureText). */
+internal class ApiFailure(val status: Int, val code: String) : IllegalStateException("server request failed ($status, $code)")
 
 internal data class DeviceReply(val status: Int, val json: JSONObject)
 

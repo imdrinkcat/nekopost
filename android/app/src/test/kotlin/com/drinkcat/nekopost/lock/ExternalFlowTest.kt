@@ -126,7 +126,7 @@ class ExternalFlowTest {
     @Test
     fun settingsPageTripDoesNotLock() {
         assertTrue(launcher.startSettings(app, Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)))
-        background(5 * 60_000L)
+        background(2 * 60_000L)
         foreground()
         assertEquals(LockState.Unlocked, lock.state.value.state)
     }

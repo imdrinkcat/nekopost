@@ -229,6 +229,15 @@ fun NekopostRoot(container: AppContainer, fold: FoldState) {
     val copyLabel = stringResource(R.string.inbox_code_clip_label)
     val pushSent = stringResource(R.string.admin_test_push_sent)
     val lockOffTitle = stringResource(R.string.lock_off_prompt)
+    val lockChangeTitle = stringResource(R.string.lock_change_prompt)
+    fun ownerFor(weakens: Boolean, apply: () -> Unit) {
+        val state = container.lock.state.value.state
+        if (!weakens || state == LockState.Disabled || state == LockState.Unavailable) {
+            apply()
+        } else {
+            DeviceAuth.unlock(context, lockChangeTitle, null) { outcome -> if (outcome is AuthOutcome.Success) apply() }
+        }
+    }
 
     val foldDebug = if (memory.debugUnlocked) rememberFoldDebugInfo(fold) else null
     val insecureBanner = prefs.appLockEnabled && prefs.lockArmed && !secure && !prefs.insecureBannerDismissed &&
@@ -350,9 +359,18 @@ fun NekopostRoot(container: AppContainer, fold: FoldState) {
                                 }
                             }
                         },
-                        onLockGrace = container.uiPrefs::setLockGraceSeconds,
-                        onIdleLock = container.uiPrefs::setIdleLockMinutes,
-                        onFoldClose = container.uiPrefs::setFoldClose,
+                        // Weakening the lock needs the owner too; tightening it does not.
+                        onLockGrace = { seconds ->
+                            ownerFor(weakens = seconds > prefs.lockGraceSeconds) { container.uiPrefs.setLockGraceSeconds(seconds) }
+                        },
+                        onIdleLock = { minutes ->
+                            val current = prefs.idleLockMinutes
+                            val weakens = current != 0 && (minutes == 0 || minutes > current)
+                            ownerFor(weakens) { container.uiPrefs.setIdleLockMinutes(minutes) }
+                        },
+                        onFoldClose = { behavior ->
+                            ownerFor(weakens = behavior.strength < prefs.foldClose.strength) { container.uiPrefs.setFoldClose(behavior) }
+                        },
                         onOpenSecuritySettings = {
                             launcher.startSettings(context, Intent(Settings.ACTION_SECURITY_SETTINGS), Intent(Settings.ACTION_SETTINGS))
                         },
@@ -404,6 +422,7 @@ fun NekopostRoot(container: AppContainer, fold: FoldState) {
                             onRevokeKey = admin::revokeKey,
                             onChoosePairing = admin::choose,
                             onClosePairing = admin::closePairing,
+                            onCancelPairing = admin::cancelPairing,
                             onDismissSecret = admin::dismissSecret,
                             onCopySecret = { SensitiveClipboard.copy(context, copyLabel, it) },
                         ),
