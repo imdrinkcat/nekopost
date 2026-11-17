@@ -112,4 +112,23 @@ class BatchReadTest {
         assertEquals(2, unread.changed)
         assertFalse(unread.rows.first { it.id == FakeInboxData.note.id }.read)
     }
+
+    @Test
+    fun replyIdsReachMessagesThatWereNeverLoaded() {
+        // 全部标为已读 covers unread messages below the loaded page; their
+        // notifications are cleared from the IDs the server returns.
+        val older = "m_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        val reply = org.json.JSONObject("""{"changed":3,"unread_count":0,"ids":["${FakeInboxData.otp.id}","$older","m_bad",7]}""")
+        assertEquals(listOf(FakeInboxData.otp.id, older), BatchRead.replyIds(reply))
+        // An older server sends no IDs: only the loaded rows are cleared.
+        assertTrue(BatchRead.replyIds(org.json.JSONObject("""{"changed":0,"unread_count":0}""")).isEmpty())
+    }
+
+    @Test
+    fun selectingFromTheMenuStartsWithNothingPicked() {
+        val ui = list.copy(selectMode = true)
+        assertTrue(ui.selecting)
+        assertTrue(ui.pickedRows.isEmpty())
+        assertFalse(list.selecting)
+    }
 }

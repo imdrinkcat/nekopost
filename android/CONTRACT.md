@@ -322,11 +322,14 @@ App 0.3.1 (批量已读) uses the batch endpoints through `DeviceInbox.applyBatc
 (`inbox/BatchRead.kt` builds the bodies and applies an accepted change to the
 loaded rows). 消息 overflow 「全部标为已读」 sends `all` bounded to the newest row
 the list shows (`has_code` under the 验证码 chip; with a search it sends the
-unread rows shown as `ids`). Long-press on a row starts 多选 (contextual bar
+unread rows shown as `ids`). Long-press on a row, or 「多选」 in the overflow
+menu (nothing picked yet), starts 多选; the filter chips and search are
+disabled while selecting, and picks the list stops showing are dropped (contextual bar
 with the count, 全选/全不选 and ×; 标为已读 / 标为未读 under the list; back,
 Esc or × leave it; on a single pane an open message closes first). Rows carry a
 custom accessibility action 「多选」, and while selecting each row is a
 checkbox. Changes are not optimistic: rows, the badge (`unread_count`) and
-notifications change only after the server accepted the batch; a failure
+notifications change only after the server accepted the batch (cleared for
+the marked rows and the `ids` the server returns); a failure
 keeps the selection and shows 「没有标记成功：…」. Selections over 500 go in
 chunks of 500.

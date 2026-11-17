@@ -44,6 +44,8 @@ data class InboxUiState(
     val tools: Boolean = true,
     /** 多选: the picked message IDs; non-empty = selection mode (long-press a row). */
     val picked: Set<String> = emptySet(),
+    /** 多选 entered from the overflow menu, possibly with nothing picked yet. */
+    val selectMode: Boolean = false,
     /** A batch read change is with the server: its buttons wait. */
     val batchBusy: Boolean = false,
 ) {
@@ -67,7 +69,7 @@ data class InboxUiState(
     val filteringLocally: Boolean get() = query.isNotBlank() && searchedQuery == null
 
     /** Selection mode: the contextual bar replaces the title bar. */
-    val selecting: Boolean get() = picked.isNotEmpty()
+    val selecting: Boolean get() = selectMode || picked.isNotEmpty()
 
     /** The picked rows the list shows (a filter change hides, and so excludes, the others). */
     val pickedRows: List<InboxMessage> get() = visibleRows.filter { it.id in picked }
@@ -122,4 +124,6 @@ data class InboxActions(
     val onMarkPicked: (Boolean) -> Unit = {},
     /** 全部标为已读 from the overflow menu ([InboxUiState.markAllRead]). */
     val onMarkAllRead: () -> Unit = {},
+    /** 多选 from the overflow menu: selection mode with nothing picked yet. */
+    val onStartSelect: () -> Unit = {},
 )

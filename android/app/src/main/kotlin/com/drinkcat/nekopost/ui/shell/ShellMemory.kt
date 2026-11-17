@@ -126,6 +126,9 @@ class InboxMemory(
 
     /** 多选: the picked message IDs (empty = not selecting); kept across tabs and postures, not process death. */
     var picked by mutableStateOf(emptySet<String>())
+
+    /** 多选 entered from the overflow menu (selection mode before anything is picked). */
+    var selectMode by mutableStateOf(false)
 }
 
 @Composable

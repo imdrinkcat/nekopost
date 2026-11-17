@@ -121,13 +121,6 @@ internal fun InboxRoute(
         inbox.setRead(d.id, true)
     }
 
-    // 多选 keeps only messages that are still listed; none left ends it.
-    LaunchedEffect(state.rows) {
-        if (memory.picked.isEmpty()) return@LaunchedEffect
-        val listed = state.rows.mapTo(HashSet()) { it.id }
-        memory.picked = memory.picked.filterTo(LinkedHashSet()) { it in listed }
-    }
-
     val copiedText = stringResource(R.string.inbox_code_copied_toast)
     val codeMissing = stringResource(R.string.inbox_code_missing)
     val bodyCopied = stringResource(R.string.inbox_body_copied)
@@ -143,6 +136,7 @@ internal fun InboxRoute(
         scope.launch {
             val changed = inbox.applyBatch(change) ?: return@launch
             memory.picked = emptySet()
+            memory.selectMode = false
             toast = when {
                 changed == 0 -> nothingChanged
                 change.read -> readDone.format(changed)
@@ -214,8 +208,23 @@ internal fun InboxRoute(
         copiedId = copiedId,
         tools = !adjacent,
         picked = memory.picked,
+        selectMode = memory.selectMode,
         batchBusy = state.batchBusy,
     )
+
+    // 多选 keeps only messages the list still shows (a refresh can drop one, or
+    // move it out of the 未读 filter), so the count always matches what is
+    // marked; when the last pick goes, selection ends. The filter chips and the
+    // search are disabled while selecting.
+    val shownIds = ui.visibleRows.map { it.id }
+    LaunchedEffect(shownIds) {
+        if (memory.picked.isEmpty()) return@LaunchedEffect
+        val shown = shownIds.toHashSet()
+        val kept = memory.picked.filterTo(LinkedHashSet()) { it in shown }
+        if (kept.size == memory.picked.size) return@LaunchedEffect
+        memory.picked = kept
+        if (kept.isEmpty()) memory.selectMode = false
+    }
 
     fun open(id: String) {
         envelopeId = null
@@ -276,9 +285,20 @@ internal fun InboxRoute(
                 val index = rows.indexOfFirst { it.id == memory.selectedId }
                 rows.getOrNull(index + step)?.let { open(it.id) }
             },
-            onPick = { id -> memory.picked = if (id in memory.picked) memory.picked - id else memory.picked + id },
-            onPickAll = { all -> memory.picked = if (all) ui.visibleRows.mapTo(LinkedHashSet()) { it.id } else emptySet() },
-            onClearPicks = { memory.picked = emptySet() },
+            onPick = { id ->
+                memory.picked = if (id in memory.picked) memory.picked - id else memory.picked + id
+                // Untapping the last pick leaves selection, as in a messaging app.
+                memory.selectMode = memory.picked.isNotEmpty()
+            },
+            onPickAll = { all ->
+                memory.picked = if (all) ui.visibleRows.mapTo(LinkedHashSet()) { it.id } else emptySet()
+                memory.selectMode = true
+            },
+            onClearPicks = {
+                memory.picked = emptySet()
+                memory.selectMode = false
+            },
+            onStartSelect = { memory.selectMode = true },
             onMarkPicked = { read ->
                 val ids = ui.pickedRows.filter { it.read != read }.map { it.id }
                 if (ids.isNotEmpty()) batch(BatchRead.Ids(ids, read))

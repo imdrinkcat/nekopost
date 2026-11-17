@@ -39,6 +39,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Email
@@ -245,6 +246,17 @@ private fun InboxTopBar(
                     },
                     modifier = Modifier.testTag("inbox_mark_all_read"),
                 )
+                // Long-press is not discoverable on its own: the menu starts 多选 too.
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.inbox_select)) },
+                    leadingIcon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
+                    enabled = state.visibleRows.isNotEmpty(),
+                    onClick = {
+                        onMenuOpen(false)
+                        actions.onStartSelect()
+                    },
+                    modifier = Modifier.testTag("inbox_start_select"),
+                )
                 if (state.tools && state.canSend) {
                     MenuItem(stringResource(R.string.inbox_tool_drop_note), Icons.Filled.Edit) {
                         onMenuOpen(false)
@@ -310,14 +322,18 @@ private fun SearchField(
             null
         },
         singleLine = true,
+        // 多选 marks what the list shows: the list holds still while selecting.
+        enabled = !state.selecting,
         shape = CircleShape,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { actions.onSearch() }),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
+            disabledIndicatorColor = Color.Transparent,
         ),
     )
 }
@@ -336,6 +352,8 @@ private fun FilterRow(state: InboxUiState, mode: PaneMode, actions: InboxActions
             FilterChip(
                 selected = state.filter == filter,
                 onClick = { actions.onFilter(filter) },
+                // 多选 marks what the list shows: the filter holds still while selecting.
+                enabled = !state.selecting,
                 label = {
                     Text(
                         when (filter) {
@@ -356,18 +374,19 @@ private fun FilterRow(state: InboxUiState, mode: PaneMode, actions: InboxActions
         if (mode == PaneMode.TopBottom) {
             // Tools, not filters: assist chips with an icon, after a divider.
             VerticalDivider(Modifier.height(24.dp).padding(horizontal = NekoTokens.Spacing.xs))
-            ToolChip(stringResource(R.string.inbox_tool_watch), NekoIcons.CoverScreen) { actions.onOpenTool(InboxSubScreen.Watch) }
+            ToolChip(stringResource(R.string.inbox_tool_watch), NekoIcons.CoverScreen, !state.selecting) { actions.onOpenTool(InboxSubScreen.Watch) }
             if (state.canAdmin) {
-                ToolChip(stringResource(R.string.inbox_tool_sorting), NekoIcons.PostBox) { actions.onOpenTool(InboxSubScreen.Sorting) }
+                ToolChip(stringResource(R.string.inbox_tool_sorting), NekoIcons.PostBox, !state.selecting) { actions.onOpenTool(InboxSubScreen.Sorting) }
             }
         }
     }
 }
 
 @Composable
-private fun ToolChip(label: String, icon: ImageVector, onClick: () -> Unit) {
+private fun ToolChip(label: String, icon: ImageVector, enabled: Boolean, onClick: () -> Unit) {
     AssistChip(
         onClick = onClick,
+        enabled = enabled,
         label = { Text(label) },
         leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize)) },
     )
@@ -608,7 +627,7 @@ fun MessageRow(
                         PreviewText(message, Modifier.weight(1f))
                         if (message.hasCode && !message.expired) {
                             Spacer(Modifier.width(NekoTokens.Spacing.s))
-                            CodeChip(copyLabel, if (picking) null else onCopyCode)
+                            CodeChip(copyLabel, if (picking) null else onCopyCode, passive = picking)
                         }
                         if (unread) {
                             Spacer(Modifier.width(NekoTokens.Spacing.s))
@@ -646,7 +665,8 @@ private fun PickedMark(size: Dp) {
 private fun SelectionBar(state: InboxUiState, actions: InboxActions) {
     val count = state.pickedRows.size
     val all = count > 0 && count == state.visibleRows.size
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth().testTag("inbox_selection_bar")) {
+    // One tone for the whole selection chrome (this bar and the actions under the list).
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().testTag("inbox_selection_bar")) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = NekoTokens.Spacing.xs),
@@ -764,24 +784,32 @@ fun InboxMessage.senderLabel(): String {
 /**
  * Solid primary (§9.3: the code is the most prominent element of the app), in
  * the preview line's fixed 24dp so a row with a code is as tall as any other.
- * The pill itself is a small target; the row's long-press menu and its
- * accessibility action copy the code too.
+ * The pill itself is a small target; the row's accessibility action copies the
+ * code too, and so does the open message. While selecting ([passive]) it is
+ * only a label: outlined, no copy icon, and a tap goes to the row.
  */
 @Composable
-private fun CodeChip(label: String, onCopy: (() -> Unit)?) {
+private fun CodeChip(label: String, onCopy: (() -> Unit)?, passive: Boolean = false) {
+    val content = if (passive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimary
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xs),
         modifier = Modifier
             .height(24.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary)
+            .then(
+                if (passive) {
+                    Modifier.border(1.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                } else {
+                    Modifier.background(MaterialTheme.colorScheme.primary)
+                },
+            )
             .then(if (onCopy != null) Modifier.clickable(onClickLabel = label, role = Role.Button, onClick = onCopy) else Modifier)
             .padding(horizontal = NekoTokens.Spacing.s)
             .testTag("code_chip"),
     ) {
-        Icon(NekoIcons.Copy, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
-        Text(stringResource(R.string.inbox_code_chip), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary)
+        if (!passive) Icon(NekoIcons.Copy, contentDescription = null, tint = content, modifier = Modifier.size(14.dp))
+        Text(stringResource(R.string.inbox_code_chip), style = MaterialTheme.typography.labelMedium, color = content)
     }
 }
 

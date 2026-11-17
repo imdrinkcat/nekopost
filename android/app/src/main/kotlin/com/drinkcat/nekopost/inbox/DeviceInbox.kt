@@ -397,14 +397,22 @@ internal class DeviceInbox private constructor(
         mutable.update { it.copy(batchBusy = true) }
         try {
             queue.run {
-                val s = session() ?: return@run null
+                val s = session() ?: run {
+                    // Not silent: the selection stays and the banner says why.
+                    mutable.update {
+                        it.copy(error = appContext.getString(R.string.inbox_batch_failed, text(R.string.inbox_error_not_paired)))
+                    }
+                    return@run null
+                }
                 var changed = 0
                 try {
                     for (part in parts) {
                         val reply = api.call(s.server, "POST", BatchRead.path(part), BatchRead.body(part), s.token).json
                         changed += reply.optInt("changed")
                         val covered = applyBatchLocally(part, if (reply.has("unread_count")) reply.optInt("unread_count") else null)
-                        if (part.read) InboxNotifier.cancelMany(appContext, covered)
+                        // The server's changed IDs reach messages that were never
+                        // loaded; this device is left out of the read signal.
+                        if (part.read) InboxNotifier.cancelMany(appContext, (covered + BatchRead.replyIds(reply)).distinct())
                     }
                     // A retry that went through also clears the failure it retried.
                     mutable.update { it.copy(error = null) }

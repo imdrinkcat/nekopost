@@ -48,6 +48,12 @@ sealed interface BatchRead {
         fun chunks(ids: Collection<String>, read: Boolean): List<Ids> =
             ids.distinct().filter(messagePattern::matches).chunked(MAX_IDS).map { Ids(it, read) }
 
+        /** The changed IDs a reply lists (server 0.10.2: newest 500 at most), malformed ones dropped. */
+        fun replyIds(reply: JSONObject): List<String> {
+            val arr = reply.optJSONArray("ids") ?: return emptyList()
+            return (0 until arr.length()).mapNotNull { arr.optString(it).takeIf(messagePattern::matches) }
+        }
+
         fun path(change: BatchRead): List<String> = listOf("v1", "inbox", if (change.read) "read" else "unread")
 
         fun body(change: BatchRead): JSONObject = when (change) {

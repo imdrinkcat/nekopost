@@ -47,6 +47,7 @@ class InboxSelectionTest {
 
     private var base by mutableStateOf(FakeInboxData.list)
     private var picked by mutableStateOf(emptySet<String>())
+    private var selectMode by mutableStateOf(false)
     private var selectedId by mutableStateOf<String?>(null)
     private var filter by mutableStateOf(InboxFilter.All)
     private val opened = mutableListOf<String>()
@@ -58,6 +59,7 @@ class InboxSelectionTest {
 
     private fun ui(): InboxUiState = base.copy(
         picked = picked,
+        selectMode = selectMode,
         selectedId = selectedId,
         detail = FakeInboxData.rows.firstOrNull { it.id == selectedId },
         filter = filter,
@@ -77,7 +79,11 @@ class InboxSelectionTest {
                         onFilter = { filter = it },
                         onPick = { id -> picked = if (id in picked) picked - id else picked + id },
                         onPickAll = { all -> picked = if (all) ui.visibleRows.map { it.id }.toSet() else emptySet() },
-                        onClearPicks = { picked = emptySet() },
+                        onClearPicks = {
+                            picked = emptySet()
+                            selectMode = false
+                        },
+                        onStartSelect = { selectMode = true },
                         onMarkPicked = { read -> marked += ui.pickedRows.map { it.id }.toSet() to read },
                         onMarkAllRead = { markAll++ },
                     ),
@@ -191,5 +197,38 @@ class InboxSelectionTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("inbox_overflow").performClick()
         composeRule.onNodeWithTag("inbox_mark_all_read").assertIsNotEnabled()
+    }
+
+    @Test
+    @Config(qualifiers = "w475dp-h751dp-port-420dpi")
+    fun overflowStartsSelectionWithNothingPickedAndFiltersHoldStill() {
+        show(FoldState.Cover, PaneMode.Single)
+        composeRule.onNodeWithTag("inbox_overflow").performClick()
+        composeRule.onNodeWithTag("inbox_start_select").assertIsEnabled().performClick()
+        assertTrue(selectMode)
+        composeRule.onNodeWithTag("inbox_selection_bar").assertIsDisplayed()
+        composeRule.onNodeWithText("已选择 0 条").assertIsDisplayed()
+        composeRule.onNodeWithTag("inbox_picked_read").assertIsNotEnabled()
+        // The list holds still while selecting: no filter or search changes.
+        composeRule.onNodeWithTag("inbox_filter_Codes").assertIsNotEnabled()
+        composeRule.onNodeWithTag("inbox_search").assertIsNotEnabled()
+
+        row(wechat).performClick()
+        assertTrue(opened.isEmpty())
+        composeRule.onNodeWithText("已选择 1 条").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("inbox_selection_close").performClick()
+        assertTrue(picked.isEmpty())
+        assertTrue(!selectMode)
+        composeRule.onNodeWithTag("inbox_filter_Codes").assertIsEnabled()
+    }
+
+    @Test
+    @Config(qualifiers = "w475dp-h751dp-port-420dpi")
+    fun selectIsDisabledWhenTheListIsEmpty() {
+        base = FakeInboxData.list.copy(rows = emptyList(), unreadCount = 0)
+        show(FoldState.Cover, PaneMode.Single)
+        composeRule.onNodeWithTag("inbox_overflow").performClick()
+        composeRule.onNodeWithTag("inbox_start_select").assertIsNotEnabled()
     }
 }
