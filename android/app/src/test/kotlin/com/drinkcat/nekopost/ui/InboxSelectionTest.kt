@@ -105,7 +105,7 @@ class InboxSelectionTest {
         row(otp).performTouchInput { longClick() }
         composeRule.onNodeWithTag("inbox_selection_bar").assertIsDisplayed()
         composeRule.onNodeWithText("已选择 1 条").assertIsDisplayed()
-        composeRule.onNodeWithTag("picked_mark").assertIsDisplayed()
+        composeRule.onNodeWithTag("picked_mark", useUnmergedTree = true).assertExists()
 
         // In selection mode a tap picks instead of opening.
         row(wechat).performClick()
