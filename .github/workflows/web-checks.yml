@@ -24,9 +24,18 @@ jobs:
       - name: Check browser code and exercise Google login
         env:
           NEKOPOST_RUN_BROWSER_TEST: "1"
+          NEKOPOST_SCREENSHOTS: ${{ runner.temp }}/web-screenshots
           NODE_PATH: ${{ runner.temp }}/nekopost-web-checks/node_modules
         run: |
           if git grep -nE 'innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function' -- internal/webpanel/panel.js; then
             exit 1
           fi
-          go test ./internal/webpanel -run '^TestChromiumPanel$' -count=1 -v
+          go test ./internal/webpanel -run '^TestChromiumPanel$' -count=1 -timeout 15m -v
+      - name: Upload review screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-screenshots
+          path: ${{ runner.temp }}/web-screenshots
+          if-no-files-found: ignore
+          retention-days: 14
