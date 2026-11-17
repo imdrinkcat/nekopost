@@ -545,7 +545,12 @@ fun MessageRow(
     Box {
         Surface(
             shape = MaterialTheme.shapes.medium,
-            color = if (picked || selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+            // While selecting, the open message keeps a quieter tint so it does not read as picked.
+            color = when {
+                picked || (selected && !picking) -> MaterialTheme.colorScheme.secondaryContainer
+                selected -> MaterialTheme.colorScheme.surfaceContainerHigh
+                else -> MaterialTheme.colorScheme.surface
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 1.dp)
