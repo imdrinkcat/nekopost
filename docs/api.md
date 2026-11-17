@@ -257,7 +257,7 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 | 形式 | 字段 | 说明 |
 |---|---|---|
 | 按 ID | `{"ids":["m_…", …]}` | 1–500 个消息 ID（`m_` + 26 位 Crockford Base32）。重复 ID 只算一次；已删除或不存在的 ID 跳过，不报错。`/read` 和 `/unread` 都支持 |
-| 全部（仅 `/read`） | `{"all":true,"up_to_id":"m_…","has_code":false}` | 把 `(received_at, id)` 不晚于 `up_to_id` 那条消息、且在它之前写入数据库的所有未读消息标为已读；`up_to_id` 是用户看到的最新一条，之后到达的消息（包括时间戳更早但写入更晚、用户不可能看到的消息）保持未读。`has_code: true` 时只处理带验证码的消息（对应 App 的「验证码」筛选）。不能与 `ids` 同时出现 |
+| 全部（仅 `/read`） | `{"all":true,"up_to_id":"m_…","has_code":false}` | 把 `(received_at, id)` 不晚于 `up_to_id` 那条消息的所有未读消息标为已读（时间戳在它之前 30 秒内的，只算在它之前写入数据库的）；`up_to_id` 是用户看到的最新一条，之后到达的消息（包括时间戳更早但写入更晚、用户不可能看到的消息）保持未读。`has_code: true` 时只处理带验证码的消息（对应 App 的「验证码」筛选）。不能与 `ids` 同时出现 |
 
 成功返回 `200`：
 

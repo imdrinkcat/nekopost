@@ -169,13 +169,18 @@ func (s *Store) SetMessagesRead(ctx context.Context, ids []string, read bool, ac
 	return s.applyRead(ctx, cond, args, read, actor, action, now)
 }
 
+// lateCommitWindow bounds how much earlier than the bound a message can be
+// stamped and still commit after it: ingest stamps received_at before its
+// insert, which can wait for the write lock (busy_timeout 5 s).
+const lateCommitWindow = 30 * time.Second
+
 // MarkAllRead marks every unread message read whose (received_at, id) is
 // not newer than the message upTo, the newest one the person saw, so
-// messages that arrive meanwhile stay unread. A message is stamped before
-// its insert commits, so one stamped earlier can still commit after upTo;
-// the rowid bound (rowids only grow) leaves such a late message, which the
-// person cannot have seen, unread too. hasCode limits it to messages with a
-// verification code.
+// messages that arrive meanwhile stay unread. A message stamped just before
+// upTo can still commit after it, never having been on the list: within
+// lateCommitWindow of the bound, only rows stored before upTo (rowids only
+// grow) count, so such a late message stays unread too. hasCode limits it
+// to messages with a verification code.
 func (s *Store) MarkAllRead(ctx context.Context, upTo string, hasCode bool, actor string, now time.Time) (changed []string, err error) {
 	var at, rowid int64
 	err = s.db.QueryRowContext(ctx, "SELECT received_at, rowid FROM messages WHERE id=?", upTo).Scan(&at, &rowid)
@@ -185,11 +190,11 @@ func (s *Store) MarkAllRead(ctx context.Context, upTo string, hasCode bool, acto
 	if err != nil {
 		return nil, err
 	}
-	cond := `read_at IS NULL AND (received_at, id) <= (?, ?) AND rowid <= ?`
+	cond := `read_at IS NULL AND (received_at, id) <= (?, ?) AND (rowid <= ? OR received_at < ?)`
 	if hasCode {
 		cond += " AND has_code = 1"
 	}
-	return s.applyRead(ctx, cond, []any{at, upTo, rowid}, true, actor, "message.read_all", now)
+	return s.applyRead(ctx, cond, []any{at, upTo, rowid, at - lateCommitWindow.Milliseconds()}, true, actor, "message.read_all", now)
 }
 
 // applyRead sets read_at on the messages matching cond in one transaction.

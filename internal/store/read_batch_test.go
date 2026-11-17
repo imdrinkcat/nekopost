@@ -105,17 +105,22 @@ func TestMarkAllReadSkipsLateCommit(t *testing.T) {
 	early := newMsg("fixture", "先到", "", now)
 	bound := newMsg("fixture", "列表最新一条", "", now.Add(2*time.Second))
 	late := newMsg("fixture", "盖章更早但提交更晚", "", now.Add(time.Second))
+	// Stored after the bound too, but stamped long before it: not a racing
+	// insert, so it is covered by its time.
+	backfill := newMsg("fixture", "很早以前的消息", "", now.Add(-time.Hour))
 	for _, m := range []*model.Message{early, bound} {
 		if _, err := s.InsertMessage(ctx, m, tg, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// The person sees [bound, early] and presses the button; late commits now.
-	if _, err := s.InsertMessage(ctx, late, tg, 0); err != nil {
-		t.Fatal(err)
+	for _, m := range []*model.Message{late, backfill} {
+		if _, err := s.InsertMessage(ctx, m, tg, 0); err != nil {
+			t.Fatal(err)
+		}
 	}
 	changed, err := s.MarkAllRead(ctx, bound.ID, false, "device:d_a", now)
-	if err != nil || !slices.Equal(changed, []string{bound.ID, early.ID}) {
+	if err != nil || !slices.Equal(changed, []string{bound.ID, early.ID, backfill.ID}) {
 		t.Fatal(changed, err)
 	}
 	if st, _ := s.InboxState(ctx, late.ID); st.Read {
@@ -125,7 +130,8 @@ func TestMarkAllReadSkipsLateCommit(t *testing.T) {
 	a, _ := s.InboxState(ctx, early.ID)
 	b, _ := s.InboxState(ctx, bound.ID)
 	l, _ := s.InboxState(ctx, late.ID)
-	if !(a.Seq == b.Seq-1 && a.Seq > l.Seq) {
+	f, _ := s.InboxState(ctx, backfill.ID)
+	if !(f.Seq == a.Seq-1 && a.Seq == b.Seq-1 && f.Seq > l.Seq) {
 		t.Fatal(a.Seq, b.Seq, l.Seq)
 	}
 }
