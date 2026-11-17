@@ -136,7 +136,7 @@
 <ul class="list" id="results"></ul>
 </section>
 <section class="card" aria-label="消息列表">
-<ul class="list">{{range .Inbox}}<li><a class="row row-msg" href="/panel/message/{{.ID}}"><span class="avatar" aria-hidden="true">{{initial .SourceID}}</span><span class="row-title"><strong dir="auto">{{visible .SourceID}}</strong><span class="tag">{{kindLabel .Kind}}</span></span><time class="row-time">{{.ReceivedAt.UTC.Format "01-02 15:04"}}<span class="tz"> UTC</span></time><span class="row-sub">{{template "chip" (statusBadge .Status)}}</span></a></li>{{else}}<li class="empty">{{template "sleepycat"}}<p class="empty-title">暂无消息</p><p class="empty-text">猫邮差在打盹。新消息一到，它会第一个跳起来。</p></li>{{end}}</ul>
+<ul class="list">{{range .Inbox}}<li><a class="row row-msg" href="/panel/message/{{.ID}}"><span class="avatar" aria-hidden="true">{{initial .SourceID}}</span><span class="row-title"><strong dir="auto">{{visible .SourceID}}</strong><span class="tag">{{kindLabel .Kind}}</span></span><time class="row-time">{{.ReceivedAt.UTC.Format "01-02 15:04"}}<span class="tz"> UTC</span></time><span class="row-sub">{{template "chip" (statusBadgeVia .Status .AppOnly)}}</span></a></li>{{else}}<li class="empty">{{template "sleepycat"}}<p class="empty-title">暂无消息</p><p class="empty-text">猫邮差在打盹。新消息一到，它会第一个跳起来。</p></li>{{end}}</ul>
 </section>
 {{else if eq .Tab "message"}}
 {{if eq (print .Message.Message.Status) "filtered"}}<a class="btn btn-text back" href="/panel?tab=filtered">{{template "icon" "i-back"}}<span>返回已过滤</span></a>{{else}}<a class="btn btn-text back" href="/panel">{{template "icon" "i-back"}}<span>返回消息</span></a>{{end}}
@@ -145,7 +145,7 @@
 <div class="msg-meta">
 <span class="avatar" aria-hidden="true">{{initial .Message.Message.SourceID}}</span>
 <p class="msg-from"><strong>来源</strong> <bdi>{{visible .Message.Message.SourceID}}</bdi> <span class="tag">{{kindLabel .Message.Message.Kind}}</span><br><time class="mono">{{.Received}}</time> <span class="msg-id mono"><span class="sr-only">消息 ID </span>{{.Message.Message.ID}}</span></p>
-{{template "chip" (statusBadge .Message.Message.Status)}}
+{{template "chip" (statusBadgeVia .Message.Message.Status .Message.AppOnly)}}
 </div>
 </header>
 {{if .HasBody}}<article class="letter" aria-label="正文"><pre dir="auto">{{visible .Body}}</pre></article>

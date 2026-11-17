@@ -14,16 +14,17 @@ import (
 type badge struct{ Tone, Icon, Label string }
 
 var viewFuncs = map[string]any{
-	"statusBadge":   statusBadge,
-	"deliveryBadge": deliveryBadge,
-	"levelBadge":    levelBadge,
-	"categoryIcon":  categoryIcon,
-	"resultBadge":   resultBadge,
-	"sessionBadge":  sessionBadge,
-	"kindLabel":     kindLabel,
-	"channelLabel":  channelLabel,
-	"initial":       initial,
-	"digits":        digits,
+	"statusBadge":    statusBadge,
+	"statusBadgeVia": statusBadgeVia,
+	"deliveryBadge":  deliveryBadge,
+	"levelBadge":     levelBadge,
+	"categoryIcon":   categoryIcon,
+	"resultBadge":    resultBadge,
+	"sessionBadge":   sessionBadge,
+	"kindLabel":      kindLabel,
+	"channelLabel":   channelLabel,
+	"initial":        initial,
+	"digits":         digits,
 }
 
 // digits spaces out a code so screen readers announce it one digit at a time
@@ -32,8 +33,12 @@ func digits(code string) string {
 	return strings.Join(strings.Split(code, ""), " ")
 }
 
-func statusBadge(s model.Status) badge {
-	b := badge{Label: s.Label()}
+func statusBadge(s model.Status) badge { return statusBadgeVia(s, false) }
+
+// statusBadgeVia labels app-only messages (Telegram not part of them) by the
+// App push: 「已推送到 App」 instead of 「已送达 Telegram」.
+func statusBadgeVia(s model.Status, appOnly bool) badge {
+	b := badge{Label: s.LabelVia(appOnly)}
 	switch s {
 	case model.StatusDelivered:
 		b.Tone, b.Icon = "ok", "i-paw-check"
@@ -71,6 +76,9 @@ func deliveryBadge(d model.DeliveryState) badge {
 		return badge{"err", "i-mail-x", "投递失败"}
 	case model.DeliveryFiltered:
 		return badge{"neutral", "i-bin", "已过滤"}
+	case model.DeliverySkipped:
+		// The device's own push settings, or it is the phone that forwarded the message.
+		return badge{"neutral", "i-dash", "已跳过（设备设置）"}
 	}
 	return badge{"neutral", "i-dash", string(d)}
 }
