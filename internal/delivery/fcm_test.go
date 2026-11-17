@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,5 +64,22 @@ func TestFCMIDsOnlyAndRetryClassification(t *testing.T) {
 				t.Fatal(got, invalid)
 			}
 		})
+	}
+}
+
+func TestFCMPermissionDeniedReason(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"status": "PERMISSION_DENIED", "message": "echoed text must not leak"}})
+	}))
+	defer srv.Close()
+	f := &FCM{endpoint: srv.URL, http: srv.Client(), tokens: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "fixture"}), Now: time.Now}
+	got, _ := f.send(context.Background(), "fixture_registration", map[string]string{"v": "1", "t": "ping"}, "HIGH", "300s")
+	if !strings.Contains(got.Err, "缺少权限") || strings.Contains(got.Err, "echoed") {
+		t.Fatal(got.Err)
+	}
+	var pe *PushError
+	if err := error(&PushError{Reason: got.Err}); !errors.As(err, &pe) || pe.Reason != got.Err {
+		t.Fatal(err)
 	}
 }

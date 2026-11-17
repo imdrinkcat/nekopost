@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"nekopost/internal/auth"
+	"nekopost/internal/delivery"
 	"nekopost/internal/enroll"
 	"nekopost/internal/model"
 	"nekopost/internal/store"
@@ -383,7 +384,14 @@ func (s *Server) testDevicePush(w http.ResponseWriter, r *http.Request, actor st
 		deviceError(w, r, 503, "push_disabled", "服务器尚未启用推送")
 		return
 	}
-	if controlError(w, r, s.TestPush(r.Context(), r.PathValue("id"))) {
+	if err := s.TestPush(r.Context(), r.PathValue("id")); err != nil {
+		var failed *delivery.PushError
+		if errors.As(err, &failed) {
+			s.Log.Warn("test push rejected", "device", r.PathValue("id"), "reason", failed.Reason)
+			deviceError(w, r, 502, "push_failed", failed.Reason)
+			return
+		}
+		controlError(w, r, err)
 		return
 	}
 	if controlError(w, r, s.Store.Audit(r.Context(), s.now(), actor, "device.test_push", r.PathValue("id"), "ok")) {

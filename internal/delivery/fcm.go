@@ -115,6 +115,7 @@ func (f *FCM) send(ctx context.Context, registration string, data map[string]str
 	}
 	var response struct {
 		Error struct {
+			Status  string `json:"status"`
 			Details []struct {
 				Type string `json:"@type"`
 				Code string `json:"errorCode"`
@@ -135,7 +136,11 @@ func (f *FCM) send(ctx context.Context, registration string, data map[string]str
 	}
 	switch r.StatusCode {
 	case 401, 403:
-		return Result{Outcome: RetrySafe, FailKind: health.FailConfig, Err: "FCM 请求未获授权"}, false
+		reason := "FCM 请求未获授权"
+		if response.Error.Status == "PERMISSION_DENIED" {
+			reason = "FCM 拒绝访问：服务账号缺少权限、属于其他项目，或项目未启用 FCM API"
+		}
+		return Result{Outcome: RetrySafe, FailKind: health.FailConfig, Err: reason}, false
 	case 429, 503:
 		var retry time.Duration
 		if secs, err := strconv.Atoi(r.Header.Get("Retry-After")); err == nil && secs >= 0 {
@@ -193,7 +198,13 @@ func (f *FCM) TestPush(ctx context.Context, deviceID string) error {
 		}
 	}
 	if result.Outcome != Delivered {
-		return errors.New("FCM 未接受测试消息")
+		return &PushError{Reason: result.Err}
 	}
 	return nil
 }
+
+// PushError is a test push FCM did not accept. Reason is one of the fixed
+// Chinese texts from send, never anything echoed from the response.
+type PushError struct{ Reason string }
+
+func (e *PushError) Error() string { return "FCM 未接受测试消息：" + e.Reason }
