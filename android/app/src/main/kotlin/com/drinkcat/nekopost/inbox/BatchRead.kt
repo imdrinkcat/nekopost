@@ -62,15 +62,11 @@ sealed interface BatchRead {
          * here (the refresh that follows catches up).
          */
         fun apply(rows: List<InboxMessage>, change: BatchRead): Local {
-            val inScope: (Int, InboxMessage) -> Boolean = when (change) {
-                is All -> {
-                    val bound = rows.indexOfFirst { it.id == change.upToId }
-                    { index, row -> bound >= 0 && index >= bound && (!change.codesOnly || row.hasCode) }
-                }
-                is Ids -> {
-                    val wanted = change.ids.toHashSet()
-                    { _, row -> row.id in wanted }
-                }
+            val bound = if (change is All) rows.indexOfFirst { it.id == change.upToId } else -1
+            val wanted = if (change is Ids) change.ids.toHashSet() else emptySet()
+            fun inScope(index: Int, row: InboxMessage): Boolean = when (change) {
+                is All -> bound >= 0 && index >= bound && (!change.codesOnly || row.hasCode)
+                is Ids -> row.id in wanted
             }
             var changed = 0
             val covered = mutableListOf<String>()
