@@ -79,5 +79,8 @@ object FakeInboxData {
 
     val list = InboxUiState(rows = rows, unreadCount = rows.count { !it.read }, canAdmin = true, canSend = true)
 
+    /** 多选 with two unread rows and one read row picked. */
+    val picked = setOf(otp.id, wechat.id, note.id)
+
     fun withDetail(detail: InboxMessage) = list.copy(selectedId = detail.id, detail = detail)
 }

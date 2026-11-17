@@ -203,6 +203,11 @@ class ScreenshotMatrixTest(private val case: Case) {
             Screen("inbox_search", coverFlat) { Inbox(FakeInboxData.list.copy(query = "验证码", searchedQuery = "验证码", rows = listOf(FakeInboxData.otp)), it) },
             Screen("inbox_search_none", cover) { Inbox(InboxUiState(query = "发票", searchedQuery = "发票"), it) },
             Screen("inbox_filter_codes", cover) { Inbox(FakeInboxData.list.copy(filter = InboxFilter.Codes), it) },
+            // 多选 (批量已读): contextual bar, picked rows, 标为已读 / 标为未读; inner keeps the open message beside it.
+            Screen("inbox_select", cover) { Inbox(FakeInboxData.list.copy(picked = FakeInboxData.picked), it) },
+            Screen("inbox_select_detail", listOf(Fold8.InnerFlat)) {
+                Inbox(FakeInboxData.withDetail(FakeInboxData.otpDetail).copy(picked = FakeInboxData.picked), it)
+            },
             Screen("inbox_unpaired", coverFlat) { Plain { InboxUnpaired(revoked = false, onPair = {}) } },
             Screen("pair_entry", cover) { Plain { PairThisPhonePane(PairUi(name = "Galaxy Z Fold8", server = "https://osaka.drinkcat.com/"), PairActions(onBack = {})) } },
             Screen("pair_number", cover) { Plain { PairThisPhonePane(PairUi(name = "Galaxy Z Fold8", number = "27"), PairActions(onBack = {})) } },

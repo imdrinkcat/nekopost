@@ -317,3 +317,16 @@ do not learn the token.
 | `GET /v1/devices/self` | `telegram_types`: `null` = Telegram receives every type, otherwise the sorted list it receives (empty = none); other types reach the user only through the App. `push_enabled`: the server has FCM configured. |
 | `POST /v1/inbox/read`, `POST /v1/inbox/unread` (server 0.10.2) | Batch read state, `msg:read` scope, DPoP like `PATCH /v1/inbox/{id}`. Body either `{"ids":[…]}` (1–500 valid message IDs; duplicates counted once, unknown/deleted IDs skipped) or, for `/read` only, `{"all":true,"up_to_id":"m_…","has_code":bool}`: every unread message whose `(received_at, id)` is not newer than `up_to_id` (the newest message the list shows; later arrivals stay unread), `has_code:true` limiting it to code messages (the 验证码 chip; 未读/全部 send `false`). Mixing the two forms, `all` on `/unread`, unknown fields → `400 invalid_body`. `up_to_id` gone → `409 stale_list` (refresh, retry). `200 {"changed":n,"unread_count":u}`; repeating is a no-op (`changed:0`). One transaction, each changed message gets a new `seq` (seen by `/v1/sync` and `/v1/events`), one audit entry per batch. After a read batch the *other* devices get the `read` FCM signal for the changed IDs (newest 500 at most); the calling device clears its own notifications for the IDs it marked (for `all`: every listed message up to `up_to_id`) and takes `unread_count` for the badge. Rate limit per device: 60/min, burst 20 → `429 rate_limited` + `Retry-After`. No partial success: on any error nothing changed. |
 | FCM data | `{v:"1", t:"read", ids:"m_…,m_…"}` when a message is marked read on another device (never sent to the device that marked it); `{v:"1", t:"gone", ids}` when a message is deleted (bot) or its body destroyed. NORMAL priority, ttl 1 h, ≤ 50 IDs per push, best effort (reconcile on sync as well). Existing `msg` / `ping` / `revoked` unchanged. |
+
+App 0.3.1 (批量已读) uses the batch endpoints through `DeviceInbox.applyBatch`
+(`inbox/BatchRead.kt` builds the bodies and applies an accepted change to the
+loaded rows). 消息 overflow 「全部标为已读」 sends `all` bounded to the newest row
+the list shows (`has_code` under the 验证码 chip; with a search it sends the
+unread rows shown as `ids`). Long-press on a row starts 多选 (contextual bar
+with the count, 全选/全不选 and ×; 标为已读 / 标为未读 under the list; back,
+Esc or × leave it; on a single pane an open message closes first). Rows carry a
+custom accessibility action 「多选」, and while selecting each row is a
+checkbox. Changes are not optimistic: rows, the badge (`unread_count`) and
+notifications change only after the server accepted the batch; a failure
+keeps the selection and shows 「没有标记成功：…」. Selections over 500 go in
+chunks of 500.

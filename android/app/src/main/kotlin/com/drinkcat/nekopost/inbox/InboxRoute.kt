@@ -121,11 +121,35 @@ internal fun InboxRoute(
         inbox.setRead(d.id, true)
     }
 
+    // 多选 keeps only messages that are still listed; none left ends it.
+    LaunchedEffect(state.rows) {
+        if (memory.picked.isEmpty()) return@LaunchedEffect
+        val listed = state.rows.mapTo(HashSet()) { it.id }
+        memory.picked = memory.picked.filterTo(LinkedHashSet()) { it in listed }
+    }
+
     val copiedText = stringResource(R.string.inbox_code_copied_toast)
     val codeMissing = stringResource(R.string.inbox_code_missing)
     val bodyCopied = stringResource(R.string.inbox_body_copied)
     val clipLabel = stringResource(R.string.inbox_code_clip_label)
     val bodyClipLabel = stringResource(R.string.inbox_body_clip_label)
+    val readDone = stringResource(R.string.inbox_batch_read_done)
+    val unreadDone = stringResource(R.string.inbox_batch_unread_done)
+    val nothingChanged = stringResource(R.string.inbox_batch_nothing)
+
+    /** Sends a batch; on success leaves 多选 and confirms with a toast, on failure keeps the selection (the error banner says why). */
+    fun batch(change: BatchRead) {
+        if (!change.read) autoRead += (change as BatchRead.Ids).ids
+        scope.launch {
+            val changed = inbox.applyBatch(change) ?: return@launch
+            memory.picked = emptySet()
+            toast = when {
+                changed == 0 -> nothingChanged
+                change.read -> readDone.format(changed)
+                else -> unreadDone.format(changed)
+            }
+        }
+    }
 
     if (state.paired == false || (state.revoked && !state.canRead)) {
         if (memory.subScreen == InboxSubScreen.Pair) {
@@ -189,6 +213,8 @@ internal fun InboxRoute(
         envelope = envelopeId?.let { id -> state.rows.firstOrNull { it.id == id && !it.read } },
         copiedId = copiedId,
         tools = !adjacent,
+        picked = memory.picked,
+        batchBusy = state.batchBusy,
     )
 
     fun open(id: String) {
@@ -250,6 +276,14 @@ internal fun InboxRoute(
                 val index = rows.indexOfFirst { it.id == memory.selectedId }
                 rows.getOrNull(index + step)?.let { open(it.id) }
             },
+            onPick = { id -> memory.picked = if (id in memory.picked) memory.picked - id else memory.picked + id },
+            onPickAll = { all -> memory.picked = if (all) ui.visibleRows.mapTo(LinkedHashSet()) { it.id } else emptySet() },
+            onClearPicks = { memory.picked = emptySet() },
+            onMarkPicked = { read ->
+                val ids = ui.pickedRows.filter { it.read != read }.map { it.id }
+                if (ids.isNotEmpty()) batch(BatchRead.Ids(ids, read))
+            },
+            onMarkAllRead = { ui.markAllRead?.let(::batch) },
         ),
     )
 }

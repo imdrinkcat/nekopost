@@ -388,4 +388,21 @@
     <string name="setup_finish_lock_insecure">设置屏幕锁后可开启应用锁。</string>
     <string name="apps_forwarding_off">通知转发已关闭，选择的应用暂不转发。</string>
     <string name="apps_forwarding_turn_on">开启</string>
+    <!-- Inbox: 批量已读 (app 0.3.1) -->
+    <string name="inbox_mark_all_read">全部标为已读</string>
+    <string name="inbox_select">多选</string>
+    <string name="inbox_select_exit">退出多选</string>
+    <string name="inbox_selected_n">已选择 %1$d 条</string>
+    <string name="inbox_select_all">全选</string>
+    <string name="inbox_select_none">全不选</string>
+    <string name="inbox_select_row">选择</string>
+    <string name="inbox_unselect_row">取消选择</string>
+    <string name="inbox_row_selected">已选择</string>
+    <string name="inbox_row_not_selected">未选择</string>
+    <string name="inbox_batch_read_done">已将 %1$d 条消息标为已读</string>
+    <string name="inbox_batch_unread_done">已将 %1$d 条消息标为未读</string>
+    <string name="inbox_batch_nothing">没有需要更改的消息</string>
+    <string name="inbox_batch_failed">没有标记成功：%1$s</string>
+    <string name="inbox_error_rate_limited">操作太频繁，请稍后再试。</string>
+    <string name="inbox_error_stale_list">列表已更新，请再试一次。</string>
 </resources>

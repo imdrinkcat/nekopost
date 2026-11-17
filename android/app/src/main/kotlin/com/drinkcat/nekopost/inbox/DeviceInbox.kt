@@ -55,6 +55,8 @@ internal data class InboxState(
     val loading: Boolean = false,
     val refreshing: Boolean = false,
     val loadingMore: Boolean = false,
+    /** A batch read change (多选 / 全部标为已读) is with the server. */
+    val batchBusy: Boolean = false,
     /** The server could not be reached; [rows] come from the encrypted cache saved at this time. */
     val offlineSince: Instant? = null,
     val error: String? = null,
@@ -377,6 +379,68 @@ internal class DeviceInbox private constructor(
         )
     }
 
+    /**
+     * 多选 标为已读/未读 and 全部标为已读 (server 0.10.2). Not optimistic: the rows
+     * change only once the server accepted the batch, so a failure (offline,
+     * locked down, rate limited) leaves nothing half done and says so in
+     * [InboxState.error]. A selection over 500 goes in chunks, each applied as
+     * it is accepted. Reading clears the covered messages' notifications; the
+     * unread badge takes the server's `unread_count`. Returns how many
+     * messages changed, or null when it failed.
+     */
+    suspend fun applyBatch(change: BatchRead): Int? = withContext(Dispatchers.IO) {
+        val parts = when (change) {
+            is BatchRead.All -> listOf(change)
+            is BatchRead.Ids -> BatchRead.chunks(change.ids, change.read)
+        }
+        if (parts.isEmpty()) return@withContext 0
+        mutable.update { it.copy(batchBusy = true) }
+        try {
+            queue.run {
+                val s = session() ?: return@run null
+                var changed = 0
+                try {
+                    for (part in parts) {
+                        val reply = api.call(s.server, "POST", BatchRead.path(part), BatchRead.body(part), s.token).json
+                        changed += reply.optInt("changed")
+                        val covered = applyBatchLocally(part, if (reply.has("unread_count")) reply.optInt("unread_count") else null)
+                        if (part.read) InboxNotifier.cancelMany(appContext, covered)
+                    }
+                    // A retry that went through also clears the failure it retried.
+                    mutable.update { it.copy(error = null) }
+                    changed
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (e is ApiFailure && e.code == "device_revoked") {
+                        clear()
+                        mutable.update { it.copy(revoked = true) }
+                    }
+                    if (e is ApiFailure && e.code == "stale_list") updates.tryEmit(Unit)
+                    mutable.update { it.copy(error = appContext.getString(R.string.inbox_batch_failed, failureText(e))) }
+                    null
+                }
+            }
+        } finally {
+            mutable.update { it.copy(batchBusy = false) }
+        }
+    }
+
+    private fun applyBatchLocally(change: BatchRead, unread: Int?): List<String> {
+        var covered: List<String> = emptyList()
+        mutable.update { state ->
+            val local = BatchRead.apply(state.rows, change)
+            covered = local.covered
+            val delta = if (change.read) -local.changed else local.changed
+            state.copy(
+                rows = local.rows,
+                detail = state.detail?.let { d -> if (d.id in local.covered) d.copy(read = change.read) else d },
+                unreadCount = unread ?: state.unreadCount?.let { (it + delta).coerceAtLeast(0) },
+            )
+        }
+        return covered
+    }
+
     /** A message was read on another device (FCM t:"read"): reflect it if loaded. */
     fun readElsewhere(ids: Collection<String>) {
         ids.forEach { id -> if (mutable.value.rows.any { it.id == id && !it.read }) applyRead(id, true) }
@@ -597,6 +661,8 @@ internal class DeviceInbox private constructor(
             "device_revoked" -> text(R.string.inbox_error_revoked)
             "pairing_contested" -> text(R.string.pair_error_contested)
             "locked_down" -> text(R.string.inbox_error_locked_down)
+            "rate_limited" -> text(R.string.inbox_error_rate_limited)
+            "stale_list" -> text(R.string.inbox_error_stale_list)
             "pairing_not_found", "pairing_gone" -> text(R.string.pair_error_invalid)
             else -> appContext.getString(R.string.inbox_error_server, e.status)
         }

@@ -38,6 +38,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -48,7 +52,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,10 +68,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -78,14 +81,18 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.drinkcat.nekopost.lock.LocalAppLock
 import com.drinkcat.nekopost.R
 import com.drinkcat.nekopost.core.ui.component.EmptyState
 import com.drinkcat.nekopost.core.ui.component.NekoIcons
@@ -121,7 +128,10 @@ fun InboxListPane(
 ) {
     val rows = state.visibleRows
     Column(modifier.fillMaxSize().testTag("inbox_list")) {
-        if (mode == PaneMode.TopBottom) {
+        if (state.selecting) {
+            SelectionBar(state, actions)
+            if (mode != PaneMode.TopBottom) SearchField(state, actions, searchFocus, onSearchFocused)
+        } else if (mode == PaneMode.TopBottom) {
             // Tabletop: only the lower half is left for the list; title and search share one row.
             InboxTopBar(state, menuOpen, onMenuOpen, actions) {
                 SearchField(state, actions, searchFocus, onSearchFocused, Modifier.weight(1f))
@@ -166,6 +176,9 @@ fun InboxListPane(
                             onOpen = { actions.onOpen(message.id) },
                             onCopyCode = { actions.onCopyCode(message.id) },
                             onToggleRead = { actions.onSetRead(message.id, !message.read) },
+                            picking = state.selecting,
+                            picked = message.id in state.picked,
+                            onPick = { actions.onPick(message.id) },
                         )
                     }
                     if (state.loadingMore) {
@@ -179,6 +192,7 @@ fun InboxListPane(
             }
         }
         state.toast?.let { Toast(it) }
+        if (state.selecting) SelectionActions(state, actions)
     }
     val nearEnd by remember(listState, rows.size) {
         derivedStateOf {
@@ -215,28 +229,41 @@ private fun InboxTopBar(
                 modifier = Modifier.weight(1f).semantics { heading() },
             )
         }
-        if (state.tools) Box {
+        Box {
             IconButton(onClick = { onMenuOpen(true) }, modifier = Modifier.testTag("inbox_overflow")) {
                 Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.inbox_more))
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuOpen(false) }) {
-                if (state.canSend) {
+                // Marks what the list shows: the filter chip and search apply, bounded to the newest row shown.
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.inbox_mark_all_read)) },
+                    leadingIcon = { Icon(Icons.Filled.Done, contentDescription = null) },
+                    enabled = state.markAllRead != null,
+                    onClick = {
+                        onMenuOpen(false)
+                        actions.onMarkAllRead()
+                    },
+                    modifier = Modifier.testTag("inbox_mark_all_read"),
+                )
+                if (state.tools && state.canSend) {
                     MenuItem(stringResource(R.string.inbox_tool_drop_note), Icons.Filled.Edit) {
                         onMenuOpen(false)
                         actions.onOpenTool(InboxSubScreen.DropNote)
                     }
                 }
-                if (state.canAdmin) {
+                if (state.tools && state.canAdmin) {
                     MenuItem(stringResource(R.string.inbox_tool_sorting), NekoIcons.PostBox) {
                         onMenuOpen(false)
                         actions.onOpenTool(InboxSubScreen.Sorting)
                     }
                 }
-                MenuItem(stringResource(R.string.inbox_tool_watch), NekoIcons.CoverScreen) {
-                    onMenuOpen(false)
-                    actions.onOpenTool(InboxSubScreen.Watch)
+                if (state.tools) {
+                    MenuItem(stringResource(R.string.inbox_tool_watch), NekoIcons.CoverScreen) {
+                        onMenuOpen(false)
+                        actions.onOpenTool(InboxSubScreen.Watch)
+                    }
                 }
-                if (state.hardwareKeyboard) {
+                if (state.tools && state.hardwareKeyboard) {
                     MenuItem(stringResource(R.string.inbox_tool_shortcuts), Icons.Filled.Build) {
                         onMenuOpen(false)
                         actions.onOpenTool(InboxSubScreen.Shortcuts)
@@ -349,7 +376,16 @@ private fun ToolChip(label: String, icon: ImageVector, onClick: () -> Unit) {
 @Composable
 private fun Banners(state: InboxUiState, actions: InboxActions) {
     val offline = state.offlineSince
-    if (offline != null && state.rows.isNotEmpty()) {
+    // An action that failed (a batch while offline) says so even over the offline banner.
+    if (state.error != null && state.rows.isNotEmpty() && !state.revoked) {
+        NoticeBar(
+            text = state.error,
+            tone = StatusTone.Error,
+            action = stringResource(R.string.action_retry),
+            onAction = actions.onRefresh,
+            modifier = Modifier.padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.xs),
+        )
+    } else if (offline != null && state.rows.isNotEmpty()) {
         val hours = Duration.between(offline, LocalNow.current()).toHours().coerceAtLeast(0)
         NoticeBar(
             text = if (hours < 1) {
@@ -358,14 +394,6 @@ private fun Banners(state: InboxUiState, actions: InboxActions) {
                 stringResource(R.string.inbox_offline_hours, hours.toInt())
             },
             tone = StatusTone.Warning,
-            action = stringResource(R.string.action_retry),
-            onAction = actions.onRefresh,
-            modifier = Modifier.padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.xs),
-        )
-    } else if (state.error != null && state.rows.isNotEmpty() && !state.revoked) {
-        NoticeBar(
-            text = state.error,
-            tone = StatusTone.Error,
             action = stringResource(R.string.action_retry),
             onAction = actions.onRefresh,
             modifier = Modifier.padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.xs),
@@ -490,7 +518,12 @@ private fun Toast(text: String) {
     }
 }
 
-/** One conversation row: avatar, sender + time, one-line preview, code chip and unread dot. */
+/**
+ * One conversation row: avatar, sender + time, one-line preview, code chip and
+ * unread dot. Long-press starts 多选 with this row; while [picking], a tap
+ * toggles the row (a checkbox to accessibility services) and a picked row
+ * shows a check in place of its avatar.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageRow(
@@ -499,15 +532,20 @@ fun MessageRow(
     onOpen: () -> Unit,
     onCopyCode: () -> Unit,
     onToggleRead: () -> Unit,
+    picking: Boolean = false,
+    picked: Boolean = false,
+    onPick: () -> Unit = {},
 ) {
-    var menu by rememberSaveable(message.id, LocalAppLock.current.epoch) { mutableStateOf(false) }
     val unread = !message.read
     val readLabel = stringResource(if (unread) R.string.inbox_mark_read else R.string.inbox_mark_unread)
     val copyLabel = stringResource(R.string.inbox_copy_code)
+    val selectLabel = stringResource(R.string.inbox_select)
+    val pickLabel = stringResource(if (picked) R.string.inbox_unselect_row else R.string.inbox_select_row)
+    val pickedState = stringResource(if (picked) R.string.inbox_row_selected else R.string.inbox_row_not_selected)
     Box {
         Surface(
             shape = MaterialTheme.shapes.medium,
-            color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+            color = if (picked || selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 1.dp)
@@ -516,17 +554,30 @@ fun MessageRow(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .combinedClickable(onClick = onOpen, onLongClick = { menu = true })
-                    .semantics {
-                        customActions = buildList {
-                            add(CustomAccessibilityAction(readLabel) { onToggleRead(); true })
-                            if (message.hasCode && !message.expired) add(CustomAccessibilityAction(copyLabel) { onCopyCode(); true })
-                        }
-                    }
+                    .then(
+                        if (picking) {
+                            Modifier
+                                .combinedClickable(onClickLabel = pickLabel, role = Role.Checkbox, onClick = onPick, onLongClick = onPick)
+                                .semantics {
+                                    toggleableState = ToggleableState(picked)
+                                    stateDescription = pickedState
+                                }
+                        } else {
+                            Modifier
+                                .combinedClickable(onClick = onOpen, onLongClickLabel = selectLabel, onLongClick = onPick)
+                                .semantics {
+                                    customActions = buildList {
+                                        add(CustomAccessibilityAction(readLabel) { onToggleRead(); true })
+                                        if (message.hasCode && !message.expired) add(CustomAccessibilityAction(copyLabel) { onCopyCode(); true })
+                                        add(CustomAccessibilityAction(selectLabel) { onPick(); true })
+                                    }
+                                }
+                        },
+                    )
                     .heightIn(min = 72.dp)
                     .padding(horizontal = NekoTokens.Spacing.m, vertical = NekoTokens.Spacing.s),
             ) {
-                SourceAvatar(message, size = 48.dp)
+                if (picked) PickedMark(size = 48.dp) else SourceAvatar(message, size = 48.dp)
                 Spacer(Modifier.width(NekoTokens.Spacing.m))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xxs)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -552,7 +603,7 @@ fun MessageRow(
                         PreviewText(message, Modifier.weight(1f))
                         if (message.hasCode && !message.expired) {
                             Spacer(Modifier.width(NekoTokens.Spacing.s))
-                            CodeChip(copyLabel, onCopyCode)
+                            CodeChip(copyLabel, if (picking) null else onCopyCode)
                         }
                         if (unread) {
                             Spacer(Modifier.width(NekoTokens.Spacing.s))
@@ -567,10 +618,89 @@ fun MessageRow(
                 }
             }
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text(readLabel) }, onClick = { menu = false; onToggleRead() })
-            if (message.hasCode && !message.expired) {
-                DropdownMenuItem(text = { Text(copyLabel) }, onClick = { menu = false; onCopyCode() })
+    }
+}
+
+/** A picked row's mark: a check on a primary circle, where the avatar was. */
+@Composable
+private fun PickedMark(size: Dp) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier.size(size).testTag("picked_mark"),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(size * 0.5f))
+        }
+    }
+}
+
+/** 多选's contextual bar in place of the title bar: ×, the count and 全选 / 全不选. */
+@Composable
+private fun SelectionBar(state: InboxUiState, actions: InboxActions) {
+    val count = state.pickedRows.size
+    val all = count > 0 && count == state.visibleRows.size
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth().testTag("inbox_selection_bar")) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = NekoTokens.Spacing.xs),
+        ) {
+            IconButton(onClick = actions.onClearPicks, modifier = Modifier.testTag("inbox_selection_close")) {
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.inbox_select_exit))
+            }
+            Text(
+                stringResource(R.string.inbox_selected_n, count),
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = NekoTokens.Spacing.s)
+                    .semantics {
+                        heading()
+                        liveRegion = LiveRegionMode.Polite
+                    }
+                    .testTag("inbox_selection_count"),
+            )
+            TextButton(
+                onClick = { actions.onPickAll(!all) },
+                enabled = state.visibleRows.isNotEmpty(),
+                modifier = Modifier.heightIn(min = NekoTokens.Touch.minTarget).testTag("inbox_select_all"),
+            ) {
+                Text(stringResource(if (all) R.string.inbox_select_none else R.string.inbox_select_all))
+            }
+        }
+    }
+}
+
+/** 多选's actions under the list: 标为已读 and 标为未读 for the picked rows shown. */
+@Composable
+private fun SelectionActions(state: InboxUiState, actions: InboxActions) {
+    val rows = state.pickedRows
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().testTag("inbox_selection_actions")) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.s),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = NekoTokens.Spacing.l, vertical = NekoTokens.Spacing.s),
+        ) {
+            FilledTonalButton(
+                onClick = { actions.onMarkPicked(true) },
+                enabled = !state.batchBusy && rows.any { !it.read },
+                modifier = Modifier.weight(1f).heightIn(min = NekoTokens.Touch.minTarget).testTag("inbox_picked_read"),
+            ) {
+                Icon(Icons.Filled.Done, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(NekoTokens.Spacing.s))
+                Text(stringResource(R.string.inbox_mark_read), maxLines = 1)
+            }
+            OutlinedButton(
+                onClick = { actions.onMarkPicked(false) },
+                enabled = !state.batchBusy && rows.any { it.read },
+                modifier = Modifier.weight(1f).heightIn(min = NekoTokens.Touch.minTarget).testTag("inbox_picked_unread"),
+            ) {
+                Icon(Icons.Filled.Email, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(NekoTokens.Spacing.s))
+                Text(stringResource(R.string.inbox_mark_unread), maxLines = 1)
             }
         }
     }
@@ -633,7 +763,7 @@ fun InboxMessage.senderLabel(): String {
  * accessibility action copy the code too.
  */
 @Composable
-private fun CodeChip(label: String, onCopy: () -> Unit) {
+private fun CodeChip(label: String, onCopy: (() -> Unit)?) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.xs),
@@ -641,7 +771,7 @@ private fun CodeChip(label: String, onCopy: () -> Unit) {
             .height(24.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.primary)
-            .clickable(onClickLabel = label, role = Role.Button, onClick = onCopy)
+            .then(if (onCopy != null) Modifier.clickable(onClickLabel = label, role = Role.Button, onClick = onCopy) else Modifier)
             .padding(horizontal = NekoTokens.Spacing.s)
             .testTag("code_chip"),
     ) {

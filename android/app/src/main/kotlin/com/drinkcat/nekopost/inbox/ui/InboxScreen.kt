@@ -1,5 +1,6 @@
 package com.drinkcat.nekopost.inbox.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyListState
@@ -32,7 +33,8 @@ import com.drinkcat.nekopost.ui.shell.PaneMode
  * display: list and message side by side. Tabletop: the open message above
  * the hinge, the list (and the fold tools) below it. Keyboard (§10.5): j/k,
  * Enter, Esc, c copies the code, e toggles read, Ctrl/⌘+F searches, Ctrl/⌘+K
- * opens the tools menu.
+ * opens the tools menu. Long-press starts 多选; back, Esc or × leaves it
+ * (on a single pane an open message closes first).
  */
 @Composable
 fun InboxScreen(
@@ -48,6 +50,7 @@ fun InboxScreen(
     // Popups are separate windows: close them whenever the app locks.
     var menuOpen by remember(LocalAppLock.current.epoch) { mutableStateOf(false) }
     val rows = state.visibleRows
+    val leavesSelection = state.selecting && (mode != PaneMode.Single || state.selectedId == null)
 
     // ① 展开即达 and notification taps: the open message is scrolled into view.
     LaunchedEffect(state.selectedId, mode) {
@@ -74,7 +77,11 @@ fun InboxScreen(
                 Key.J, Key.DirectionDown -> rows.getOrNull(index + 1)?.let { actions.onOpen(it.id); true } ?: false
                 Key.K, Key.DirectionUp -> rows.getOrNull(index - 1)?.let { actions.onOpen(it.id); true } ?: false
                 Key.Enter -> rows.getOrNull(index.coerceAtLeast(0))?.let { actions.onOpen(it.id); true } ?: false
-                Key.Escape -> if (state.selectedId != null) { actions.onBack(); true } else false
+                Key.Escape -> when {
+                    leavesSelection -> { actions.onClearPicks(); true }
+                    state.selectedId != null -> { actions.onBack(); true }
+                    else -> false
+                }
                 Key.C -> state.detail?.takeIf { it.otp != null }?.let { actions.onCopyCode(it.id); true } ?: false
                 Key.E -> state.detail?.let { actions.onSetRead(it.id, !it.read); true } ?: false
                 Key.Slash -> { searchFocus.requestFocus(); true }
@@ -105,4 +112,6 @@ fun InboxScreen(
             modifier = modifier.then(keys).testTag(if (mode == PaneMode.TwoPane) "inbox_two_pane" else "inbox_single"),
         )
     }
+    // On a single pane an open message hides the list: back closes the message first (AdaptiveListDetail).
+    BackHandler(enabled = leavesSelection, onBack = actions.onClearPicks)
 }

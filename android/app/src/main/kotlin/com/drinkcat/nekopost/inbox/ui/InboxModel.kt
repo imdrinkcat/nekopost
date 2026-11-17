@@ -1,6 +1,7 @@
 package com.drinkcat.nekopost.inbox.ui
 
 import androidx.compose.runtime.Immutable
+import com.drinkcat.nekopost.inbox.BatchRead
 import com.drinkcat.nekopost.inbox.InboxMessage
 import java.time.Instant
 
@@ -41,6 +42,10 @@ data class InboxUiState(
     val copiedId: String? = null,
     /** The overflow tools and 在旁边打开 (off in the adjacent window). */
     val tools: Boolean = true,
+    /** 多选: the picked message IDs; non-empty = selection mode (long-press a row). */
+    val picked: Set<String> = emptySet(),
+    /** A batch read change is with the server: its buttons wait. */
+    val batchBusy: Boolean = false,
 ) {
     /** Rows after the filter chips and, before the search is submitted, the local text filter. */
     val visibleRows: List<InboxMessage>
@@ -60,6 +65,30 @@ data class InboxUiState(
 
     /** The search text filters loaded rows only until it is submitted. */
     val filteringLocally: Boolean get() = query.isNotBlank() && searchedQuery == null
+
+    /** Selection mode: the contextual bar replaces the title bar. */
+    val selecting: Boolean get() = picked.isNotEmpty()
+
+    /** The picked rows the list shows (a filter change hides, and so excludes, the others). */
+    val pickedRows: List<InboxMessage> get() = visibleRows.filter { it.id in picked }
+
+    /**
+     * 全部标为已读 marks what the list shows: with a search, the unread rows
+     * shown; otherwise every unread message up to the newest one shown (later
+     * arrivals stay unread), code messages only under 验证码. Null when there
+     * is nothing to mark.
+     */
+    val markAllRead: BatchRead?
+        get() {
+            val shown = visibleRows
+            if (shown.isEmpty() || batchBusy) return null
+            if (query.isNotBlank() || searchedQuery != null) {
+                val unread = shown.filter { !it.read }.map { it.id }
+                return if (unread.isEmpty()) null else BatchRead.Ids(unread, true)
+            }
+            if (unreadCount <= 0 && shown.all { it.read }) return null
+            return BatchRead.All(shown.first().id, codesOnly = filter == InboxFilter.Codes)
+        }
 }
 
 /** UI events of the inbox. Defaults are no-ops so screenshot tests can omit them. */
@@ -83,4 +112,14 @@ data class InboxActions(
     val onDismissEnvelope: () -> Unit = {},
     /** Book posture edge paging (§10.4 ⑮): +1 next, -1 previous. */
     val onPage: (Int) -> Unit = {},
+    /** 多选: long-press (or the 多选 accessibility action) picks a row; in selection mode a tap toggles it. */
+    val onPick: (String) -> Unit = {},
+    /** 全选 / 全不选 over the rows shown. */
+    val onPickAll: (Boolean) -> Unit = {},
+    /** Leaves selection mode (×, back, Esc). */
+    val onClearPicks: () -> Unit = {},
+    /** 标为已读 (true) / 标为未读 (false) for the picked rows shown. */
+    val onMarkPicked: (Boolean) -> Unit = {},
+    /** 全部标为已读 from the overflow menu ([InboxUiState.markAllRead]). */
+    val onMarkAllRead: () -> Unit = {},
 )

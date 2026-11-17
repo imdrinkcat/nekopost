@@ -151,6 +151,14 @@ object InboxNotifier {
         refreshSummary(context)
     }
 
+    /** Clears the notifications of [ids] (a batch marked read), then the summary once. */
+    fun cancelMany(context: Context, ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        val manager = NotificationManagerCompat.from(context)
+        ids.forEach { manager.cancel(it, ID) }
+        refreshSummary(context)
+    }
+
     fun cancelAll(context: Context) {
         NotificationManagerCompat.from(context).cancelAll()
     }

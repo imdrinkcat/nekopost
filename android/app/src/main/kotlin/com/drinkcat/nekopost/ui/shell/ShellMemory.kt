@@ -123,6 +123,9 @@ class InboxMemory(
     /** A tool reached from the overflow (分拣台, 值守台, 发给自己, 配对此手机, 键盘快捷键). */
     var subScreen by mutableStateOf(subScreen)
     val listState = LazyListState(firstIndex, firstOffset)
+
+    /** 多选: the picked message IDs (empty = not selecting); kept across tabs and postures, not process death. */
+    var picked by mutableStateOf(emptySet<String>())
 }
 
 @Composable
