@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,19 @@ func pairSetup(t *testing.T) (*env, *clock) {
 	t.Cleanup(cancel)
 	e.b.runCtx = ctx
 	return e, c
+}
+
+// markupJSON renders reply_markup the same way whether it came as JSON or as a multipart string.
+func markupJSON(t *testing.T, v any) string {
+	t.Helper()
+	if s, ok := v.(string); ok {
+		return s
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }
 
 func wire(c *clock) string { return strconv.FormatInt(c.now().Unix(), 10) }
@@ -109,12 +123,26 @@ func TestAddDeviceReceiver(t *testing.T) {
 	if len(photos) != 1 {
 		t.Fatal(photos)
 	}
-	p := photos[0].Params
-	caption, _ := p["caption"].(string)
-	png, _ := p["photo"].([]byte)
-	if p["chat_id"] != float64(admin) || p["parse_mode"] != "HTML" || p["protect_content"] != "true" ||
+	// The QR photo is protected and carries neither the code nor the link.
+	ph := photos[0].Params
+	png, _ := ph["photo"].([]byte)
+	photoCaption, _ := ph["caption"].(string)
+	if ph["chat_id"] != float64(admin) || ph["parse_mode"] != "HTML" || ph["protect_content"] != "true" ||
 		len(png) < 100 || string(png[1:4]) != "PNG" {
-		t.Fatal(p["chat_id"], p["parse_mode"], p["protect_content"], len(png))
+		t.Fatal(ph["chat_id"], ph["parse_mode"], ph["protect_content"], len(png))
+	}
+	if strings.Contains(photoCaption, "nekopost://") || strings.Contains(photoCaption, "配对码：") || !strings.Contains(photoCaption, "仅接收") {
+		t.Fatal(photoCaption)
+	}
+	// The code and link come as copyable text: not protected (clients refuse to copy protected text).
+	texts := e.tg.Calls("sendMessage")
+	if len(texts) != 1 {
+		t.Fatal(texts)
+	}
+	p := texts[0].Params
+	caption, _ := p["text"].(string)
+	if p["chat_id"] != float64(admin) || p["parse_mode"] != "HTML" || p["protect_content"] != nil {
+		t.Fatal(p["chat_id"], p["parse_mode"], p["protect_content"])
 	}
 	for _, want := range []string{"<code>https://gw.example</code>", "<code>nekopost://enroll?v=1&amp;kind=device&amp;url=",
 		"仅接收", "粘贴配对链接"} {
@@ -135,7 +163,7 @@ func TestAddDeviceReceiver(t *testing.T) {
 	if strings.Contains(outside, "://") || strings.Contains(outside, "gw.example") {
 		t.Fatal("link outside <code>:", outside)
 	}
-	if !strings.Contains(p["reply_markup"].(string), `"callback_data":"dvx:`+ps[0].ID+`"`) || strings.Contains(p["reply_markup"].(string), `"url"`) {
+	if kb := markupJSON(t, p["reply_markup"]); !strings.Contains(kb, `"callback_data":"dvx:`+ps[0].ID+`"`) || strings.Contains(kb, `"url"`) {
 		t.Fatal(p["reply_markup"])
 	}
 }
@@ -215,11 +243,12 @@ func TestPairingMessageRemovedOnExpiry(t *testing.T) {
 		t.Fatal(photoID)
 	}
 	c.add(6 * time.Minute)
-	del := e.tg.WaitCalls(t, "deleteMessage", 1, 5*time.Second)
-	if del[0].Params["chat_id"] != float64(admin) {
-		t.Fatal(del[0].Params)
+	// Both the photo and the code text are removed.
+	del := e.tg.WaitCalls(t, "deleteMessage", 2, 5*time.Second)
+	if del[0].Params["chat_id"] != float64(admin) || del[0].Params["message_id"] == del[1].Params["message_id"] {
+		t.Fatal(del[0].Params, del[1].Params)
 	}
-	sent := e.tg.WaitCalls(t, "sendMessage", 1, 5*time.Second)
+	sent := e.tg.WaitCalls(t, "sendMessage", 2, 5*time.Second)
 	if !strings.Contains(sent[len(sent)-1].Params["text"].(string), "已过期") {
 		t.Fatal(sent[len(sent)-1].Params)
 	}
@@ -236,7 +265,7 @@ func TestPairingMessageRemovedWhenClaimed(t *testing.T) {
 	if err := e.st.CancelPairing(bg, ps[0].ID, "test", c.now()); err != nil {
 		t.Fatal(err)
 	}
-	e.tg.WaitCalls(t, "deleteMessage", 1, 5*time.Second)
+	e.tg.WaitCalls(t, "deleteMessage", 2, 5*time.Second)
 }
 
 func TestCancelPairingButton(t *testing.T) {
@@ -267,7 +296,8 @@ func TestSendPhotoFallsBackToText(t *testing.T) {
 	e.tg.Script("sendPhoto", faketg.Response{Status: 400, Description: "Bad Request: IMAGE_PROCESS_FAILED"})
 	e.b.handle(bg, cb(admin, "dvr:receiver:"+wire(c)))
 	sent := e.tg.Calls("sendMessage")
-	if len(sent) == 0 || !strings.Contains(sent[len(sent)-1].Params["text"].(string), "nekopost://enroll") {
+	if len(sent) == 0 || !strings.Contains(sent[len(sent)-1].Params["text"].(string), "nekopost://enroll") ||
+		!strings.Contains(markupJSON(t, sent[len(sent)-1].Params["reply_markup"]), "dvx:") {
 		t.Fatal(sent)
 	}
 	if ps := botPairings(t, e); len(ps) != 1 || ps[0].State != "open" {

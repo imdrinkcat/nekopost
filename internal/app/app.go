@@ -95,6 +95,10 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	if fcm != nil {
 		fcm.Store = st
 		worker.Channels[fcm.Name()] = fcm
+	} else {
+		// Push rows left from a run with FCM (now app-primary ones decide the
+		// message status) are finalized instead of waiting forever.
+		worker.Unconfigured = append(worker.Unconfigured, "fcm")
 	}
 
 	var fl *filter.Filter

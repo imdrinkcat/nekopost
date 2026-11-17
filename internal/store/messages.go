@@ -132,8 +132,10 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 	}
 	// The body is kept for the App inbox whenever bodies are retained, even
 	// if nothing could be pushed (e.g. only the source device reads it).
-	// V1 mode without any target stores nothing, as before.
-	keepBody := len(targets) > 0 || s.bodyRetention > 0
+	// V1 mode stores nothing unless some delivery will actually run: skipped
+	// push rows (device settings, the source device) do not need the body.
+	live := slices.ContainsFunc(targets, func(t NewDelivery) bool { return t.Skip == "" })
+	keepBody := live || s.bodyRetention > 0
 	bodyState := "none"
 	if keepBody {
 		bodyState = "stored"

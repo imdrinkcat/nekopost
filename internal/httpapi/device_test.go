@@ -136,6 +136,27 @@ func TestDevicePairSubmitReadAndRevoke(t *testing.T) {
 	if r := call("DELETE", path+"/body", ""); r.code != 204 {
 		t.Fatal(r.code, r.body)
 	}
+	// The admin phone creates a pairing, sees its expiry and voids it again.
+	created := call("POST", "/v1/admin/pairings", `{"name":"Spare","role":"receiver"}`)
+	if created.code != 201 {
+		t.Fatal(created.code, created.body)
+	}
+	pairPath := "/v1/admin/pairings/" + created.body["id"].(string)
+	if r := call("GET", pairPath, ""); r.code != 200 || r.body["state"] != "open" || r.body["expires_at"] == nil {
+		t.Fatal(r.code, r.body)
+	}
+	if r := call("DELETE", pairPath, ""); r.code != 204 {
+		t.Fatal(r.code, r.body)
+	}
+	if r := call("GET", pairPath, ""); r.body["state"] != "cancelled" {
+		t.Fatal(r.code, r.body)
+	}
+	if r := call("DELETE", pairPath, ""); r.code != 404 {
+		t.Fatal(r.code, r.body)
+	}
+	if r := call("DELETE", "/v1/admin/pairings/"+p.ID, ""); r.code != 404 {
+		t.Fatal("someone else's pairing", r.code, r.body)
+	}
 	if err := e.st.RevokeDevice(bg, id, "cli", time.Now()); err != nil {
 		t.Fatal(err)
 	}

@@ -372,6 +372,21 @@ func TestV1ModeKeepsBodyForPush(t *testing.T) {
 	}
 }
 
+func TestV1ModeStoresNoBodyWhenEveryPushIsSkipped(t *testing.T) {
+	s := pushStore(t, func(o *Options) { o.BodyRetention, o.CodeRetention = 0, 0 })
+	now := time.Now()
+	addPushDevice(t, s, "d_origin", "", now)
+	msg := newMsg("fixture", "own sms", "", now)
+	msg.OriginDevice = "d_origin"
+	res, err := s.InsertMessage(ctx, msg, nil, 0)
+	if err != nil || res.Status != model.StatusNotRouted {
+		t.Fatal(res, err)
+	}
+	if _, _, _, ok, err := s.ReadBody(ctx, msg.ID); err != nil || ok {
+		t.Fatal("V1 mode keeps no body nobody will fetch", ok, err)
+	}
+}
+
 func TestV1ModePurgesTelegramOnlyBody(t *testing.T) {
 	s := pushStore(t, func(o *Options) { o.BodyRetention, o.CodeRetention, o.EnablePush = 0, 0, false })
 	now := time.Now()

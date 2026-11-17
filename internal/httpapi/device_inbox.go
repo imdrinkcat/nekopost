@@ -52,7 +52,7 @@ func (s *Server) inboxItem(ctx context.Context, id string, detail bool) (map[str
 	// "<app> · <title>"); title and preview stay masked for compatibility.
 	var sender any
 	if ok {
-		sender = msgrule.Sender(t)
+		sender = msgrule.Sender(t, st.HasCode, m.Kind == "sms")
 	}
 	item := map[string]any{"id": m.ID, "seq": st.Seq, "source": map[string]string{"id": src.ID, "name": src.Name, "icon": src.Icon},
 		"type": m.Kind, "priority": m.Priority, "category": m.Category, "category_text": m.Category.Label(),

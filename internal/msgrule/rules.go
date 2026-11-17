@@ -24,6 +24,7 @@ var (
 	digitRunRe     = regexp.MustCompile(`[0-9０-９]{3,}`)
 	previewDigitRe = regexp.MustCompile(`[0-9０-９]{4,}`)
 	wordRe         = regexp.MustCompile(`[A-Za-z0-9０-９]{4,16}`)
+	addressRe      = regexp.MustCompile(`^\+?[0-9][0-9 -]{2,19}$`)
 )
 
 // IsCode reports whether the text looks like a verification-code message.
@@ -68,11 +69,23 @@ func Preview(title, body string) string {
 // Sender returns a message title for a conversation list: the SMS address
 // or "<app> · <title>" as submitted, clipped to 64 runes. Unlike Preview it
 // keeps digit runs and names, so sender numbers such as 95555 stay
-// readable; only a token right after a code keyword is masked.
-func Sender(title string) string {
+// readable. A token right after a code keyword is always masked; when the
+// message has a code (hasCode, the stored local-rule flag) every code-shaped
+// token is masked too, wherever it stands ("G-482913 是您的验证码"), unless sms
+// is set and the whole title is a bare phone number or short code (the SMS
+// address).
+func Sender(title string, hasCode, sms bool) string {
 	s := strings.Join(strings.Fields(title), " ")
 	if keyword := keywordToken(s); keyword != "" {
 		s = strings.ReplaceAll(s, keyword, "******")
+	}
+	if hasCode && !(sms && addressRe.MatchString(s)) {
+		s = wordRe.ReplaceAllStringFunc(s, func(tok string) string {
+			if otpToken(tok) {
+				return "******"
+			}
+			return tok
+		})
 	}
 	if r := []rune(s); len(r) > 64 {
 		s = string(r[:64])

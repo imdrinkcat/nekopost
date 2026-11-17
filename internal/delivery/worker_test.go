@@ -281,3 +281,32 @@ func lastButton(p map[string]any) string {
 	row := kb["inline_keyboard"].([]any)[0].([]any)
 	return row[len(row)-1].(map[string]any)["text"].(string)
 }
+
+func TestUnconfiguredChannelRowsAreFinalized(t *testing.T) {
+	e := setup(t, "")
+	e.w.Unconfigured = []string{"fcm"}
+	m := &model.Message{ID: model.NewMessageID(e.now), SourceID: "iphone", Kind: "sms", Priority: model.PriorityNormal,
+		Title: "Bank", Body: "app only", ContentHash: "app only", ReceivedAt: e.now}
+	if _, err := e.st.InsertMessage(ctx, m, []store.NewDelivery{{Channel: "fcm", Target: "d_phone"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { e.w.Run(runCtx); close(done) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		st, d := e.delivery(t, m.ID)
+		if d.State == model.DeliveryFailed {
+			if st != model.StatusFailed || !strings.Contains(d.LastError, "未配置 FCM") {
+				t.Fatalf("%s %+v", st, d)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("still %s %+v", st, d)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+}

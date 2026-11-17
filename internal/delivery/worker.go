@@ -33,6 +33,11 @@ type Worker struct {
 	Now      func() time.Time
 	// AttemptTimeout bounds one attempt (all parts of one message).
 	AttemptTimeout time.Duration
+	// Unconfigured lists channels that may still have rows in the outbox but
+	// are not available in this run (e.g. "fcm" after the FCM service account
+	// was removed). Their due rows are finalized as failed, so a message whose
+	// status depends on them never stays queued forever.
+	Unconfigured []string
 
 	wake map[string]chan struct{}
 	once sync.Once
@@ -43,6 +48,11 @@ func (w *Worker) init() {
 		w.wake = map[string]chan struct{}{"": make(chan struct{}, 1)}
 		for id := range w.Channels {
 			w.wake[id] = make(chan struct{}, 1)
+		}
+		for _, id := range w.Unconfigured {
+			if _, ok := w.wake[id]; !ok {
+				w.wake[id] = make(chan struct{}, 1)
+			}
 		}
 		if w.Now == nil {
 			w.Now = time.Now
@@ -85,6 +95,16 @@ func (w *Worker) Run(ctx context.Context) {
 		return
 	}
 	var wg sync.WaitGroup
+	for _, name := range w.Unconfigured {
+		if _, ok := w.Channels[name]; ok {
+			continue
+		}
+		wg.Add(1)
+		go func(ch string) {
+			defer wg.Done()
+			w.runLoop(ctx, ch)
+		}(name)
+	}
 	for name := range w.Channels {
 		wg.Add(1)
 		go func(ch string) {
@@ -216,7 +236,11 @@ func (w *Worker) process(ctx context.Context, job store.Job) {
 	}
 	ch, ok := w.Channels[d.Channel]
 	if !ok {
-		w.finish(job, final("未注册的投递通道 "+d.Channel))
+		reason := "未注册的投递通道 " + d.Channel
+		if d.Channel == "fcm" {
+			reason = "未配置 FCM，无法推送到 App"
+		}
+		w.finish(job, final(reason))
 		return
 	}
 	if err := w.Store.ClaimDelivery(ctx, d.ID, d.MessageID, now); err != nil {

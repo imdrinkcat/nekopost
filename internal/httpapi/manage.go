@@ -62,6 +62,8 @@ func (s *Server) registerManagement(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/admin/pairings", high(s.createPairing))
 	mux.HandleFunc("GET /v1/admin/pairings/{id}", ro(s.pairingStatus))
 	mux.HandleFunc("POST /v1/admin/pairings/{id}/decision", high(s.decidePairing))
+	// Voiding an unused code only reduces exposure: no fresh re-authentication needed.
+	mux.HandleFunc("DELETE /v1/admin/pairings/{id}", rw(s.cancelPairing))
 	mux.HandleFunc("POST /v1/inbox/{id}/rescue", rw(s.retryMessage(true)))
 	mux.HandleFunc("POST /v1/inbox/{id}/redeliver", rw(s.retryMessage(false)))
 	mux.HandleFunc("DELETE /v1/inbox/{id}/body", high(s.shredMessage))
@@ -279,7 +281,21 @@ func (s *Server) pairingStatus(w http.ResponseWriter, r *http.Request, actor str
 	if state == "claimed" {
 		choices = p.Choices
 	}
-	writeJSON(w, 200, map[string]any{"id": p.ID, "state": state, "name": p.Name, "model": p.Model, "choices": choices})
+	writeJSON(w, 200, map[string]any{"id": p.ID, "state": state, "name": p.Name, "model": p.Model, "choices": choices,
+		"expires_at": p.Expires.UTC().Format(time.RFC3339)})
+}
+
+// cancelPairing voids the caller's own pairing while nobody has claimed it
+// (「作废配对码」 on the admin phone, like the bot's 「作废此配对码」).
+func (s *Server) cancelPairing(w http.ResponseWriter, r *http.Request, actor string) {
+	id := r.PathValue("id")
+	if _, err := s.Store.PairingOwned(r.Context(), id, actor); controlError(w, r, err) {
+		return
+	}
+	if controlError(w, r, s.Store.CancelPairing(r.Context(), id, actor, s.now())) {
+		return
+	}
+	w.WriteHeader(204)
 }
 
 func (s *Server) revokeDevice(w http.ResponseWriter, r *http.Request, actor string) {

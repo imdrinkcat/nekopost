@@ -19,12 +19,16 @@ import (
 //
 // The flow mirrors POST /v1/admin/pairings and `nekopost device pair`: the
 // same store.NewPairing call, a 5-minute expiry and the audit entry
-// pairing.start, with the actor "bot:tg:<id>". The bot then sends the QR
-// code as a photo, the manual short code and the full nekopost://enroll
-// link inside <code> blocks (tap to copy, no URL entities or URL buttons).
-// When the new phone claims the code, the existing number-matching message
-// (SendPairApproval) follows; the code message itself is removed as soon as
-// the pairing is claimed, cancelled or expires.
+// pairing.start, with the actor "bot:tg:<id>". The bot then sends two
+// messages: the QR code as a protected photo (protect_content: it cannot be
+// forwarded or saved), and a plain text message with the server, the manual
+// short code and the full nekopost://enroll link inside <code> blocks (tap to
+// copy, no URL entities or URL buttons). The text is deliberately not
+// protected: official clients refuse to copy text from protected messages,
+// and copying is the point when the phone being paired is the one showing
+// Telegram. When the new phone claims the code, the existing number-matching
+// message (SendPairApproval) follows; both code messages are removed as soon
+// as the pairing is claimed, cancelled or expires.
 //
 // Callback payloads:
 //
@@ -143,7 +147,12 @@ func (b *Bot) createBotPairing(ctx context.Context, user int64, role, source str
 		return b.viewDevices(ctx), "无法生成二维码", true
 	}
 	r := pairRoles[role]
-	p := store.Pairing{ID: "p_" + rand.Text(), Name: "新设备", SourceID: source, Scopes: r.scopes, Expires: now.Add(pairingTTL)}
+	// A distinguishable name hint; the new phone's own name replaces it when it claims the code.
+	hint := "新设备 · " + b.fmtShort(now)
+	if source != "" {
+		hint = "新设备 · " + source
+	}
+	p := store.Pairing{ID: "p_" + rand.Text(), Name: hint, SourceID: source, Scopes: r.scopes, Expires: now.Add(pairingTTL)}
 	switch err := b.Store.NewPairing(ctx, p, store.PairingCodeHash(code), store.PairingCodeHash(short), actor, now); {
 	case errors.Is(err, store.ErrLocked):
 		return b.viewDevices(ctx), "紧急锁定中，无法添加设备", true
@@ -154,20 +163,43 @@ func (b *Bot) createBotPairing(ctx context.Context, user int64, role, source str
 	b.Log.Info("pairing created via telegram", "pairing", p.ID, "role", role, "admin", user)
 	b.alertOtherAdmins(ctx, user, "有管理员在 Telegram 中创建了新的设备配对（"+r.label+"）")
 
-	caption := pairingCaption(r.label, source, b.PublicURL, short, link, b.fmtShort(p.Expires))
+	until := b.fmtShort(p.Expires)
 	kb := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{{btn("作废此配对码", cancelPairPrefix+p.ID)}}}
-	msg, err := b.Client.SendPhoto(ctx, telegram.SendPhotoParams{ChatID: user, PNG: symbol.PNG(), Caption: caption,
-		ParseMode: "HTML", ReplyMarkup: kb, ProtectContent: true})
-	if err != nil {
-		// Without the photo the code and link still work.
-		msg, err = b.Client.SendMessage(ctx, telegram.SendMessageParams{ChatID: user, Text: caption, ParseMode: "HTML", ReplyMarkup: kb})
+	var sent []pairingMessage
+	// The QR: protected, nothing to copy from it. Without it the code and link still work.
+	if photo, err := b.Client.SendPhoto(ctx, telegram.SendPhotoParams{ChatID: user, PNG: symbol.PNG(),
+		Caption: pairingPhotoCaption(r.label, source, until), ParseMode: "HTML", ProtectContent: true}); err == nil {
+		sent = append(sent, pairingMessage{id: photo.MessageID, photo: true})
 	}
+	text, err := b.Client.SendMessage(ctx, telegram.SendMessageParams{ChatID: user,
+		Text: pairingCaption(r.label, source, b.PublicURL, short, link, until), ParseMode: "HTML", ReplyMarkup: kb})
 	if err != nil {
 		_ = b.Store.CancelPairing(ctx, p.ID, actor, b.now())
+		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		for _, m := range sent {
+			_ = b.Client.DeleteMessage(dctx, user, m.id)
+		}
 		return b.viewDevices(ctx), "发送配对码失败，已作废", true
 	}
-	go b.watchPairing(b.background(), user, msg.MessageID, p.ID, p.Expires)
+	sent = append(sent, pairingMessage{id: text.MessageID})
+	go b.watchPairing(b.background(), user, sent, p.ID, p.Expires)
 	return b.viewDevices(ctx), "配对码已发送，5 分钟内有效", true
+}
+
+// pairingMessage is one of the messages watchPairing removes.
+type pairingMessage struct {
+	id    int64
+	photo bool
+}
+
+// pairingPhotoCaption is the short caption of the protected QR photo: no code, no link.
+func pairingPhotoCaption(role, source, until string) string {
+	s := "<b>📱 新设备配对</b>（" + e(role)
+	if source != "" {
+		s += " · 来源 <code>" + e(source) + "</code>"
+	}
+	return s + "）\n用新手机的猫邮局扫描这个二维码，" + e(until) + " 前有效。"
 }
 
 // pairingCaption is the HTML caption of the pairing photo. Everything a
@@ -182,7 +214,7 @@ func pairingCaption(role, source, server, short, link, until string) string {
 	sb.WriteString("）\n服务器：<code>" + e(server) + "</code>\n")
 	sb.WriteString("配对码：<code>" + e(short[:4]+"-"+short[4:8]+"-"+short[8:]) + "</code>\n")
 	sb.WriteString("配对链接（轻点复制）：\n<code>" + e(link) + "</code>\n\n")
-	sb.WriteString("在新手机的猫邮局中扫描二维码。如果就是这台手机，复制链接或配对码，再在 App 里点「粘贴配对链接」。\n")
+	sb.WriteString("在新手机的猫邮局中扫描上面的二维码。如果就是这台手机，复制链接或配对码，再在 App 里点「粘贴配对链接」。\n")
 	sb.WriteString(e(until) + " 前有效，用过或过期后这条消息会自动删除。新设备申请后，这里会请你核对数字。")
 	return sb.String()
 }
@@ -211,7 +243,7 @@ func (b *Bot) background() context.Context {
 
 // watchPairing removes the pairing message once the code is used, voided
 // or expired, so it does not linger in the chat.
-func (b *Bot) watchPairing(ctx context.Context, chatID, messageID int64, id string, expires time.Time) {
+func (b *Bot) watchPairing(ctx context.Context, chatID int64, messages []pairingMessage, id string, expires time.Time) {
 	poll := b.PairPoll
 	if poll <= 0 {
 		poll = 2 * time.Second
@@ -258,10 +290,17 @@ func (b *Bot) watchPairing(ctx context.Context, chatID, messageID int64, id stri
 	}
 	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if err := b.Client.DeleteMessage(dctx, chatID, messageID); err != nil {
-		// Could not delete: at least remove the code and link.
-		_ = b.Client.EditMessageCaption(dctx, chatID, messageID, "配对码已失效", "",
-			&telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{}})
+	empty := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{}}
+	for _, m := range messages {
+		if err := b.Client.DeleteMessage(dctx, chatID, m.id); err == nil {
+			continue
+		}
+		// Could not delete (or the cancel button already did): at least remove the code and link.
+		if m.photo {
+			_ = b.Client.EditMessageCaption(dctx, chatID, m.id, "配对码已失效", "", empty)
+		} else {
+			_ = b.Client.EditMessageText(dctx, chatID, m.id, "配对码已失效", "", empty)
+		}
 	}
 	if note != "" {
 		_, _ = b.Client.SendMessage(dctx, telegram.SendMessageParams{ChatID: chatID, Text: note, DisableNotification: true})
