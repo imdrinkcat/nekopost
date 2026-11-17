@@ -397,7 +397,8 @@ internal class DeviceInbox private constructor(
         mutable.update { it.copy(batchBusy = true) }
         try {
             queue.run {
-                val s = session() ?: run {
+                val s = session()
+                if (s == null) {
                     // Not silent: the selection stays and the banner says why.
                     mutable.update {
                         it.copy(error = appContext.getString(R.string.inbox_batch_failed, text(R.string.inbox_error_not_paired)))
