@@ -613,7 +613,8 @@ internal fun maskedPreview(preview: String?): String? = preview?.replace(Regex("
  */
 @Composable
 fun InboxMessage.senderLabel(): String {
-    displaySender.takeIf(String::isNotBlank)?.let { return it }
+    sender.ifBlank { title }.takeIf(String::isNotBlank)?.let { return it }
+    if (!expired) return displaySender
     val kindWord = stringResource(
         when (kind) {
             MessageKind.Sms -> R.string.inbox_kind_sms
