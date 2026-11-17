@@ -248,6 +248,38 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 - 每条消息只计一次，重复提交单独计入 `duplicates_ignored`。
 - 当查询区间超出元数据保留期时，`note` 会说明“仅统计保留期内的记录”。
 
+## 5a. 批量已读 / 未读 `POST /v1/inbox/read`、`POST /v1/inbox/unread`（server 0.10.2）
+
+供配对的 App 设备（`Authorization: DPoP <设备凭证>` + DPoP 证明，需 `msg:read` 权限，同 `PATCH /v1/inbox/{id}`）和网页面板（已确认的会话 Cookie + `X-Nekopost-CSRF`）使用。来源凭证和管理密钥不能调用。
+
+请求体（JSON，最大 32 KB，未知字段返回 400）二选一：
+
+| 形式 | 字段 | 说明 |
+|---|---|---|
+| 按 ID | `{"ids":["m_…", …]}` | 1–500 个消息 ID（`m_` + 26 位 Crockford Base32）。重复 ID 只算一次；已删除或不存在的 ID 跳过，不报错。`/read` 和 `/unread` 都支持 |
+| 全部（仅 `/read`） | `{"all":true,"up_to_id":"m_…","has_code":false}` | 把 `(received_at, id)` 不晚于 `up_to_id` 那条消息的所有未读消息标为已读；`up_to_id` 是用户看到的最新一条，之后到达的消息保持未读。`has_code: true` 时只处理带验证码的消息（对应 App 的「验证码」筛选）。不能与 `ids` 同时出现 |
+
+成功返回 `200`：
+
+```json
+{"changed": 12, "unread_count": 3}
+```
+
+- `changed`：本次实际改变状态的条数（已是目标状态的消息不计），重复请求返回 `0`，即幂等。
+- `unread_count`：操作后全部保留期内的未读数，与 `GET /v1/inbox` 相同。
+- 整批在一个事务中完成；每条改变的消息获得新的 `seq`，`GET /v1/sync` 和 `GET /v1/events`（`message.updated`）都会报告。
+- 审计只记一条：`message.read_batch` / `message.unread_batch` / `message.read_all`，目标为 `count=<changed>`。
+- 标为已读后，服务器向**其他** App 设备发送 FCM `{v:"1", t:"read", ids}`（发起操作的设备除外；网页面板发起时发给所有设备），每次推送最多 50 个 ID，本批最多通知最新的 500 条，尽力而为。标为未读不推送。
+- 限流：每个设备 / 网页账号令牌桶 60 次/分钟、突发 20，校验失败的请求也计入。
+
+| HTTP | `code` | 含义 |
+|---|---|---|
+| 400 | `invalid_body` | 请求体无效：ID 格式错误、超过 500 个、`ids` 为空、`all` 缺少 `up_to_id`、`/unread` 使用 `all`、混用两种形式 |
+| 401 | `unauthorized` / `device_revoked` | 无凭证、凭证或 DPoP 证明无效、设备已吊销 |
+| 403 | `insufficient_scope` / `locked_down` | 设备没有 `msg:read`，或设备读取已暂停；网页面板 CSRF 校验失败为 `invalid_csrf` |
+| 409 | `stale_list` | `up_to_id` 那条消息已不存在（例如已过保留期），请刷新列表后重试 |
+| 429 | `rate_limited` | 操作过于频繁（附 `Retry-After`） |
+
 ## 6. 存活探针 `GET|HEAD /healthz`
 
 无需认证。只返回 `{"status":"ok"}`（200）或 `{"status":"unavailable"}`（503）。
@@ -283,6 +315,7 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 | 401 | `unauthorized` | 凭证缺失、无效或已吊销 |
 | 403 | `source_disabled` | 来源已被停用 |
 | 404 | `not_found` | 路径不存在，或消息不存在 / 不属于该来源 |
+| 409 | `stale_list` | 批量已读的 `up_to_id` 已不存在（见 5a） |
 | 405 | `method_not_allowed` | HTTP 方法不支持（响应附 `Allow` 头） |
 | 413 | `payload_too_large` | 请求体超过 256 KB |
 | 415 | `unsupported_media_type` | `Content-Type` 不是 JSON 或纯文本 |

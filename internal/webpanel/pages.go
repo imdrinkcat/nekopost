@@ -26,20 +26,23 @@ type pageData struct {
 	KeyRows    []store.AdminKey
 
 	Mode, Version, Error, Identity, Tab, CSRF, Next, Received string
-	Enabled, HasBody, ChainOK, Exhausted                      bool
-	Approval                                                  store.WebApproval
-	Inbox                                                     []store.InboxMeta
-	Filtered                                                  []store.FilteredMessage
-	Hits                                                      []service.Hit
-	Scanned                                                   int
-	Message                                                   store.MessageInfo
-	Title, Body                                               string
-	Meta                                                      map[string]string
-	Report                                                    health.Report
-	Stats                                                     status.StatsResult
-	Sources                                                   []status.SourceStatus
-	Audit                                                     []store.AuditEntry
-	Settings                                                  Settings
+	// UpTo bounds "mark all read" to the newest message on the first page.
+	UpTo                                 string
+	Unread                               int
+	Enabled, HasBody, ChainOK, Exhausted bool
+	Approval                             store.WebApproval
+	Inbox                                []store.InboxMeta
+	Filtered                             []store.FilteredMessage
+	Hits                                 []service.Hit
+	Scanned                              int
+	Message                              store.MessageInfo
+	Title, Body                          string
+	Meta                                 map[string]string
+	Report                               health.Report
+	Stats                                status.StatsResult
+	Sources                              []status.SourceStatus
+	Audit                                []store.AuditEntry
+	Settings                             Settings
 }
 
 func (p *Panel) page(w http.ResponseWriter, code int, data pageData) {
@@ -101,6 +104,12 @@ func (p *Panel) dashboard(w http.ResponseWriter, r *http.Request) {
 			data.Inbox = data.Inbox[:50]
 			last := data.Inbox[len(data.Inbox)-1]
 			data.Next = "/panel?" + url.Values{"before": {strconv.FormatInt(last.ReceivedAt.UnixMilli(), 10)}, "before_id": {last.ID}}.Encode()
+		}
+		if err == nil {
+			data.Unread, err = p.Store.UnreadCount(ctx)
+		}
+		if at.IsZero() && len(data.Inbox) > 0 {
+			data.UpTo = data.Inbox[0].ID
 		}
 	case "filtered":
 		offset := 0

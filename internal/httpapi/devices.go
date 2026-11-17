@@ -38,13 +38,20 @@ func (s *Server) registerDevices(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/inbox/search", s.device(store.ScopeRead, false, s.inboxSearch))
 	mux.HandleFunc("GET /v1/inbox/{id}", s.device(store.ScopeRead, false, s.inboxGet))
 	mux.HandleFunc("PATCH /v1/inbox/{id}", s.device(store.ScopeRead, false, s.inboxRead))
+	// Batch read state also serves the web panel (cookie session + CSRF).
+	mux.HandleFunc("POST /v1/inbox/read", s.control(store.ScopeRead, false, s.inboxReadBatch(true)))
+	mux.HandleFunc("POST /v1/inbox/unread", s.control(store.ScopeRead, false, s.inboxReadBatch(false)))
 	mux.HandleFunc("GET /v1/events", s.device(store.ScopeRead, false, s.inboxEvents))
 	mux.HandleFunc("GET /v1/sync", s.device(store.ScopeRead, false, s.inboxSync))
 	mux.HandleFunc("POST /v1/devices/self/acks", s.device(store.ScopeRead, true, s.deviceAcks))
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, dst any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	return readJSONLimit(w, r, dst, 8192)
+}
+
+func readJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {

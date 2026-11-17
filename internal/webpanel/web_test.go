@@ -397,6 +397,47 @@ func TestChromiumPanel(t *testing.T) {
 		approval = a
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && r.URL.Path == "/v1/inbox/read" {
+			// Stand-in for the httpapi batch read route (tested there): the
+			// panel's real cookie check (session, same origin, CSRF) and the
+			// real store update answer.
+			actor, ok := f.panel.AuthorizeAdmin(w, r, false)
+			if !ok {
+				return
+			}
+			var body struct {
+				All    bool   `json:"all"`
+				UpToID string `json:"up_to_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !body.All {
+				http.Error(w, "bad body", 400)
+				return
+			}
+			changed, err := st.MarkAllRead(r.Context(), body.UpToID, false, actor, time.Now())
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			reply(w, 200, map[string]int{"changed": len(changed)})
+			return
+		}
+		if r.URL.Path == "/__test/unread" {
+			// Each viewport run starts from unread messages again.
+			list, err := st.InboxPage(r.Context(), time.Time{}, "", 100)
+			ids := make([]string, 0, len(list))
+			for _, m := range list {
+				ids = append(ids, m.ID)
+			}
+			if err == nil {
+				_, err = st.SetMessagesRead(r.Context(), ids, false, "test", time.Now())
+			}
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			w.WriteHeader(204)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/v1/inbox/") {
 			// Management routes live in httpapi, which is not mounted here. A
 			// fresh login counts as a recent re-authentication, so move this

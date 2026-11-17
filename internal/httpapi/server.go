@@ -68,8 +68,9 @@ type Server struct {
 	FailGuard     *ratelimit.FailureGuard
 	Now           func() time.Time
 
-	sem     chan struct{}
-	streams chan struct{}
+	sem         chan struct{}
+	streams     chan struct{}
+	readLimiter *ratelimit.Limiter
 }
 
 // MaxConcurrent bounds simultaneous requests being handled.
@@ -95,6 +96,7 @@ func (s *Server) signal(kind string, ids []string, except string) {
 func (s *Server) Handler() http.Handler {
 	s.sem = make(chan struct{}, MaxConcurrent)
 	s.streams = make(chan struct{}, 4)
+	s.readLimiter = ratelimit.NewLimiter(60, 20)
 	mux := http.NewServeMux()
 	if s.DPoP != nil && s.PublicURL != "" {
 		s.registerDevices(mux)

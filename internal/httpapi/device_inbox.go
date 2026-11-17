@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"nekopost/internal/auth"
@@ -340,5 +341,73 @@ func (s *Server) inboxEvents(w http.ResponseWriter, r *http.Request, d store.Dev
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+// readBatchSignal bounds the IDs one batch sends in the "read" push signal.
+// Older messages rarely still have a notification, and the App reconciles
+// its notifications when it syncs anyway.
+const readBatchSignal = 500
+
+// inboxReadBatch marks many messages read (read=true) or unread at once,
+// for a device (msg:read) or the web panel (active session + CSRF).
+func (s *Server) inboxReadBatch(read bool) controlHandler {
+	return func(w http.ResponseWriter, r *http.Request, actor string) {
+		if allowed, wait := s.readLimiter.Allow(actor); !allowed {
+			writeError(w, r, &apiError{Status: 429, Code: "rate_limited", Message: "操作过于频繁，请稍后重试", RetryAfter: wait})
+			return
+		}
+		var body struct {
+			IDs     []string `json:"ids"`
+			All     bool     `json:"all"`
+			UpToID  string   `json:"up_to_id"`
+			HasCode bool     `json:"has_code"`
+		}
+		if readJSONLimit(w, r, &body, 32<<10) != nil {
+			deviceError(w, r, 400, "invalid_body", "请求格式无效")
+			return
+		}
+		var changed []string
+		var err error
+		if body.All {
+			if !read || body.IDs != nil || !inboxID.MatchString(body.UpToID) {
+				deviceError(w, r, 400, "invalid_body", "需要最新一条消息的 ID")
+				return
+			}
+			changed, err = s.Store.MarkAllRead(r.Context(), body.UpToID, body.HasCode, actor, s.now())
+		} else {
+			if body.UpToID != "" || body.HasCode || len(body.IDs) == 0 || len(body.IDs) > store.MaxReadBatch {
+				deviceError(w, r, 400, "invalid_body", "需要 1 到 500 个消息 ID")
+				return
+			}
+			for _, id := range body.IDs {
+				if !inboxID.MatchString(id) {
+					deviceError(w, r, 400, "invalid_body", "消息 ID 无效")
+					return
+				}
+			}
+			changed, err = s.Store.SetMessagesRead(r.Context(), body.IDs, read, actor, s.now())
+		}
+		if errors.Is(err, store.ErrStaleBound) {
+			deviceError(w, r, 409, "stale_list", "列表已变化，请刷新后重试")
+			return
+		}
+		if err != nil {
+			writeError(w, r, errInternal)
+			return
+		}
+		if read && len(changed) > 0 {
+			except, _ := strings.CutPrefix(actor, "device:")
+			if except == actor {
+				except = ""
+			}
+			s.signal("read", changed[:min(len(changed), readBatchSignal)], except)
+		}
+		unread, err := s.Store.UnreadCount(r.Context())
+		if err != nil {
+			writeError(w, r, errInternal)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"changed": len(changed), "unread_count": unread})
 	}
 }

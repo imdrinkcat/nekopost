@@ -311,6 +311,42 @@ document.addEventListener("click", async event => {
   try { await run(); } finally { button.disabled = false; }
 });
 
+// "Mark all read" is bounded by the newest message this page showed, so a
+// message that arrives meanwhile stays unread.
+document.getElementById("mark-all-read")?.addEventListener("click", async event => {
+  const button = event.currentTarget;
+  const upTo = button.dataset.upTo ?? "";
+  if (!/^m_[0-9A-HJKMNP-TV-Z]{26}$/.test(upTo)) return;
+  const display = document.getElementById("management-result");
+  const fail = text => {
+    display.hidden = false;
+    tone(display, "err", text);
+    reveal(display);
+  };
+  button.disabled = true;
+  try {
+    const response = await post("/v1/inbox/read", { all: true, up_to_id: upTo });
+    if (response.redirected || response.status === 401) {
+      location.replace("/");
+      return;
+    }
+    if (response.ok) {
+      location.reload();
+      return;
+    }
+    let text = "标为已读未完成，请重试。";
+    try {
+      const result = await response.json();
+      text = result.error?.message ?? result.message ?? text;
+    } catch {}
+    fail(text);
+  } catch {
+    fail("连接中断，请刷新后检查。");
+  } finally {
+    button.disabled = false;
+  }
+});
+
 document.getElementById("reauth-number")?.addEventListener("click", async event => {
   const button = event.currentTarget;
   const display = document.getElementById("management-result");

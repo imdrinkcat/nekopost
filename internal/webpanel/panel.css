@@ -430,6 +430,7 @@ a.row:active { background: var(--surface-highest); }
 }
 .row-static:not(:has(> .avatar)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title end" "sub sub"; }
 .row-sub.mono { font-size: .8125rem; }
+.row-unread .row-title strong { font-weight: 700; }
 .list > li.row { border-radius: 0; }
 .key-row { grid-template-areas: "av title end" "av title end"; }
 

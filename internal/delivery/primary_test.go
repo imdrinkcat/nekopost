@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -197,5 +198,33 @@ func TestFCMSignal(t *testing.T) {
 	if got[0]["token"] != "fixture_registration_d_other" || data["t"] != "read" || data["ids"] != "m_A,m_B" ||
 		data["v"] != "1" || android["priority"] != "NORMAL" || got[0]["notification"] != nil {
 		t.Fatal(got[0])
+	}
+}
+
+// A batch read sends its IDs in chunks of 50, one push per chunk per device.
+func TestFCMSignalChunks(t *testing.T) {
+	var mu sync.Mutex
+	var sizes []int
+	f, st := fcmFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Message struct {
+				Data map[string]string `json:"data"`
+			} `json:"message"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		sizes = append(sizes, len(strings.Split(body.Message.Data["ids"], ",")))
+		mu.Unlock()
+	})
+	if err := st.CreateTestDevice(ctx, "d_other", "msg:read", "{}", "fixture_registration_d_other", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 120)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("m_%d", i)
+	}
+	f.Signal(ctx, SignalRead, ids, "")
+	if fmt.Sprint(sizes) != "[50 50 20]" {
+		t.Fatal(sizes)
 	}
 }
