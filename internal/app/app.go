@@ -47,6 +47,8 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		fcm, err = delivery.NewFCM(ctx, nil, fcmPath, cfg.FCMProject)
 		if err != nil {
 			log.Warn("FCM disabled", "reason", err)
+		} else {
+			fcm.Log = log.With("component", "fcm")
 		}
 	}
 	options := cfg.StoreOptions(mat.Current, mat.Previous)

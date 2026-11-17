@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"regexp"
@@ -29,6 +30,10 @@ type FCM struct {
 	tokens   oauth2.TokenSource
 	http     *http.Client
 	Now      func() time.Time
+	// Log, when set, records FCM's own status and message for rejected
+	// requests (a project number and a permission name at most, never the
+	// registration token or message data).
+	Log *slog.Logger
 }
 
 func NewFCM(ctx context.Context, st *store.Store, path, override string) (*FCM, error) {
@@ -116,6 +121,7 @@ func (f *FCM) send(ctx context.Context, registration string, data map[string]str
 	var response struct {
 		Error struct {
 			Status  string `json:"status"`
+			Message string `json:"message"`
 			Details []struct {
 				Type string `json:"@type"`
 				Code string `json:"errorCode"`
@@ -123,6 +129,10 @@ func (f *FCM) send(ctx context.Context, registration string, data map[string]str
 		} `json:"error"`
 	}
 	_ = json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&response)
+	if f.Log != nil {
+		f.Log.Warn("fcm rejected", "http", r.StatusCode, "status", response.Error.Status,
+			"message", oneLine(response.Error.Message, 300))
+	}
 	for _, d := range response.Error.Details {
 		if d.Type != "type.googleapis.com/google.firebase.fcm.v1.FcmError" {
 			continue
@@ -208,3 +218,11 @@ func (f *FCM) TestPush(ctx context.Context, deviceID string) error {
 type PushError struct{ Reason string }
 
 func (e *PushError) Error() string { return "FCM 未接受测试消息：" + e.Reason }
+
+func oneLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
+}
