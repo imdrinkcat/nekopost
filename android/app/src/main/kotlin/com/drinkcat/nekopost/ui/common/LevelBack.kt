@@ -16,6 +16,15 @@ import com.drinkcat.nekopost.lock.LocalAppLock
  * itself) → 多选 → a single-pane detail → a sub-page (an inbox tool, a page in
  * 设备与管理, a wizard step) → a tab other than the start tab → exit.
  *
+ * A detail is a level only where it replaces its list: the cover display, and
+ * 设置 on tabletop (one pane below the hinge). Where the selection and the list
+ * are both on screen — two panes, and 消息 / 记录 on tabletop (the selection
+ * above the hinge) — the selection is part of the tab and back leaves the tab.
+ *
+ * A page with work in progress keeps it or asks before leaving: 添加设备 and
+ * 配对此手机 while a pairing waits ask 离开配对？, 发给自己 keeps its draft and
+ * send in InboxMemory, and 分拣台 rescues a queued message right away.
+ *
  * While the app lock hides the content nothing here reacts: back on the lock
  * screen leaves the app instead of changing the hidden screens behind it.
  */

@@ -48,6 +48,9 @@ internal class AdminController(
     var authorize: suspend (Signature) -> Signature? = { null }
     private var poll: Job? = null
 
+    /** The POST behind 添加设备: leaving the page cancels it, so no desk opens (or polls) behind the user's back. */
+    private var adding: Job? = null
+
     private fun text(id: Int, vararg args: Any) = context.getString(id, *args)
 
     fun load(page: AdminPage) {
@@ -189,7 +192,8 @@ internal class AdminController(
 
     /** POST /v1/admin/pairings (k_reauth), then follows the pairing until it is done. */
     fun addDevice(name: String, role: PairingRole, source: String?) {
-        scope.launch {
+        adding?.cancel()
+        adding = scope.launch {
             mutable.update { it.copy(busy = true, feedback = null) }
             try {
                 val body = JSONObject().put("name", name).put("role", role.wire)
@@ -290,6 +294,8 @@ internal class AdminController(
     }
 
     fun closePairing() {
+        adding?.cancel()
+        adding = null
         poll?.cancel()
         poll = null
         mutable.update { it.copy(pairing = null) }

@@ -172,7 +172,7 @@ internal fun InboxRoute(
             return
         }
         InboxSubScreen.DropNote -> {
-            DropNote(inbox) { memory.subScreen = InboxSubScreen.None }
+            DropNote(inbox, memory.note, appScope) { memory.subScreen = InboxSubScreen.None }
             return
         }
         InboxSubScreen.Shortcuts -> {

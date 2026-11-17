@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -61,7 +62,9 @@ import com.drinkcat.nekopost.system.DeviceAuth
 import com.drinkcat.nekopost.ui.common.SubScreenTopBar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 internal fun Context.activity(): Activity? = when (this) {
@@ -225,9 +228,12 @@ internal fun SortingDesk(controller: DeviceInbox, fold: FoldState, onClose: () -
             loading = false
         }
     }
+    // Leaving (system back or the arrow) while a rescue waits out its 5 s undo window
+    // does what the desk announced right away and stays to show the result.
+    var rescueNow by remember { mutableStateOf(false) }
     LaunchedEffect(queued?.id) {
         val item = queued ?: return@LaunchedEffect
-        delay(5000)
+        withTimeoutOrNull(5000) { snapshotFlow { rescueNow }.first { it } }
         try {
             controller.manage("POST", listOf("v1", "inbox", item.id, "rescue"), JSONObject())
             feedback = rescued
@@ -238,6 +244,7 @@ internal fun SortingDesk(controller: DeviceInbox, fold: FoldState, onClose: () -
             feedback = rescueFailed
         } finally {
             queued = null
+            rescueNow = false
         }
     }
     SortingDeskContent(
@@ -247,7 +254,7 @@ internal fun SortingDesk(controller: DeviceInbox, fold: FoldState, onClose: () -
         onKeep = { current?.let { skipped = skipped + it.id; feedback = kept } },
         onNext = { current?.let { skipped = skipped + it.id; feedback = null } },
         onUndo = { queued = null; feedback = null },
-        onBack = onClose,
+        onBack = { if (queued != null) rescueNow = true else onClose() },
     )
 }
 

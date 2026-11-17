@@ -25,6 +25,7 @@ import com.drinkcat.nekopost.inbox.WatchUi
 import com.drinkcat.nekopost.inbox.ui.InboxActions
 import com.drinkcat.nekopost.inbox.ui.InboxScreen
 import com.drinkcat.nekopost.inbox.ui.InboxSubScreen
+import com.drinkcat.nekopost.inbox.ui.InboxUnpaired
 import com.drinkcat.nekopost.inbox.ui.KeyboardShortcutsPane
 import com.drinkcat.nekopost.lock.LocalAppLock
 import com.drinkcat.nekopost.lock.LockReason
@@ -49,6 +50,7 @@ import com.drinkcat.nekopost.ui.shell.ShellUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -111,8 +113,14 @@ class BackNavigationTest {
         composeRule.waitForIdle()
     }
 
-    /** The shell as NekopostRoot drives it; 消息 renders the tool sub-screens the way InboxRoute does. */
-    private fun showShell(fold: FoldState) = show {
+    /** Whether the hand-written 消息 renders as InboxRoute does for an unpaired phone. */
+    private var unpaired = false
+
+    /**
+     * The shell as NekopostRoot drives it; 消息 renders the tool sub-screens the way InboxRoute does.
+     * [startDestination] is NekopostRoot's: 消息 when this phone can read messages, otherwise 转发.
+     */
+    private fun showShell(fold: FoldState, startDestination: Destination = Destination.Inbox) = show {
         NekopostShell(
             state = state,
             fold = fold,
@@ -122,7 +130,7 @@ class BackNavigationTest {
             actions = ShellActions(
                 settings = SettingsActions(admin = AdminActions(onClosePairing = { closedPairing++ })),
             ),
-            startDestination = Destination.Inbox,
+            startDestination = startDestination,
             inboxContent = { mode -> Inbox(fold, mode) },
         )
     }
@@ -131,6 +139,14 @@ class BackNavigationTest {
     private fun Inbox(fold: FoldState, mode: PaneMode) {
         val inbox = memory.inbox
         val close = { inbox.subScreen = InboxSubScreen.None }
+        if (unpaired) {
+            if (inbox.subScreen == InboxSubScreen.Pair) {
+                PairThisPhonePane(PairUi(name = "Fold8"), PairActions(onBack = close))
+            } else {
+                InboxUnpaired(revoked = false, onPair = { inbox.subScreen = InboxSubScreen.Pair })
+            }
+            return
+        }
         when (inbox.subScreen) {
             InboxSubScreen.Sorting -> SortingDeskContent(SortingUi(FakeInboxData.note), fold, {}, {}, {}, {}, onBack = close)
             InboxSubScreen.Watch -> WatchDeskContent(WatchUi(FakeInboxData.rows, connected = true), fold, {}, {}, {}, onExit = close)
@@ -140,10 +156,19 @@ class BackNavigationTest {
             InboxSubScreen.None -> {
                 val id = inbox.selectedId
                 InboxScreen(
-                    FakeInboxData.list.copy(selectedId = id, detail = FakeInboxData.rows.firstOrNull { it.id == id }),
+                    FakeInboxData.list.copy(
+                        selectedId = id,
+                        detail = FakeInboxData.rows.firstOrNull { it.id == id },
+                        picked = inbox.picked,
+                        selectMode = inbox.selectMode,
+                    ),
                     fold,
                     mode,
-                    InboxActions(onOpen = { inbox.selectedId = it }, onBack = { inbox.selectedId = null }),
+                    InboxActions(
+                        onOpen = { inbox.selectedId = it },
+                        onBack = { inbox.selectedId = null },
+                        onClearPicks = { inbox.picked = emptySet(); inbox.selectMode = false },
+                    ),
                 )
             }
         }
@@ -154,10 +179,9 @@ class BackNavigationTest {
         composeRule.waitForIdle()
     }
 
-    /** Back stayed inside the app. */
+    /** Back stayed inside the app (the probe saw nothing: the system would neither finish nor go home). */
     private fun assertStayed() {
         assertEquals("back left the app too early", 0, exits)
-        assertFalse(composeRule.activity.isFinishing)
     }
 
     private fun assertExits() {
@@ -435,5 +459,188 @@ class BackNavigationTest {
             )
         }
         assertExits()
+    }
+
+    @Test
+    @Config(qualifiers = "w475dp-h751dp-port-420dpi")
+    fun coverOpenMessageClosesBeforeMultiSelectThenMultiSelectEnds() {
+        memory = ShellMemory()
+        memory.inbox.picked = setOf(FakeInboxData.otp.id)
+        memory.inbox.selectedId = FakeInboxData.otp.id
+        showShell(FoldState.Cover)
+
+        // The open message hides the list (and its 多选 bar): it closes first.
+        back()
+        assertEquals(null, memory.inbox.selectedId)
+        assertEquals(setOf(FakeInboxData.otp.id), memory.inbox.picked)
+        assertStayed()
+
+        back()
+        assertTrue(memory.inbox.picked.isEmpty())
+        assertStayed()
+        assertExits()
+    }
+
+    @Test
+    @Config(qualifiers = "w475dp-h751dp-port-420dpi")
+    fun coverMultiSelectFromTheMenuEndsOnBack() {
+        memory = ShellMemory()
+        memory.inbox.selectMode = true
+        showShell(FoldState.Cover)
+
+        back()
+        assertFalse(memory.inbox.selectMode)
+        assertStayed()
+        assertExits()
+    }
+
+    @Test
+    @Config(qualifiers = "w933dp-h704dp-land-420dpi")
+    fun innerMultiSelectEndsBeforeTheAppExitsAndKeepsTheOpenMessage() {
+        memory = ShellMemory()
+        memory.inbox.picked = setOf(FakeInboxData.otp.id)
+        memory.inbox.selectedId = FakeInboxData.otp.id
+        showShell(FoldState.Flat)
+
+        back()
+        assertTrue(memory.inbox.picked.isEmpty())
+        assertEquals(FakeInboxData.otp.id, memory.inbox.selectedId)
+        assertStayed()
+        assertExits()
+    }
+
+    @Test
+    @Config(qualifiers = "w475dp-h751dp-port-420dpi")
+    fun unpairedPhoneStartsOnForwardAndPairingReturnsToTheUnpairedInbox() {
+        unpaired = true
+        destination = Destination.Inbox
+        memory = ShellMemory()
+        memory.inbox.subScreen = InboxSubScreen.Pair
+        showShell(FoldState.Cover, startDestination = Destination.Forward)
+
+        back()
+        assertEquals(InboxSubScreen.None, memory.inbox.subScreen)
+        assertEquals(Destination.Inbox, destination)
+        composeRule.onNodeWithTag("inbox_unpaired").assertExists()
+        assertStayed()
+
+        // 消息 is not the start tab here: back goes to 转发, and from there leaves the app.
+        back()
+        assertEquals(Destination.Forward, destination)
+        assertStayed()
+
+        composeRule.runOnUiThread { destination = Destination.Settings; memory.settingsItem = SettingsItem.Notifications }
+        composeRule.waitForIdle()
+        back()
+        assertEquals(null, memory.settingsItem)
+        back()
+        assertEquals(Destination.Forward, destination)
+        assertStayed()
+        assertExits()
+    }
+
+    @Test
+    @Config(qualifiers = "w704dp-h933dp-port-420dpi")
+    fun tabletopAdminPageThenHomeThenListThenStartTab() {
+        destination = Destination.Settings
+        memory = ShellMemory(settingsItem = SettingsItem.Admin, adminPage = AdminPage.Sources)
+        showShell(FoldState.tabletop())
+
+        back()
+        assertEquals(null, memory.adminPage)
+        assertEquals(SettingsItem.Admin, memory.settingsItem)
+        back()
+        assertEquals(null, memory.settingsItem)
+        back()
+        assertEquals(Destination.Inbox, destination)
+        assertStayed()
+        assertExits()
+    }
+
+    /**
+     * Tabletop 记录 and 消息 show the selection above the hinge and the list below it, both at
+     * once (like two panes): the selection is part of the tab, not a level of its own.
+     */
+    @Test
+    @Config(qualifiers = "w704dp-h933dp-port-420dpi")
+    fun tabletopLogAndInboxKeepTheirSelectionLikeTwoPanes() {
+        destination = Destination.Log
+        memory = ShellMemory(selectedLogId = FakeForwarderData.log.first().id)
+        memory.inbox.selectedId = FakeInboxData.otp.id
+        showShell(FoldState.tabletop())
+        composeRule.onNodeWithTag("log_tabletop").assertExists()
+
+        back()
+        assertEquals(Destination.Inbox, destination)
+        assertEquals(FakeForwarderData.log.first().id, memory.selectedLogId)
+        composeRule.onNodeWithTag("inbox_tabletop").assertExists()
+        assertStayed()
+
+        assertExits()
+        assertEquals(FakeInboxData.otp.id, memory.inbox.selectedId)
+    }
+
+    @Test
+    @Config(qualifiers = "w475dp-h751dp-port-420dpi")
+    fun pairThisPhoneAsksBeforeHidingTheNumber() {
+        var ui by mutableStateOf(PairUi(name = "Fold8", number = "42"))
+        var left = 0
+        show { PairThisPhonePane(ui, PairActions(onBack = { left++ })) }
+
+        back()
+        composeRule.onNodeWithTag("pair_leave_stay").assertExists().performClick()
+        composeRule.waitForIdle()
+        assertEquals(0, left)
+
+        // The arrow asks too; 离开 then leaves.
+        composeRule.onNodeWithTag("subscreen_back").performClick()
+        composeRule.onNodeWithTag("pair_leave_confirm").assertExists().performClick()
+        composeRule.waitForIdle()
+        assertEquals(1, left)
+
+        // Still connecting (no number yet) asks as well; with nothing in progress back just leaves.
+        composeRule.runOnUiThread { ui = PairUi(name = "Fold8", connecting = true) }
+        composeRule.waitForIdle()
+        back()
+        composeRule.onNodeWithTag("pair_leave_stay").assertExists().performClick()
+        composeRule.waitForIdle()
+        assertEquals(1, left)
+        composeRule.runOnUiThread { ui = PairUi(name = "Fold8") }
+        composeRule.waitForIdle()
+        back()
+        assertEquals(2, left)
+        assertStayed()
+    }
+
+    /**
+     * Without the probe: at the start tab's root no callback of the app is enabled, so the
+     * system handles back itself (predictive back-to-home, then finish / move to the background).
+     */
+    @Test
+    @Config(qualifiers = "w475dp-h751dp-port-420dpi")
+    fun startTabRootHandsBackToTheSystem() {
+        destination = Destination.Log
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLock provides LockUiState(lock, 1)) {
+                TestHarness {
+                    NekopostShell(
+                        state = state,
+                        fold = FoldState.Cover,
+                        destination = destination,
+                        onDestinationChange = { destination = it },
+                        memory = memory,
+                        actions = ShellActions(),
+                        startDestination = Destination.Forward,
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        val dispatcher = composeRule.activity.onBackPressedDispatcher
+        assertTrue(dispatcher.hasEnabledCallbacks())
+        back()
+        assertEquals(Destination.Forward, destination)
+        assertFalse(dispatcher.hasEnabledCallbacks())
+        assertFalse(composeRule.activity.isFinishing)
     }
 }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -45,6 +46,7 @@ import com.drinkcat.nekopost.core.ui.component.NekoIcons
 import com.drinkcat.nekopost.core.ui.theme.NekoTextStyles
 import com.drinkcat.nekopost.core.ui.theme.StatusTone
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
+import com.drinkcat.nekopost.lock.LocalAppLock
 import com.drinkcat.nekopost.system.LocalExternalLauncher
 import com.drinkcat.nekopost.system.ScanTarget
 import com.drinkcat.nekopost.ui.common.LevelBackHandler
@@ -86,8 +88,30 @@ data class PairActions(
  */
 @Composable
 fun PairThisPhonePane(ui: PairUi, actions: PairActions, modifier: Modifier = Modifier) {
+    // While this phone shows the number to pick (or is still connecting), leaving asks first:
+    // the pairing goes on in the background, but the number is no longer on screen.
+    val waiting = ui.number != null || ui.connecting
+    var confirmLeave by rememberSaveable(LocalAppLock.current.epoch) { mutableStateOf(false) }
+    val leave = actions.onBack?.let { onBack -> if (waiting) ({ confirmLeave = true }) else onBack }
+    if (confirmLeave && waiting && actions.onBack != null) {
+        AlertDialog(
+            onDismissRequest = { confirmLeave = false },
+            title = { Text(stringResource(R.string.pairing_leave_title)) },
+            text = { Text(stringResource(R.string.pair_leave_body), style = MaterialTheme.typography.bodyMedium) },
+            confirmButton = {
+                TextButton(onClick = { confirmLeave = false; actions.onBack?.invoke() }, modifier = Modifier.testTag("pair_leave_confirm")) {
+                    Text(stringResource(R.string.pairing_leave_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLeave = false }, modifier = Modifier.testTag("pair_leave_stay")) {
+                    Text(stringResource(R.string.pairing_leave_stay))
+                }
+            },
+        )
+    }
     Column(modifier.fillMaxSize().testTag("pair_this_phone")) {
-        SubScreenTopBar(stringResource(R.string.pair_title), actions.onBack)
+        SubScreenTopBar(stringResource(R.string.pair_title), leave)
         // The server confirmation is a step inside the page: back returns to the entry first.
         LevelBackHandler(enabled = ui.confirmHost != null && ui.number == null && !ui.connecting, onBack = actions.onCancelConfirm)
         Column(

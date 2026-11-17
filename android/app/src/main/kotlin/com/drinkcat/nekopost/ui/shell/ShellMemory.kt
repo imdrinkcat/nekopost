@@ -129,6 +129,17 @@ class InboxMemory(
 
     /** 多选 entered from the overflow menu (selection mode before anything is picked). */
     var selectMode by mutableStateOf(false)
+
+    /** 发给自己: kept here so leaving the tool (system back, the arrow, a tab) never drops a draft or a send. */
+    val note = NoteDraft()
+}
+
+/** 发给自己's draft, its send in flight and the last result; in memory only (never saved state). */
+@Stable
+class NoteDraft {
+    var text by mutableStateOf("")
+    var pending by mutableStateOf(false)
+    var message by mutableStateOf<String?>(null)
 }
 
 @Composable

@@ -18,7 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
@@ -32,6 +31,8 @@ import com.drinkcat.nekopost.core.ui.token.NekoTokens
 import com.drinkcat.nekopost.ui.common.SettingsGroup
 import com.drinkcat.nekopost.ui.common.SubScreenTopBar
 import com.drinkcat.nekopost.ui.common.SwitchRow
+import com.drinkcat.nekopost.ui.shell.NoteDraft
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -82,14 +83,15 @@ fun DropNoteContent(
 }
 
 @Composable
-internal fun DropNote(controller: DeviceInbox, onClose: () -> Unit) {
-    val scope = rememberCoroutineScope()
+internal fun DropNote(controller: DeviceInbox, draft: NoteDraft, scope: CoroutineScope, onClose: () -> Unit) {
+    // The draft, a send in flight and its result live in InboxMemory and the send runs in the
+    // app scope: leaving (system back, the arrow, a tab) neither drops the text nor cancels the send.
     val activity = LocalContext.current.activity()
     val ink = MaterialTheme.colorScheme.onSurface.toArgb()
     var enabled by remember { mutableStateOf(false) }
-    var pending by remember { mutableStateOf(false) }
-    var text by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf<String?>(null) }
+    var pending by draft::pending
+    var text by draft::text
+    var message by draft::message
     val dropHint = stringResource(R.string.drop_note_drop_here)
     val tooLong = stringResource(R.string.drop_note_too_long)
     val sent = stringResource(R.string.drop_note_sent)
@@ -102,11 +104,13 @@ internal fun DropNote(controller: DeviceInbox, onClose: () -> Unit) {
         message = message,
         pending = pending,
         onSend = {
+            if (pending) return@DropNoteContent
+            pending = true
+            val note = text
             scope.launch {
-                pending = true
                 try {
-                    controller.sendNote(text)
-                    text = ""
+                    controller.sendNote(note)
+                    if (text == note) text = ""
                     message = sent
                 } catch (e: CancellationException) {
                     throw e
