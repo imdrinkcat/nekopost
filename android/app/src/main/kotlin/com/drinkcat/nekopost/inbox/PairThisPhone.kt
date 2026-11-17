@@ -47,6 +47,7 @@ import com.drinkcat.nekopost.core.ui.theme.StatusTone
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
 import com.drinkcat.nekopost.system.LocalExternalLauncher
 import com.drinkcat.nekopost.system.ScanTarget
+import com.drinkcat.nekopost.ui.common.LevelBackHandler
 import com.drinkcat.nekopost.ui.common.NoticeCard
 import com.drinkcat.nekopost.ui.common.SubScreenTopBar
 import kotlinx.coroutines.CoroutineScope
@@ -87,6 +88,8 @@ data class PairActions(
 fun PairThisPhonePane(ui: PairUi, actions: PairActions, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().testTag("pair_this_phone")) {
         SubScreenTopBar(stringResource(R.string.pair_title), actions.onBack)
+        // The server confirmation is a step inside the page: back returns to the entry first.
+        LevelBackHandler(enabled = ui.confirmHost != null && ui.number == null && !ui.connecting, onBack = actions.onCancelConfirm)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = NekoTokens.Spacing.l).padding(bottom = NekoTokens.Spacing.xl),
             verticalArrangement = Arrangement.spacedBy(NekoTokens.Spacing.m),

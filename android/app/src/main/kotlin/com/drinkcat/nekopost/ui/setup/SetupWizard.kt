@@ -1,6 +1,5 @@
 package com.drinkcat.nekopost.ui.setup
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -64,6 +63,7 @@ import com.drinkcat.nekopost.core.ui.motion.LocalReducedMotion
 import com.drinkcat.nekopost.core.ui.theme.NekopostTheme
 import com.drinkcat.nekopost.core.ui.theme.StatusTone
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
+import com.drinkcat.nekopost.ui.common.LevelBackHandler
 import com.drinkcat.nekopost.ui.common.ToneIcon
 import com.drinkcat.nekopost.ui.shell.PaneMode
 import com.drinkcat.nekopost.ui.shell.paneModeFor
@@ -88,7 +88,11 @@ fun SetupWizard(
     modifier: Modifier = Modifier,
 ) {
     val previous = snapshot.previousStep(step)
-    BackHandler(enabled = previous != null) { previous?.let(actions.onStepChange) }
+    // Back goes to the previous step; on the first one it closes the wizard when
+    // it was opened from the app (canClose), and leaves the app on first run.
+    LevelBackHandler(enabled = previous != null || canClose) {
+        if (previous != null) actions.onStepChange(previous) else actions.onClose()
+    }
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {

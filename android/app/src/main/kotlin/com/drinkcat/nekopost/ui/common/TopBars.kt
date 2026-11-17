@@ -27,6 +27,8 @@ import com.drinkcat.nekopost.core.ui.token.NekoTokens
 /** Top bar of a tool or sub-page: back arrow, title, optional trailing actions. */
 @Composable
 fun SubScreenTopBar(title: String, onBack: (() -> Unit)?, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
+    // A page with a back arrow is a level: system back does what the arrow does.
+    LevelBackHandler(enabled = onBack != null) { onBack?.invoke() }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier

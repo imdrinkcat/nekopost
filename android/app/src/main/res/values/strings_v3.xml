@@ -382,6 +382,10 @@
     <string name="pairing_deciding">正在确认…</string>
     <string name="pairing_approved">已确认配对</string>
     <string name="pairing_rejected">数字不对，已拒绝配对</string>
+    <string name="pairing_leave_title">离开配对？</string>
+    <string name="pairing_leave_body">新设备还没有完成配对，离开后这里不再显示进度。配对码失效前，仍可在 Telegram 或网页面板上选出数字。</string>
+    <string name="pairing_leave_stay">继续配对</string>
+    <string name="pairing_leave_confirm">离开</string>
 
     <!-- Setup -->
     <string name="setup_finish_lock_on">已开启应用锁：打开应用时需要验证身份（可在 设置 › 应用锁 关闭）。</string>

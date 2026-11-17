@@ -270,7 +270,28 @@ private fun roleName(role: DeviceRole): String = stringResource(
 private fun AddDevicePage(ui: AdminUi, actions: AdminActions, tabletop: Boolean, onBack: () -> Unit) {
     val pairing = ui.pairing
     if (pairing != null) {
-        Page(stringResource(R.string.admin_add_device), onBack, "admin_pairing") {
+        // Leaving while the new device still waits (arrow or system back) asks first:
+        // the desk stops showing the number to pick. The code stays valid until it expires.
+        var confirmLeave by rememberSaveable(pairing.id, LocalAppLock.current.epoch) { mutableStateOf(false) }
+        val leave = if (pairing.live) ({ confirmLeave = true }) else onBack
+        if (confirmLeave && pairing.live) {
+            AlertDialog(
+                onDismissRequest = { confirmLeave = false },
+                title = { Text(stringResource(R.string.pairing_leave_title)) },
+                text = { Text(stringResource(R.string.pairing_leave_body), style = MaterialTheme.typography.bodyMedium) },
+                confirmButton = {
+                    TextButton(onClick = { confirmLeave = false; onBack() }, modifier = Modifier.testTag("pairing_leave_confirm")) {
+                        Text(stringResource(R.string.pairing_leave_confirm))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmLeave = false }, modifier = Modifier.testTag("pairing_leave_stay")) {
+                        Text(stringResource(R.string.pairing_leave_stay))
+                    }
+                },
+            )
+        }
+        Page(stringResource(R.string.admin_add_device), leave, "admin_pairing") {
             PairingDeskContent(
                 pairing,
                 showQrHere = !tabletop,

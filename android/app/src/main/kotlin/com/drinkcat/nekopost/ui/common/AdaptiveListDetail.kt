@@ -1,6 +1,5 @@
 package com.drinkcat.nekopost.ui.common
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
@@ -23,7 +22,7 @@ import com.drinkcat.nekopost.core.ui.token.NekoTokens
  * posture change (it lives in ShellMemory):
  *  - [twoPane]: both panes, list at ~42 % of the width;
  *  - otherwise one pane: the detail while [showDetail], else the list; system
- *    back returns to the list.
+ *    back returns to the list (on two panes back leaves the whole tab).
  * A separating hinge (book posture) is passed to the scaffold as an excluded
  * area, so neither pane is laid out across it.
  */
@@ -38,7 +37,8 @@ fun AdaptiveListDetail(
     detail: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    BackHandler(enabled = !twoPane && showDetail, onBack = onBack)
+    // Two panes: the detail is part of the tab, back leaves the tab (NekopostShell).
+    LevelBackHandler(enabled = !twoPane && showDetail, onBack = onBack)
     BoxWithConstraints(modifier.fillMaxSize()) {
         val listWidth = (maxWidth * 0.42f).coerceIn(300.dp, 420.dp)
         val hinge = if (fold.isSeparating) fold.hinge else null

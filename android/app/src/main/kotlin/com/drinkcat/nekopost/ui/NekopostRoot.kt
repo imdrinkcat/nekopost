@@ -152,8 +152,9 @@ fun NekopostRoot(container: AppContainer, fold: FoldState) {
 
     // 消息 is there when this phone can read messages, or to offer pairing.
     val inboxTab = inboxState.canRead || inboxState.paired == false
-    val destination = chosenDestination?.takeIf { it != Destination.Inbox || inboxTab }
-        ?: if (inboxState.canRead) Destination.Inbox else Destination.Forward
+    // The start tab: where the app opens, and where system back from another tab returns.
+    val startDestination = if (inboxState.canRead) Destination.Inbox else Destination.Forward
+    val destination = chosenDestination?.takeIf { it != Destination.Inbox || inboxTab } ?: startDestination
 
     // A phone paired only to receive never needs the forwarding wizard.
     LaunchedEffect(inboxState.paired) {
@@ -314,6 +315,7 @@ fun NekopostRoot(container: AppContainer, fold: FoldState) {
                 ),
                 fold = fold,
                 destination = destination,
+                startDestination = startDestination,
                 onDestinationChange = { chosenDestination = it },
                 memory = memory,
                 actions = ShellActions(

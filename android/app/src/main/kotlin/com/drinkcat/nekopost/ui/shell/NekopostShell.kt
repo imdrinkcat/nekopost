@@ -39,6 +39,7 @@ import com.drinkcat.nekopost.core.ui.fold.Posture
 import com.drinkcat.nekopost.core.ui.token.NekoTokens
 import com.drinkcat.nekopost.system.FoldDebugInfo
 import com.drinkcat.nekopost.system.InstalledApp
+import com.drinkcat.nekopost.ui.common.LevelBackHandler
 import com.drinkcat.nekopost.ui.forward.ForwardScreen
 import com.drinkcat.nekopost.ui.log.LogScreen
 import com.drinkcat.nekopost.ui.settings.AdminUi
@@ -138,7 +139,12 @@ data class ShellActions(
     val settings: SettingsActions = SettingsActions(),
 )
 
-/** Stateless adaptive shell: navigation suite + the selected screen. */
+/**
+ * Stateless adaptive shell: navigation suite + the selected screen.
+ *
+ * @param startDestination the tab the app opens on; system back on any other
+ *   tab (once its own levels are closed) returns here, and back here leaves the app.
+ */
 @Composable
 fun NekopostShell(
     state: ShellUiState,
@@ -149,7 +155,10 @@ fun NekopostShell(
     modifier: Modifier = Modifier,
     memory: ShellMemory = rememberShellMemory(),
     inboxContent: (@Composable (PaneMode) -> Unit)? = null,
+    startDestination: Destination = if (inboxContent != null) Destination.Inbox else Destination.Forward,
 ) {
+    // The outermost level: composed before the screens, so their levels close first.
+    LevelBackHandler(enabled = destination != startDestination) { onDestinationChange(startDestination) }
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val navType = navigationTypeFor(fold, maxWidth)
         NavigationSuiteScaffold(

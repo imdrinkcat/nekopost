@@ -1,6 +1,5 @@
 package com.drinkcat.nekopost.inbox.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyListState
@@ -26,6 +25,7 @@ import com.drinkcat.nekopost.core.ui.fold.FoldState
 import com.drinkcat.nekopost.core.ui.fold.HingeAwareSplit
 import com.drinkcat.nekopost.core.ui.fold.SplitAxis
 import com.drinkcat.nekopost.ui.common.AdaptiveListDetail
+import com.drinkcat.nekopost.ui.common.LevelBackHandler
 import com.drinkcat.nekopost.ui.shell.PaneMode
 
 /**
@@ -113,5 +113,5 @@ fun InboxScreen(
         )
     }
     // On a single pane an open message hides the list: back closes the message first (AdaptiveListDetail).
-    BackHandler(enabled = leavesSelection, onBack = actions.onClearPicks)
+    LevelBackHandler(enabled = leavesSelection, onBack = actions.onClearPicks)
 }
