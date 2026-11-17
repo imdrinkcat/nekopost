@@ -431,6 +431,14 @@ a.row:active { background: var(--surface-highest); }
 .row-static:not(:has(> .avatar)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title end" "sub sub"; }
 .row-sub.mono { font-size: .8125rem; }
 .row-unread .row-title strong { font-weight: 700; }
+/* Read state, unlike the delivery-status chips: an outlined chip with the
+   app's primary unread dot. */
+.chip-unread {
+  background: transparent; color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+  padding-inline-start: 10px;
+}
+.unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); flex: none; }
 .list > li.row { border-radius: 0; }
 .key-row { grid-template-areas: "av title end" "av title end"; }
 

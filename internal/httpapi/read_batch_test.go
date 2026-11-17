@@ -63,12 +63,17 @@ func TestInboxReadBatch(t *testing.T) {
 	if r.code != 200 || r.body["changed"] != float64(2) || r.body["unread_count"] != float64(1) {
 		t.Fatal(r.code, r.body)
 	}
+	// The changed IDs come back too, newest first, so the caller (skipped by
+	// the signal) can clear its own notifications.
+	if got, _ := json.Marshal(r.body["ids"]); string(got) != `["`+ids[1]+`","`+ids[0]+`"]` {
+		t.Fatal(string(got))
+	}
 	if got := signals.all(); len(got) != 1 || got[0] != "read:"+ids[1]+","+ids[0]+":"+deviceID {
 		t.Fatal("one signal with every changed ID, to the other devices", got)
 	}
 	// Idempotent: no change, no signal.
 	r = call("POST", "/v1/inbox/read", `{"all":true,"up_to_id":"`+ids[1]+`"}`)
-	if r.code != 200 || r.body["changed"] != float64(0) || len(signals.all()) != 1 {
+	if r.code != 200 || r.body["changed"] != float64(0) || len(r.body["ids"].([]any)) != 0 || len(signals.all()) != 1 {
 		t.Fatal(r.code, r.body, signals.all())
 	}
 	changes := call("GET", "/v1/sync?since="+jsonInt(since), "")

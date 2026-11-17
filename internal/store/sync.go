@@ -146,9 +146,9 @@ func (s *Store) SetMessagesRead(ctx context.Context, ids []string, read bool, ac
 	if len(ids) > MaxReadBatch {
 		return nil, errors.New("store: too many ids")
 	}
-	query := `SELECT id FROM messages WHERE read_at IS NOT NULL`
+	cond := `read_at IS NOT NULL`
 	if read {
-		query = `SELECT id FROM messages WHERE read_at IS NULL`
+		cond = `read_at IS NULL`
 	}
 	args := make([]any, 0, len(ids))
 	seen := make(map[string]bool, len(ids))
@@ -165,38 +165,43 @@ func (s *Store) SetMessagesRead(ctx context.Context, ids []string, read bool, ac
 	if len(args) == 0 {
 		return nil, s.Audit(ctx, now, actor, action, "count=0", "ok")
 	}
-	query += " AND id IN (?" + strings.Repeat(",?", len(args)-1) + ") ORDER BY received_at DESC, id DESC"
-	return s.applyRead(ctx, query, args, read, actor, action, now)
+	cond += " AND id IN (?" + strings.Repeat(",?", len(args)-1) + ")"
+	return s.applyRead(ctx, cond, args, read, actor, action, now)
 }
 
 // MarkAllRead marks every unread message read whose (received_at, id) is
 // not newer than the message upTo, the newest one the person saw, so
-// messages that arrive meanwhile stay unread. hasCode limits it to messages
-// with a verification code.
+// messages that arrive meanwhile stay unread. A message is stamped before
+// its insert commits, so one stamped earlier can still commit after upTo;
+// the rowid bound (rowids only grow) leaves such a late message, which the
+// person cannot have seen, unread too. hasCode limits it to messages with a
+// verification code.
 func (s *Store) MarkAllRead(ctx context.Context, upTo string, hasCode bool, actor string, now time.Time) (changed []string, err error) {
-	var at int64
-	err = s.db.QueryRowContext(ctx, "SELECT received_at FROM messages WHERE id=?", upTo).Scan(&at)
+	var at, rowid int64
+	err = s.db.QueryRowContext(ctx, "SELECT received_at, rowid FROM messages WHERE id=?", upTo).Scan(&at, &rowid)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrStaleBound
 	}
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT id FROM messages WHERE read_at IS NULL AND (received_at, id) <= (?, ?)`
+	cond := `read_at IS NULL AND (received_at, id) <= (?, ?) AND rowid <= ?`
 	if hasCode {
-		query += " AND has_code = 1"
+		cond += " AND has_code = 1"
 	}
-	query += " ORDER BY received_at DESC, id DESC"
-	return s.applyRead(ctx, query, []any{at, upTo}, true, actor, "message.read_all", now)
+	return s.applyRead(ctx, cond, []any{at, upTo, rowid}, true, actor, "message.read_all", now)
 }
 
-func (s *Store) applyRead(ctx context.Context, query string, args []any, read bool, actor, action string, now time.Time) ([]string, error) {
+// applyRead sets read_at on the messages matching cond in one transaction.
+// The seqs are handed out in one set-based UPDATE, oldest first so the seq
+// order matches the list order, which keeps a large "mark all" short.
+func (s *Store) applyRead(ctx context.Context, cond string, args []any, read bool, actor, action string, now time.Time) ([]string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, query, args...)
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM messages WHERE "+cond+" ORDER BY received_at DESC, id DESC", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -213,18 +218,24 @@ func (s *Store) applyRead(ctx context.Context, query string, args []any, read bo
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	var at any
-	if read {
-		at = now.UnixMilli()
-	}
-	// Oldest first, so the seq order matches the list order.
-	for i := len(changed) - 1; i >= 0; i-- {
-		seq, err := nextSeq(ctx, tx)
+	if len(changed) > 0 {
+		var top int64
+		if err := tx.QueryRowContext(ctx, `UPDATE kv SET v = CAST(CAST(v AS INTEGER) + ? AS TEXT) WHERE k = 'seq' RETURNING CAST(v AS INTEGER)`, len(changed)).Scan(&top); err != nil {
+			return nil, err
+		}
+		var at any
+		if read {
+			at = now.UnixMilli()
+		}
+		base := top - int64(len(changed))
+		res, err := tx.ExecContext(ctx, `UPDATE messages SET seq = ? + r.rn, read_at = ?
+			FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY received_at, id) AS rn FROM messages WHERE `+cond+`) AS r
+			WHERE messages.id = r.id`, append([]any{base, at}, args...)...)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := tx.ExecContext(ctx, "UPDATE messages SET seq=?,read_at=? WHERE id=?", seq, at, changed[i]); err != nil {
-			return nil, err
+		if n, err := res.RowsAffected(); err != nil || n != int64(len(changed)) {
+			return nil, fmt.Errorf("store: read batch updated %d of %d rows (%v)", n, len(changed), err)
 		}
 	}
 	if err := s.appendAudit(ctx, tx, now, actor, action, fmt.Sprintf("count=%d", len(changed)), "ok"); err != nil {

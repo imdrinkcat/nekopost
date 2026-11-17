@@ -257,16 +257,17 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 | 形式 | 字段 | 说明 |
 |---|---|---|
 | 按 ID | `{"ids":["m_…", …]}` | 1–500 个消息 ID（`m_` + 26 位 Crockford Base32）。重复 ID 只算一次；已删除或不存在的 ID 跳过，不报错。`/read` 和 `/unread` 都支持 |
-| 全部（仅 `/read`） | `{"all":true,"up_to_id":"m_…","has_code":false}` | 把 `(received_at, id)` 不晚于 `up_to_id` 那条消息的所有未读消息标为已读；`up_to_id` 是用户看到的最新一条，之后到达的消息保持未读。`has_code: true` 时只处理带验证码的消息（对应 App 的「验证码」筛选）。不能与 `ids` 同时出现 |
+| 全部（仅 `/read`） | `{"all":true,"up_to_id":"m_…","has_code":false}` | 把 `(received_at, id)` 不晚于 `up_to_id` 那条消息、且在它之前写入数据库的所有未读消息标为已读；`up_to_id` 是用户看到的最新一条，之后到达的消息（包括时间戳更早但写入更晚、用户不可能看到的消息）保持未读。`has_code: true` 时只处理带验证码的消息（对应 App 的「验证码」筛选）。不能与 `ids` 同时出现 |
 
 成功返回 `200`：
 
 ```json
-{"changed": 12, "unread_count": 3}
+{"changed": 12, "unread_count": 3, "ids": ["m_…", "…"]}
 ```
 
 - `changed`：本次实际改变状态的条数（已是目标状态的消息不计），重复请求返回 `0`，即幂等。
 - `unread_count`：操作后全部保留期内的未读数，与 `GET /v1/inbox` 相同。
+- `ids`：实际改变的消息 ID，最新的在前，最多 500 个（与推送信号相同）。发起操作的设备不会收到 `read` 信号，可用它清除自己的通知。没有改变时为 `[]`。
 - 整批在一个事务中完成；每条改变的消息获得新的 `seq`，`GET /v1/sync` 和 `GET /v1/events`（`message.updated`）都会报告。
 - 审计只记一条：`message.read_batch` / `message.unread_batch` / `message.read_all`，目标为 `count=<changed>`。
 - 标为已读后，服务器向**其他** App 设备发送 FCM `{v:"1", t:"read", ids}`（发起操作的设备除外；网页面板发起时发给所有设备），每次推送最多 50 个 ID，本批最多通知最新的 500 条，尽力而为。标为未读不推送。

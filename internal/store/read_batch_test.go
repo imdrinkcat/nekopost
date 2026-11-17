@@ -2,10 +2,13 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"nekopost/internal/model"
 )
 
 func TestReadBatch(t *testing.T) {
@@ -90,5 +93,78 @@ func TestReadBatch(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatal(got)
+	}
+}
+
+// A message stamped before the bound but committed after it (its insert
+// waited for the write lock) was never on the list the person saw, so
+// "mark all read" leaves it unread.
+func TestMarkAllReadSkipsLateCommit(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	early := newMsg("fixture", "先到", "", now)
+	bound := newMsg("fixture", "列表最新一条", "", now.Add(2*time.Second))
+	late := newMsg("fixture", "盖章更早但提交更晚", "", now.Add(time.Second))
+	for _, m := range []*model.Message{early, bound} {
+		if _, err := s.InsertMessage(ctx, m, tg, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The person sees [bound, early] and presses the button; late commits now.
+	if _, err := s.InsertMessage(ctx, late, tg, 0); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := s.MarkAllRead(ctx, bound.ID, false, "device:d_a", now)
+	if err != nil || !slices.Equal(changed, []string{bound.ID, early.ID}) {
+		t.Fatal(changed, err)
+	}
+	if st, _ := s.InboxState(ctx, late.ID); st.Read {
+		t.Fatal("a message committed after the bound was marked read")
+	}
+	// The seqs follow the list order (oldest first) and are fresh.
+	a, _ := s.InboxState(ctx, early.ID)
+	b, _ := s.InboxState(ctx, bound.ID)
+	l, _ := s.InboxState(ctx, late.ID)
+	if !(a.Seq == b.Seq-1 && a.Seq > l.Seq) {
+		t.Fatal(a.Seq, b.Seq, l.Seq)
+	}
+}
+
+// A large backlog is marked in one set-based update with distinct seqs.
+func TestMarkAllReadLargeBacklog(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	var last *model.Message
+	for i := range 600 {
+		last = newMsg("fixture", fmt.Sprintf("消息 %d", i), "", now.Add(time.Duration(i)*time.Millisecond))
+		if _, err := s.InsertMessage(ctx, last, tg, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changed, err := s.MarkAllRead(ctx, last.ID, false, "device:d_a", now)
+	if err != nil || len(changed) != 600 {
+		t.Fatal(len(changed), err)
+	}
+	if n, _ := s.UnreadCount(ctx); n != 0 {
+		t.Fatal(n)
+	}
+	seen := map[int64]bool{}
+	for _, id := range changed {
+		st, _ := s.InboxState(ctx, id)
+		if seen[st.Seq] || !st.Read {
+			t.Fatal("duplicate seq or unread", id, st)
+		}
+		seen[st.Seq] = true
+	}
+	// A fresh message after the batch gets a seq above all of them.
+	next := newMsg("fixture", "之后", "", now.Add(time.Hour))
+	if _, err := s.InsertMessage(ctx, next, tg, 0); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := s.InboxState(ctx, next.ID)
+	for q := range seen {
+		if q >= st.Seq {
+			t.Fatal("seq reused", q, st.Seq)
+		}
 	}
 }

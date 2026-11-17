@@ -91,7 +91,8 @@ async function run(browser, viewport, label, full, sweep = false) {
   await capture(page, label, "10-inbox");
 
   // Mark all read: a request without the CSRF header is refused, the button
-  // marks everything up to the newest message shown and the page reloads.
+  // marks everything up to the newest message shown, the rows update in
+  // place and a banner says how many changed.
   const markAll = page.getByRole("button", { name: "全部标为已读" });
   const upTo = await markAll.getAttribute("data-up-to");
   assert.match(upTo, /^m_[0-9A-HJKMNP-TV-Z]{26}$/);
@@ -101,9 +102,14 @@ async function run(browser, viewport, label, full, sweep = false) {
   await markAll.click();
   await page.locator("#mark-all-read").waitFor({ state: "detached" });
   await page.getByRole("heading", { name: "消息", exact: true }).waitFor();
+  assert.match(await page.locator("#management-result").textContent(), /^已将 \d+ 条消息标为已读。$/);
+  assert.equal(await page.locator(".row-unread").count(), 0);
+  assert.equal(await page.locator(".chip-unread").count(), 0);
+  await capture(page, label, "10-inbox-read");
+  await page.reload();
+  await page.getByRole("heading", { name: "消息", exact: true }).waitFor();
   assert.equal(await page.locator(".row-unread").count(), 0);
   assert.equal(await page.getByRole("heading", { name: /条未读$/ }).count(), 0);
-  await capture(page, label, "10-inbox-read");
 
   await page.getByLabel("搜索正文").fill("浏览器演练");
   await page.getByRole("button", { name: "搜索", exact: true }).click();

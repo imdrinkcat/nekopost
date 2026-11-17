@@ -331,7 +331,18 @@ document.getElementById("mark-all-read")?.addEventListener("click", async event 
       return;
     }
     if (response.ok) {
-      location.reload();
+      let changed = 0;
+      try {
+        changed = Number((await response.json()).changed) || 0;
+      } catch {}
+      // Every row on this page is at or below the bound, so all of them are
+      // read now: update them in place and say how many changed.
+      for (const row of document.querySelectorAll(".row-unread")) row.classList.remove("row-unread");
+      for (const chip of document.querySelectorAll(".chip-unread")) chip.remove();
+      document.getElementById("unread-head")?.remove();
+      display.hidden = false;
+      tone(display, "ok", changed > 0 ? "已将 ".concat(String(changed), " 条消息标为已读。") : "没有需要标为已读的消息。");
+      reveal(display);
       return;
     }
     let text = "标为已读未完成，请重试。";

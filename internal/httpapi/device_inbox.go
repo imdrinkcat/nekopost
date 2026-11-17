@@ -396,18 +396,25 @@ func (s *Server) inboxReadBatch(read bool) controlHandler {
 			writeError(w, r, errInternal)
 			return
 		}
-		if read && len(changed) > 0 {
+		// The newest changed IDs: the read signal carries them to the other
+		// devices, and the caller clears its own notifications with them
+		// (the signal skips the calling device).
+		ids := changed[:min(len(changed), readBatchSignal)]
+		if read && len(ids) > 0 {
 			except, _ := strings.CutPrefix(actor, "device:")
 			if except == actor {
 				except = ""
 			}
-			s.signal("read", changed[:min(len(changed), readBatchSignal)], except)
+			s.signal("read", ids, except)
 		}
 		unread, err := s.Store.UnreadCount(r.Context())
 		if err != nil {
 			writeError(w, r, errInternal)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"changed": len(changed), "unread_count": unread})
+		if ids == nil {
+			ids = []string{}
+		}
+		writeJSON(w, 200, map[string]any{"changed": len(changed), "unread_count": unread, "ids": ids})
 	}
 }

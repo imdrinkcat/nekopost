@@ -396,29 +396,12 @@ func TestChromiumPanel(t *testing.T) {
 		defer mu.Unlock()
 		approval = a
 	}
+	api := withAPI(f)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" && r.URL.Path == "/v1/inbox/read" {
-			// Stand-in for the httpapi batch read route (tested there): the
-			// panel's real cookie check (session, same origin, CSRF) and the
-			// real store update answer.
-			actor, ok := f.panel.AuthorizeAdmin(w, r, false)
-			if !ok {
-				return
-			}
-			var body struct {
-				All    bool   `json:"all"`
-				UpToID string `json:"up_to_id"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !body.All {
-				http.Error(w, "bad body", 400)
-				return
-			}
-			changed, err := st.MarkAllRead(r.Context(), body.UpToID, false, actor, time.Now())
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-			reply(w, 200, map[string]int{"changed": len(changed)})
+			// The real httpapi batch read route behind the panel's real
+			// cookie check (session, same origin, CSRF).
+			api.ServeHTTP(w, r)
 			return
 		}
 		if r.URL.Path == "/__test/unread" {
