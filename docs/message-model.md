@@ -100,8 +100,8 @@
 
 | 数据 | 保留时长 |
 |---|---|
-| 标题、正文、meta（`bodies` 表，加密） | 设置了 `NEKOPOST_BODY_RETENTION_DAYS` 时保留到期为止（没有投递目标的消息也保留，供 App 收件箱查看）。V1 模式（保留天数为 0）只保留到消息进入终态，之后立即删除（磁盘页会被覆盖，WAL 每小时截断）。例外：被短信过滤拦下的消息和推送过 App 的消息保留 `NEKOPOST_FILTER_KEEP_DAYS`（默认 7 天），前者以便找回，后者以便设备在推送后取回正文 |
-| 元数据（`messages`、`deliveries` 表，不含正文） | `NEKOPOST_RETENTION_DAYS`（默认 30 天） |
+| 标题、正文、meta（`bodies` 表，加密） | **默认一直保留**（`NEKOPOST_AUTO_DELETE=false`）。开启自动删除后，设置了 `NEKOPOST_BODY_RETENTION_DAYS` 时保留到期为止（没有投递目标的消息也保留，供 App 收件箱查看）。V1 模式（保留天数为 0）只保留到消息进入终态，之后立即删除（磁盘页会被覆盖，WAL 每小时截断）。例外：被短信过滤拦下的消息和推送过 App 的消息保留 `NEKOPOST_FILTER_KEEP_DAYS`（默认 7 天），前者以便找回，后者以便设备在推送后取回正文 |
+| 元数据（`messages`、`deliveries` 表，不含正文） | 默认一直保留；`NEKOPOST_AUTO_DELETE=true` 时为 `NEKOPOST_RETENTION_DAYS`（默认 30 天） |
 | 幂等键 | 随元数据一起保留，保留期内有效 |
 
 日志中从不记录正文、凭证和查询字符串。

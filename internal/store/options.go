@@ -17,6 +17,9 @@ type Options struct {
 	FilteredKeep        time.Duration // used only when BodyRetention is 0
 	DedupeWindow        time.Duration
 	KeepMigrationBackup bool
+	// KeepForever turns automatic deletion off: bodies never expire. It
+	// overrides BodyRetention and CodeRetention. Zero value = auto-delete on.
+	KeepForever bool
 }
 
 func (o Options) now() time.Time {

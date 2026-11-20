@@ -382,7 +382,7 @@ private fun Footer(message: InboxMessage) {
             }
         }
     }
-    message.expiresAt?.let {
+    message.expiresAt?.takeUnless { message.keptForever }?.let {
         Text(stringResource(R.string.inbox_body_expires, formatDate(it)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

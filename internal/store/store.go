@@ -45,6 +45,7 @@ type Store struct {
 	bodyRetention time.Duration
 	codeRetention time.Duration
 	filteredKeep  time.Duration
+	keepForever   bool
 	dedupeWindow  time.Duration
 	keepMigBackup bool
 	now           func() time.Time
@@ -83,7 +84,7 @@ func Open(path string, opt Options) (*Store, error) {
 	s := &Store{
 		path: path, db: db, box: keys, enablePush: opt.EnablePush,
 		bodyRetention: opt.BodyRetention, codeRetention: opt.CodeRetention,
-		filteredKeep: opt.FilteredKeep, dedupeWindow: opt.DedupeWindow,
+		filteredKeep: opt.FilteredKeep, keepForever: opt.KeepForever, dedupeWindow: opt.DedupeWindow,
 		keepMigBackup: opt.KeepMigrationBackup, now: opt.now,
 	}
 	if err := s.migrate(context.Background()); err != nil {

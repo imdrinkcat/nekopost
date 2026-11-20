@@ -84,7 +84,8 @@ sudo nekopost source add iphone --name iPhone --icon 📱
 | `NEKOPOST_ACME_EMAIL` | 空 | Let's Encrypt 联系邮箱（可选） |
 | `NEKOPOST_DATA_DIR` | `/var/lib/nekopost` | 数据目录 |
 | `NEKOPOST_TIMEZONE` | `Asia/Tokyo` | 显示用的时区 |
-| `NEKOPOST_RETENTION_DAYS` | `30` | 元数据保留天数（正文投递结束后立即删除，不受此项影响） |
+| `NEKOPOST_AUTO_DELETE` | `false` | 自动删除。关闭时消息和正文（加密保存）一直保留，只能手动删除；开启后下面的保留期生效 |
+| `NEKOPOST_RETENTION_DAYS` | `30` | 元数据保留天数（仅 `NEKOPOST_AUTO_DELETE=true` 时生效） |
 | `NEKOPOST_DELIVERY_MAX_AGE` | `24h` | 投递失败后最长重试多久 |
 | `NEKOPOST_DEDUPE_WINDOW` | `60s` | 无幂等键时，同一来源相同内容在此时间内视为重复；`0s` 关闭 |
 | `NEKOPOST_MAX_BODY_CHARS` | `12000` | 正文最大字符数 |

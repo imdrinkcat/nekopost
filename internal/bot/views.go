@@ -102,8 +102,11 @@ func deliveryIcon(st model.DeliveryState) string {
 
 // channelTag prefixes a delivery line with where it went.
 func channelTag(channel string) string {
-	if channel == "fcm" {
+	switch channel {
+	case "fcm":
 		return "App"
+	case "email":
+		return "邮件"
 	}
 	return "TG"
 }
@@ -518,10 +521,13 @@ func (b *Bot) viewSettings(ctx context.Context) view {
 	}
 	fmt.Fprintf(&sb, "来源限流：每个来源 %d 条/分钟\n", cfg.RatePerMin)
 	fmt.Fprintf(&sb, "正文长度上限：%d 字符\n", cfg.MaxBodyChars)
-	if cfg.Filter.Enabled {
-		fmt.Fprintf(&sb, "隐私：正文在投递结束后立即删除，被过滤的短信正文保留 %d 天；元数据保留 %d 天\n", cfg.Filter.KeepDays, cfg.RetentionDays)
-	} else {
-		fmt.Fprintf(&sb, "隐私：正文在投递结束后立即删除；元数据保留 %d 天\n", cfg.RetentionDays)
+	switch {
+	case cfg.RetentionDays == 0:
+		sb.WriteString("隐私：自动删除已关闭，消息和正文一直保留（加密保存），只能手动删除\n")
+	case cfg.Filter.Enabled:
+		fmt.Fprintf(&sb, "隐私：正文按保留期自动删除，被过滤的短信正文保留 %d 天；元数据保留 %d 天\n", cfg.Filter.KeepDays, cfg.RetentionDays)
+	default:
+		fmt.Fprintf(&sb, "隐私：正文按保留期自动删除；元数据保留 %d 天\n", cfg.RetentionDays)
 	}
 	fmt.Fprintf(&sb, "管理员：%d 人\n", cfg.AdminCount)
 	if srcs, err := b.Store.ListSources(ctx); err == nil {

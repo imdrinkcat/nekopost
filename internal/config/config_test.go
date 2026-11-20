@@ -179,3 +179,140 @@ func TestTelegramTypes(t *testing.T) {
 		}
 	}
 }
+
+func TestAutoDeleteIsOffByDefault(t *testing.T) {
+	c, err := Load(env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.AutoDelete || c.MessageRetentionDays() != 0 || c.AutoDeleteWarn != "" {
+		t.Errorf("default: %+v", c)
+	}
+	if !c.StoreOptions(make([]byte, 32), nil).KeepForever {
+		t.Error("store should keep bodies forever by default")
+	}
+}
+
+func TestAutoDeleteOn(t *testing.T) {
+	c, err := Load(env(map[string]string{"NEKOPOST_AUTO_DELETE": "true", "NEKOPOST_RETENTION_DAYS": "60"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.AutoDelete || c.MessageRetentionDays() != 60 || c.AutoDeleteWarn != "" {
+		t.Errorf("on: %+v", c)
+	}
+	opts := c.StoreOptions(make([]byte, 32), nil)
+	if opts.KeepForever || opts.BodyRetention != 7*24*time.Hour || opts.CodeRetention != 24*time.Hour {
+		t.Errorf("store options: %+v", opts)
+	}
+	// The old consistency check still applies while it is on.
+	if _, err := Load(env(map[string]string{"NEKOPOST_AUTO_DELETE": "1", "NEKOPOST_RETENTION_DAYS": "3"})); err == nil {
+		t.Error("record retention shorter than body retention should be rejected")
+	}
+}
+
+func TestAutoDeleteOffIgnoresRetentionSettingsAndSaysSo(t *testing.T) {
+	c, err := Load(env(map[string]string{"NEKOPOST_RETENTION_DAYS": "3", "NEKOPOST_BODY_RETENTION_DAYS": "7"}))
+	if err != nil {
+		t.Fatal("retention values must not be validated while off:", err)
+	}
+	if c.AutoDelete || c.MessageRetentionDays() != 0 {
+		t.Errorf("%+v", c)
+	}
+	for _, k := range []string{"NEKOPOST_RETENTION_DAYS", "NEKOPOST_BODY_RETENTION_DAYS", "NEKOPOST_AUTO_DELETE=true"} {
+		if !strings.Contains(c.AutoDeleteWarn, strings.TrimSuffix(k, "=true")) {
+			t.Errorf("warning %q lacks %s", c.AutoDeleteWarn, k)
+		}
+	}
+	if _, err := Load(env(map[string]string{"NEKOPOST_AUTO_DELETE": "maybe"})); err == nil {
+		t.Error("invalid boolean accepted")
+	}
+}
+
+func emailEnv(extra map[string]string) func(string) string {
+	m := map[string]string{"NEKOPOST_SMTP_HOST": "smtp.example.com", "NEKOPOST_EMAIL_FROM": "nekopost@example.com", "NEKOPOST_EMAIL_TO": "me@example.org"}
+	for k, v := range extra {
+		m[k] = v
+	}
+	return env(m)
+}
+
+func TestEmailOffByDefault(t *testing.T) {
+	c, err := Load(env(nil))
+	if err != nil || c.Email.Enabled() || c.Email.Warning != "" {
+		t.Fatalf("%+v %v", c.Email, err)
+	}
+}
+
+func TestEmailDefaults(t *testing.T) {
+	c, err := Load(emailEnv(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := c.Email
+	if !e.Enabled() || e.Port != 587 || e.Security != "starttls" || e.Privacy != EmailPrivacyFull || !e.TypesAll() ||
+		e.From != "nekopost@example.com" || len(e.To) != 1 || e.To[0] != "me@example.org" {
+		t.Fatalf("%+v", e)
+	}
+	c, _ = Load(emailEnv(map[string]string{"NEKOPOST_SMTP_SECURITY": "TLS", "NEKOPOST_EMAIL_TYPES": "sms, notification",
+		"NEKOPOST_EMAIL_PRIVACY": "Masked", "NEKOPOST_EMAIL_TO": "a@example.org, b@example.org"}))
+	if c.Email.Port != 465 || c.Email.Security != "tls" || c.Email.Privacy != EmailPrivacyMasked ||
+		len(c.Email.To) != 2 || c.Email.TypesAll() || !c.Email.Types["sms"] || !c.Email.Types["notification"] {
+		t.Fatalf("%+v", c.Email)
+	}
+}
+
+func TestEmailInvalidSettingsDisableOnlyEmail(t *testing.T) {
+	cases := map[string]map[string]string{
+		"no recipient":        {"NEKOPOST_EMAIL_TO": ""},
+		"no sender":           {"NEKOPOST_EMAIL_FROM": ""},
+		"display name":        {"NEKOPOST_EMAIL_FROM": "Neko <nekopost@example.com>"},
+		"header injection":    {"NEKOPOST_EMAIL_TO": "me@example.org\r\nBcc: x@example.net"},
+		"too many recipients": {"NEKOPOST_EMAIL_TO": "1@e.org,2@e.org,3@e.org,4@e.org,5@e.org,6@e.org"},
+		"bad port":            {"NEKOPOST_SMTP_PORT": "70000"},
+		"bad security":        {"NEKOPOST_SMTP_SECURITY": "ssl"},
+		"plaintext to remote": {"NEKOPOST_SMTP_SECURITY": "none"},
+		"bad privacy":         {"NEKOPOST_EMAIL_PRIVACY": "everything"},
+		"bad types":           {"NEKOPOST_EMAIL_TYPES": "sms,*"},
+		"host with a path":    {"NEKOPOST_SMTP_HOST": "smtp.example.com/x"},
+	}
+	for name, extra := range cases {
+		c, err := Load(emailEnv(extra))
+		if err != nil {
+			t.Errorf("%s: a bad email setting must not stop the service: %v", name, err)
+		}
+		if c.Email.Warning == "" || c.Email.Enabled() {
+			t.Errorf("%s: want email off with a warning, got %+v", name, c.Email)
+		}
+	}
+	// Plaintext is allowed only to a relay on the same host.
+	if c, _ := Load(emailEnv(map[string]string{"NEKOPOST_SMTP_HOST": "127.0.0.1", "NEKOPOST_SMTP_SECURITY": "none"})); !c.Email.Enabled() || c.Email.Port != 25 {
+		t.Errorf("loopback relay: %+v", c.Email)
+	}
+	// Email settings without a host are reported, not silently ignored.
+	if c, _ := Load(env(map[string]string{"NEKOPOST_EMAIL_TO": "me@example.org"})); c.Email.Warning == "" {
+		t.Error("EMAIL_TO without SMTP_HOST should warn")
+	}
+}
+
+func TestEmailPasswordFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/pw"
+	if err := os.WriteFile(path, []byte("hunter2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := Load(emailEnv(map[string]string{"NEKOPOST_SMTP_USERNAME": "neko", "NEKOPOST_SMTP_PASSWORD_FILE": path}))
+	pw, err := c.Email.Password()
+	if err != nil || pw != "hunter2" {
+		t.Fatalf("%q %v", pw, err)
+	}
+	c, _ = Load(emailEnv(map[string]string{"NEKOPOST_SMTP_USERNAME": "neko", "NEKOPOST_SMTP_PASSWORD_FILE": dir + "/missing"}))
+	if _, err := c.Email.Password(); err == nil || strings.Contains(err.Error(), dir) {
+		t.Errorf("a missing file should fail without echoing a path: %v", err)
+	}
+	// No username: no password is read at all.
+	c, _ = Load(emailEnv(nil))
+	if pw, err := c.Email.Password(); pw != "" || err != nil {
+		t.Errorf("%q %v", pw, err)
+	}
+}

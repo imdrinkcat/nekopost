@@ -171,7 +171,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	msg.NeedsClassification = held
 	var targets []store.NewDelivery
 	for _, t := range s.Router.Route(src, msg) {
-		targets = append(targets, store.NewDelivery{Channel: t.Channel, Target: t.Target, Silent: t.Silent, Held: held})
+		targets = append(targets, store.NewDelivery{Channel: t.Channel, Target: t.Target, Silent: t.Silent, Held: held, Aux: t.Aux})
 	}
 	res, err := s.Store.InsertMessage(r.Context(), msg, targets, s.DedupeWindow)
 	if err != nil {

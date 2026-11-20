@@ -158,7 +158,7 @@ echo "备份完成" | curl -sS -X POST "https://osaka.drinkcat.com/v1/messages?t
 - `category` / `category_text`：短信过滤的分类结果，未分类时为 `null`。
 - `uncertain: true` 表示某次尝试的结果未知，这条消息在 Telegram 里可能出现了两次。
 - 未设置的时间字段为 `null`。
-- 元数据超过保留期后会被删除，此时返回 404。
+- 自动删除默认关闭，消息记录一直保留。开启（`NEKOPOST_AUTO_DELETE=true`）后，元数据超过保留期会被删除，此时返回 404。
 
 ## 5. 只读管理接口 `/v1/admin/*`
 

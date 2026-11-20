@@ -66,6 +66,7 @@ type Panel struct {
 
 type Settings struct {
 	Timezone                                             string
+	AutoDelete                                           bool
 	RetentionDays, BodyRetentionDays, CodeRetentionHours int
 }
 

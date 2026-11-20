@@ -188,6 +188,10 @@ func adminKeyRoute(r *http.Request) bool {
 }
 
 func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"version": s.Version, "timezone": s.Location.String(), "retention_days": s.Status.RetentionDays,
-		"max_body_chars": s.MaxBodyChars, "filter_enabled": s.Filter != nil})
+	var retention any // null: automatic deletion is off
+	if s.Status.RetentionDays > 0 {
+		retention = s.Status.RetentionDays
+	}
+	writeJSON(w, 200, map[string]any{"version": s.Version, "timezone": s.Location.String(), "retention_days": retention,
+		"auto_delete": s.Status.RetentionDays > 0, "max_body_chars": s.MaxBodyChars, "filter_enabled": s.Filter != nil})
 }

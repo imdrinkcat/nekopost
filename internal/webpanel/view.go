@@ -148,6 +148,8 @@ func channelLabel(channel string) string {
 		return "Telegram"
 	case "fcm":
 		return "手机推送"
+	case "email":
+		return "邮件"
 	}
 	return channel
 }

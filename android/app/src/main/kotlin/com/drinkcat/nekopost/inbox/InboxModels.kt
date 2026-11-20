@@ -46,6 +46,12 @@ data class InboxMessage(
     /** The body is gone (expired, shredded or never kept): show 「正文已过期」. */
     val expired: Boolean get() = expiresAt == null
 
+    /**
+     * The server keeps the body until it is deleted by hand (automatic deletion is
+     * off); its expiry is then the year 9999. The body is live, but there is no date.
+     */
+    val keptForever: Boolean get() = expiresAt?.let { it.epochSecond > 200_000_000_000L } == true
+
     /** The name shown on the row and as the notification title. */
     val displaySender: String get() = sender.ifBlank { title }.ifBlank { sourceName }.ifBlank { sourceId }
 

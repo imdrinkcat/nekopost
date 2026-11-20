@@ -33,7 +33,7 @@ type Settings struct {
 	Timezone       string
 	ChatID         int64
 	AdminCount     int
-	RetentionDays  int
+	RetentionDays  int // 0: automatic deletion is off
 	DeliveryMaxAge time.Duration
 	DedupeWindow   time.Duration
 	RatePerMin     int

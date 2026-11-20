@@ -135,7 +135,7 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 	// V1 mode stores nothing unless some delivery will actually run: skipped
 	// push rows (device settings, the source device) do not need the body.
 	live := slices.ContainsFunc(targets, func(t NewDelivery) bool { return t.Skip == "" })
-	keepBody := live || s.bodyRetention > 0
+	keepBody := live || !s.v1Mode()
 	bodyState := "none"
 	if keepBody {
 		bodyState = "stored"
@@ -150,7 +150,7 @@ func (s *Store) InsertMessage(ctx context.Context, m *model.Message, targets []N
 	}
 	if keepBody {
 		exp := s.expiresAt(m.ReceivedAt, hasCode, string(m.Category))
-		if s.bodyRetention == 0 {
+		if s.v1Mode() {
 			keep := s.filteredKeep
 			if keep <= 0 {
 				keep = 7 * 24 * time.Hour
@@ -488,13 +488,13 @@ func (s *Store) updateAggregate(ctx context.Context, tx *sql.Tx, msgID string, n
 		// Messages pushed to the App keep it until the exp set at insert,
 		// because the device fetches the body after the push.
 		var pushed bool
-		if s.bodyRetention == 0 && status != model.StatusFiltered {
+		if s.v1Mode() && status != model.StatusFiltered {
 			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM deliveries
-				WHERE message_id = ? AND channel = 'fcm' AND state <> 'skipped')`, msgID).Scan(&pushed); err != nil {
+				WHERE message_id = ? AND channel IN ('fcm', 'email') AND state <> 'skipped')`, msgID).Scan(&pushed); err != nil {
 				return "", err
 			}
 		}
-		if s.bodyRetention == 0 && status != model.StatusFiltered && !pushed {
+		if s.v1Mode() && status != model.StatusFiltered && !pushed {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM bodies WHERE message_id = ?", msgID); err != nil {
 				return "", err
 			}
@@ -660,7 +660,7 @@ func (s *Store) ClearStaleFingerprints(ctx context.Context, now time.Time, windo
 // that are older than the body retention.
 func (s *Store) ShredUnusedDEKs(ctx context.Context, now time.Time) error {
 	horizon := now.Add(-s.bodyRetention - 24*time.Hour)
-	if s.bodyRetention == 0 {
+	if s.v1Mode() {
 		horizon = now.Add(-s.filteredKeep - 24*time.Hour)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

@@ -117,7 +117,22 @@ func (s *Store) readBody(ctx context.Context, id string) (title, body string, me
 	return p.Title, p.Body, p.Meta, true, nil
 }
 
+// NeverExpires is the body expiry of a body that is kept until deleted by
+// hand (1 January 9999 UTC). Every "expires_at > now" check keeps working
+// unchanged; display code hides it with IsNever.
+var NeverExpires = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// IsNever reports whether t is the "never expires" marker (or later).
+func IsNever(t time.Time) bool { return !t.Before(NeverExpires) }
+
+// v1Mode is the legacy "delete the body when delivery finishes" behaviour:
+// a retention of zero with automatic deletion still on.
+func (s *Store) v1Mode() bool { return s.bodyRetention == 0 && !s.keepForever }
+
 func (s *Store) expiresAt(received time.Time, hasCode bool, category string) time.Time {
+	if s.keepForever {
+		return NeverExpires
+	}
 	d := s.bodyRetention
 	code := s.codeRetention
 	if code == 0 {

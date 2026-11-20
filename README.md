@@ -42,7 +42,8 @@ flowchart LR
   - Verification codes are detected locally and **never** sent to the AI.
   - Other messages have digits and links masked before classification.
   - Any AI failure means the message is forwarded as usual.
-- **Privacy by default**: message bodies are deleted as soon as delivery finishes, with `secure_delete` and hourly WAL truncation. Logs never contain message content or credentials.
+- **Privacy**: bodies are stored encrypted, and kept until you delete them unless you turn on automatic deletion (`NEKOPOST_AUTO_DELETE=true`: 7 days, verification codes 24 hours). `secure_delete` and hourly WAL truncation apply to every deletion. Logs never contain message content or credentials.
+- **Optional email copy**: set an SMTP server and each message is also emailed (full, masked or ping-only), as an auxiliary channel that never changes a message's status. See `docs/email.md`.
 - **Batteries included**: built-in Let's Encrypt (autocert), a hardened systemd unit with watchdog, a multi-arch Docker image, honest health reporting ("unknown" is never shown as "healthy"), and a read-only admin API.
 - **Tiny footprint**: about 19 MB RSS and 0.01% CPU when idle, on a 1 vCPU / 1 GB VPS. Docker is optional; no external services.
 
@@ -152,7 +153,8 @@ All settings live in `/etc/nekopost/nekopost.env` (see [`deploy/nekopost.env.exa
 | `NEKOPOST_TELEGRAM_ADMIN_IDS` | — | Comma-separated numeric Telegram user IDs |
 | `NEKOPOST_TIMEZONE` | `Asia/Tokyo` | Display timezone |
 | `NEKOPOST_DELIVERY_MAX_AGE` | `24h` | How long to keep retrying |
-| `NEKOPOST_RETENTION_DAYS` | `30` | Metadata retention (bodies are deleted right after delivery) |
+| `NEKOPOST_AUTO_DELETE` | `false` | Automatic deletion. Off: messages and bodies are kept (encrypted) until deleted by hand. On: the three retention settings below apply |
+| `NEKOPOST_RETENTION_DAYS` | `30` | Metadata retention (only when auto-delete is on) |
 | `NEKOPOST_DEEPSEEK_API_KEY` | — | Enables the SMS filter |
 | `NEKOPOST_TRUSTED_PROXIES` | — | Reverse proxies (IPs/CIDRs) whose `X-Forwarded-For` is trusted |
 
@@ -187,6 +189,7 @@ The detailed documentation is written in Chinese.
 | [Web panel](docs/web.md) | Google sign-in, browser approval and read-only views |
 | [Message model](docs/message-model.md) | Unified message format, states, rendering |
 | [SMS filter](docs/sms-filter.md) | DeepSeek classification, privacy, rescue |
+| [Email](docs/email.md) | Optional email copy: SMTP setup, privacy levels, behavior |
 | [Adding sources](docs/adding-sources.md) | Linux, Windows, macOS, Android examples; new output channels |
 | [Architecture](docs/architecture.md) | Modules, persistence, delivery state machine, health model |
 | [Operations](docs/operations.md) | Monitoring and troubleshooting |

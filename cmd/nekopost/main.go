@@ -20,6 +20,7 @@ import (
 	"nekopost/internal/app"
 	"nekopost/internal/auth"
 	"nekopost/internal/config"
+	"nekopost/internal/delivery"
 	"nekopost/internal/enroll"
 	"nekopost/internal/filter"
 	"nekopost/internal/model"
@@ -38,7 +39,7 @@ const usage = `nekopost — 个人消息网关
 
 服务:
   serve                               运行网关服务（通常由 systemd 启动）
-  check [--send-test]                 检查配置、数据库、主密钥和 Telegram 连接
+  check [--send-test]                 检查配置、数据库、主密钥、Telegram 和邮件（--send-test 会发测试消息 / 测试邮件）
   healthcheck                         检查本机服务是否存活（供 Docker 健康检查使用）
   version                             显示版本
 
@@ -733,6 +734,37 @@ func cmdCheck(cfg *config.Config, args []string) int {
 		}
 	} else {
 		fmt.Println("- 短信过滤 未启用（未设置 NEKOPOST_DEEPSEEK_API_KEY）")
+	}
+	switch {
+	case cfg.Email.Warning != "":
+		report(false, "邮件", cfg.Email.Warning)
+	case cfg.Email.Enabled():
+		password, err := cfg.Email.Password()
+		if err != nil {
+			report(false, "邮件", err.Error())
+			break
+		}
+		types := "全部类型"
+		if !cfg.Email.TypesAll() {
+			types = "部分类型"
+		}
+		detail := fmt.Sprintf("%s:%d（%s），收件人 %d 个，内容 %s，%s", cfg.Email.Host, cfg.Email.Port, cfg.Email.Security,
+			len(cfg.Email.To), cfg.Email.Privacy, types)
+		if !*sendTest {
+			report(true, "邮件", detail+"（用 --send-test 发送一封测试邮件）")
+			break
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		ch := delivery.NewEmailChannel(cfg.Email, password, cfg.Location)
+		if err := ch.SendTest(ctx, "这是一封 nekopost 测试邮件。\n如果你看到它，说明 SMTP 服务器、账号和收件地址配置正确。\n"+
+			time.Now().In(cfg.Location).Format("2006-01-02 15:04:05")+"\n"); err != nil {
+			report(false, "邮件测试", err.Error())
+		} else {
+			report(true, "邮件测试", detail+"；测试邮件已被服务器接收")
+		}
+	default:
+		fmt.Println("- 邮件 未启用（未设置 NEKOPOST_SMTP_HOST）")
 	}
 	if !ok {
 		return 1

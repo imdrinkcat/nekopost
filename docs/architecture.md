@@ -87,7 +87,7 @@ flowchart LR
 | 表 | 内容 |
 |---|---|
 | `kv` | 内部键值：`seq`、主密钥首次使用时间、`last_start`、`start_count`。去重密钥不在这里 |
-| `bodies` | 加密后的标题、正文和 meta。按 `NEKOPOST_BODY_RETENTION_DAYS`（默认 7 天）保留，验证码类默认 24 小时。见 [encryption.md](encryption.md) |
+| `bodies` | 加密后的标题、正文和 meta。默认一直保留；`NEKOPOST_AUTO_DELETE=true` 时按 `NEKOPOST_BODY_RETENTION_DAYS`（默认 7 天）保留，验证码类默认 24 小时。见 [encryption.md](encryption.md) |
 | `sources` | 来源：id、名称、图标、是否启用、最近请求时间、已吊销凭证被使用的次数和时间 |
 | `source_tokens` | 来源凭证：**仅存 SHA-256 摘要**和前 10 个字符的显示前缀；轮换后旧凭证记录 `revoked_at` |
 | `admin_keys` | 管理 API 密钥（同样只存摘要） |
@@ -96,8 +96,8 @@ flowchart LR
 
 数据保留：
 
-- 正文：加密保存在 `bodies`。默认保留 7 天（验证码类 24 小时），到期后删除，并在没有引用时销毁当天的数据密钥。详见 [encryption.md](encryption.md)。
-- 元数据：保留 `NEKOPOST_RETENTION_DAYS`（默认 30 天）后删除，只删已完成的消息。维护任务在启动 1 分钟后首次运行，之后每小时一次。
+- 正文：加密保存在 `bodies`。自动删除默认关闭，正文一直保留（`expires_at` 为 9999-01-01，表示永不过期）；`NEKOPOST_AUTO_DELETE=true` 时保留 7 天（验证码类 24 小时），到期后删除，并在没有引用时销毁当天的数据密钥。详见 [encryption.md](encryption.md)。
+- 元数据：自动删除开启时，保留 `NEKOPOST_RETENTION_DAYS`（默认 30 天）后删除，只删已完成的消息；关闭时不删。维护任务在启动 1 分钟后首次运行，之后每小时一次。
 
 ## 4. 投递语义与状态机
 

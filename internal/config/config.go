@@ -29,6 +29,7 @@ type Config struct {
 	FCMFile, FCMProject string
 
 	Web       WebConfig
+	Email     EmailConfig
 	Domain    string
 	TLSMode   string // "autocert" or "off"
 	HTTPSAddr string
@@ -47,6 +48,10 @@ type Config struct {
 	TimezoneName string
 	Location     *time.Location
 
+	// AutoDelete turns on the retention periods below. It is off by default:
+	// message records and bodies are then kept until deleted by hand.
+	AutoDelete       bool
+	AutoDeleteWarn   string // set when retention variables are ignored
 	RetentionDays    int
 	DeliveryMaxAge   time.Duration
 	DedupeWindow     time.Duration
@@ -78,6 +83,7 @@ func (c *Config) StoreOptions(kek, previous []byte) store.Options {
 		CodeRetention:       time.Duration(c.CodeRetentionHours) * time.Hour,
 		DedupeWindow:        c.DedupeWindow,
 		KeepMigrationBackup: c.KeepMigrationBackup,
+		KeepForever:         !c.AutoDelete,
 	}
 	if c.BodyRetentionDays == 0 {
 		o.FilteredKeep = time.Duration(c.FilterKeepDays) * 24 * time.Hour
@@ -89,6 +95,15 @@ func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "nekopost.db"
 // ACMECacheDir stores Let's Encrypt account keys and certificates.
 func (c *Config) ACMECacheDir() string { return filepath.Join(c.DataDir, "acme") }
 
+// MessageRetentionDays is how long message records are kept, or 0 when
+// automatic deletion is off and they are kept until deleted by hand.
+func (c *Config) MessageRetentionDays() int {
+	if !c.AutoDelete {
+		return 0
+	}
+	return c.RetentionDays
+}
+
 // TelegramAll reports whether Telegram receives every message type.
 func (c *Config) TelegramAll() bool { return c.TelegramTypes == nil }
 
@@ -97,6 +112,11 @@ func (c *Config) TelegramAll() bool { return c.TelegramTypes == nil }
 // to the App while the bot keeps working for administration and approvals
 // (an empty, non-nil map); otherwise a comma-separated list of types.
 func parseTelegramTypes(raw string) (map[string]bool, error) {
+	return parseTypes("NEKOPOST_TELEGRAM_TYPES", raw)
+}
+
+// parseTypes is parseTelegramTypes for any variable (key is used in errors).
+func parseTypes(key, raw string) (map[string]bool, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "*" {
 		return nil, nil
@@ -111,15 +131,15 @@ func parseTelegramTypes(raw string) (map[string]bool, error) {
 		case strings.EqualFold(kind, "none") || kind == "-":
 			none = true
 		case kind == "*":
-			return nil, errors.New("NEKOPOST_TELEGRAM_TYPES 的 * 不能与其他类型同时使用")
+			return nil, fmt.Errorf("%s 的 * 不能与其他类型同时使用", key)
 		case !model.ValidKind(kind):
-			return nil, errors.New("NEKOPOST_TELEGRAM_TYPES 包含无效的消息类型")
+			return nil, fmt.Errorf("%s 包含无效的消息类型", key)
 		default:
 			types[kind] = true
 		}
 	}
 	if none && len(types) > 0 {
-		return nil, errors.New("NEKOPOST_TELEGRAM_TYPES 的 none 不能与其他类型同时使用")
+		return nil, fmt.Errorf("%s 的 none 不能与其他类型同时使用", key)
 	}
 	if !none && len(types) == 0 {
 		return nil, nil
@@ -161,6 +181,10 @@ func Load(getenv func(string) string) (*Config, error) {
 		BotToken:        get("NEKOPOST_TELEGRAM_BOT_TOKEN", ""),
 		TelegramAPIBase: strings.TrimRight(get("NEKOPOST_TELEGRAM_API_BASE", "https://api.telegram.org"), "/"),
 		TimezoneName:    get("NEKOPOST_TIMEZONE", "Asia/Tokyo"),
+	}
+	if err := loadEmail(c, getenv); err != nil {
+		// Like the web panel: a bad email setting disables only that channel.
+		c.Email = EmailConfig{Warning: err.Error()}
 	}
 	if err := loadWeb(c, getenv); err != nil {
 		// Isolate optional Web configuration failures from message forwarding.
@@ -241,6 +265,11 @@ func Load(getenv func(string) string) (*Config, error) {
 		c.TrustedProxies = append(c.TrustedProxies, p.Masked())
 	}
 
+	autoDelete, err := parseBool("NEKOPOST_AUTO_DELETE", get("NEKOPOST_AUTO_DELETE", ""))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	c.AutoDelete = autoDelete
 	c.RetentionDays = intVar("NEKOPOST_RETENTION_DAYS", 30, 1, 365)
 	c.BodyRetentionDays = intVar("NEKOPOST_BODY_RETENTION_DAYS", 7, 0, 90)
 	c.CodeRetentionHours = intVar("NEKOPOST_CODE_RETENTION_HOURS", 24, 0, 90*24)
@@ -277,8 +306,21 @@ func Load(getenv func(string) string) (*Config, error) {
 		c.RetentionAliasWarn = fmt.Sprintf("NEKOPOST_FILTER_KEEP_DAYS=%d 已弃用，正文保留期按较大值 %d 天", c.FilterKeepDays, c.FilterKeepDays)
 		c.BodyRetentionDays = c.FilterKeepDays
 	}
-	if c.BodyRetentionDays > 0 && c.RetentionDays < c.BodyRetentionDays {
-		errs = append(errs, fmt.Errorf("NEKOPOST_RETENTION_DAYS（%d）不能小于正文保留天数（%d）", c.RetentionDays, c.BodyRetentionDays))
+	if c.AutoDelete {
+		if c.BodyRetentionDays > 0 && c.RetentionDays < c.BodyRetentionDays {
+			errs = append(errs, fmt.Errorf("NEKOPOST_RETENTION_DAYS（%d）不能小于正文保留天数（%d）", c.RetentionDays, c.BodyRetentionDays))
+		}
+	} else {
+		var ignored []string
+		for _, k := range []string{"NEKOPOST_RETENTION_DAYS", "NEKOPOST_BODY_RETENTION_DAYS", "NEKOPOST_CODE_RETENTION_HOURS", "NEKOPOST_FILTER_KEEP_DAYS"} {
+			if strings.TrimSpace(getenv(k)) != "" {
+				ignored = append(ignored, k)
+			}
+		}
+		if len(ignored) > 0 {
+			c.AutoDeleteWarn = strings.Join(ignored, "、") + " 已设置但被忽略：自动删除默认关闭，需要设置 NEKOPOST_AUTO_DELETE=true 才会按保留期删除"
+		}
+		c.RetentionAliasWarn = ""
 	}
 
 	switch strings.ToLower(get("NEKOPOST_LOG_LEVEL", "info")) {
@@ -294,6 +336,17 @@ func Load(getenv func(string) string) (*Config, error) {
 		errs = append(errs, fmt.Errorf("NEKOPOST_LOG_LEVEL 必须是 debug/info/warn/error"))
 	}
 	return c, errors.Join(errs...)
+}
+
+// parseBool reads a yes/no variable. Unset means false.
+func parseBool(key, v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "0", "false", "off", "no":
+		return false, nil
+	case "1", "true", "on", "yes":
+		return true, nil
+	}
+	return false, fmt.Errorf("%s 必须是 true 或 false", key)
 }
 
 func splitList(v string) []string {

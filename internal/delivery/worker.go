@@ -300,6 +300,11 @@ func (w *Worker) process(ctx context.Context, job store.Job) {
 			r.NextAttemptAt = next
 		}
 	}
+	// A best-effort channel (email) never changes a message's status, so its
+	// final failure would otherwise go unnoticed: list it under recent errors.
+	if d.Aux && d.Channel != "fcm" && (r.State == model.DeliveryFailed || r.State == model.DeliveryUncertain) {
+		w.Health.Error(after, "邮件", r.LastError)
+	}
 	w.finish(job, r)
 }
 

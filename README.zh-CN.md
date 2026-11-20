@@ -45,7 +45,8 @@ flowchart LR
   - 验证码在服务器本地识别，**不会**发给 AI。
   - 其余短信先遮盖数字和链接，再交给 AI 分类。
   - AI 出任何故障，短信都照常转发。
-- **默认保护隐私**：正文在投递结束后立即删除，数据库开启 `secure_delete`，WAL 每小时截断。日志不记录正文和凭证。
+- **隐私**：正文加密保存，默认一直保留、由你手动删除；设置 `NEKOPOST_AUTO_DELETE=true` 后按保留期自动删除（正文 7 天，验证码 24 小时）。所有删除都带 `secure_delete`，WAL 每小时截断。日志不记录正文和凭证。
+- **可选的邮件副本**：配置 SMTP 服务器后，每条消息再发一封邮件（全文、打码或只提醒），是不影响消息状态的辅助通道。见 [docs/email.md](docs/email.md)。
 - **开箱即用**：内置 Let's Encrypt 自动证书；systemd 服务带安全加固和看门狗；提供多架构 Docker 镜像；状态报告如实，无法确认的状态显示为「无法确认」，不会当作正常；另有只读管理 API。
 - **占用极低**：在 1 vCPU / 1 GB 内存的 VPS 上，空闲时内存约 19 MB，CPU 约 0.01%。Docker 可选，不依赖外部服务。
 
@@ -153,7 +154,8 @@ NEKOPOST_DEEPSEEK_API_KEY=sk-...
 | `NEKOPOST_TELEGRAM_ADMIN_IDS` | — | 管理员的 Telegram 数字 ID，逗号分隔 |
 | `NEKOPOST_TIMEZONE` | `Asia/Tokyo` | 显示用的时区 |
 | `NEKOPOST_DELIVERY_MAX_AGE` | `24h` | 投递失败后最长重试多久 |
-| `NEKOPOST_RETENTION_DAYS` | `30` | 元数据保留天数（正文投递后立即删除） |
+| `NEKOPOST_AUTO_DELETE` | `false` | 自动删除。关闭时消息和正文（加密保存）一直保留，只能手动删除；开启后下面三项保留期生效 |
+| `NEKOPOST_RETENTION_DAYS` | `30` | 元数据保留天数（仅自动删除开启时生效） |
 | `NEKOPOST_DEEPSEEK_API_KEY` | — | 设置后启用短信过滤 |
 | `NEKOPOST_TRUSTED_PROXIES` | — | 反向代理的 IP 或网段，只信任它们发来的 `X-Forwarded-For` |
 
@@ -186,6 +188,7 @@ nekopost version
 | [网页面板](docs/web.md) | Google 登录、浏览器确认和只读页面 |
 | [消息模型](docs/message-model.md) | 统一消息格式、状态、呈现方式 |
 | [短信过滤](docs/sms-filter.md) | DeepSeek 分类、隐私、找回 |
+| [邮件通道](docs/email.md) | 可选的邮件副本：SMTP 配置、内容级别、行为 |
 | [扩展消息来源](docs/adding-sources.md) | Linux / Windows / macOS / Android 示例，新增输出通道 |
 | [架构说明](docs/architecture.md) | 模块、持久化、投递状态机、健康模型 |
 | [运维与排障](docs/operations.md) | 监控与故障排查 |

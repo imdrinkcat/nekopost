@@ -64,6 +64,18 @@ class InboxParseTest {
     }
 
     @Test
+    fun bodyKeptForeverStaysLiveWithoutADate() {
+        val forever = InboxMessage.parse(
+            JSONObject(item().toString()).put("body_expires_at", "9999-01-01T09:00:00+09:00"),
+            Instant.parse("2027-01-01T00:00:00Z"),
+        )
+        assertFalse(forever.expired)
+        assertTrue(forever.keptForever)
+        val dated = InboxMessage.parse(item(), Instant.parse("2026-11-16T10:00:00Z"))
+        assertFalse(dated.keptForever)
+    }
+
+    @Test
     fun olderServersWithoutSenderFallBack() {
         val old = JSONObject(item().toString()).apply {
             remove("sender")

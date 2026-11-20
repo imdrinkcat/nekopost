@@ -63,6 +63,11 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	if err != nil {
 		return err
 	}
+	if n, err := st.ApplyRetentionMode(ctx, startedAt); err != nil {
+		return err
+	} else if n > 0 {
+		log.Info("body retention mode applied", "auto_delete", cfg.AutoDelete, "bodies", n)
+	}
 	dedupeKey := st.DedupeKey()
 	if n, err := st.RecoverInFlight(ctx, startedAt); err != nil {
 		return err
@@ -101,6 +106,24 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		// Push rows left from a run with FCM (now app-primary ones decide the
 		// message status) are finalized instead of waiting forever.
 		worker.Unconfigured = append(worker.Unconfigured, "fcm")
+	}
+
+	var emailCh *delivery.EmailChannel
+	if cfg.Email.Warning != "" {
+		log.Warn("email disabled", "reason", cfg.Email.Warning)
+	} else if cfg.Email.Enabled() {
+		if password, err := cfg.Email.Password(); err != nil {
+			log.Warn("email disabled", "reason", err)
+		} else {
+			emailCh = delivery.NewEmailChannel(cfg.Email, password, cfg.Location)
+			worker.Channels[emailCh.Name()] = emailCh
+			log.Info("email enabled", "host", cfg.Email.Host, "port", cfg.Email.Port, "security", cfg.Email.Security,
+				"recipients", len(cfg.Email.To), "privacy", cfg.Email.Privacy)
+		}
+	}
+	if emailCh == nil {
+		// Rows left from a run with email are finalized instead of waiting.
+		worker.Unconfigured = append(worker.Unconfigured, "email")
 	}
 
 	var fl *filter.Filter
@@ -142,8 +165,17 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		telegramMode = "some"
 	}
 	if telegramMode != "all" && fcm == nil {
-		log.Warn("some message types are excluded from Telegram but App push (FCM) is not configured; those messages will not be delivered",
-			"telegram_types", telegramMode)
+		if emailCh != nil {
+			log.Warn("some message types are excluded from Telegram and App push (FCM) is not configured; they are only emailed (an auxiliary channel), so their status stays 未转发",
+				"telegram_types", telegramMode)
+		} else {
+			log.Warn("some message types are excluded from Telegram but App push (FCM) is not configured; those messages will not be delivered",
+				"telegram_types", telegramMode)
+		}
+	}
+	msgRouter := router.Chain{router.Default{Channel: "telegram", Target: "default", Types: cfg.TelegramTypes}}
+	if emailCh != nil {
+		msgRouter = append(msgRouter, router.Default{Channel: "email", Target: "default", Types: cfg.Email.Types, Aux: true})
 	}
 	statusSvc := &status.Service{
 		TelegramMode:  telegramMode,
@@ -157,7 +189,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		StartedAt:     startedAt,
 		StartInfo:     startInfo,
 		Version:       version,
-		RetentionDays: cfg.RetentionDays,
+		RetentionDays: cfg.MessageRetentionDays(),
 	}
 
 	burst := max(10, cfg.SourceRatePerMin/3)
@@ -169,7 +201,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		DPoP:           auth.NewDPoP(),
 		PublicURL:      publicURL,
 		Store:          st,
-		Router:         router.Default{Channel: "telegram", Target: "default", Types: cfg.TelegramTypes},
+		Router:         msgRouter,
 		TelegramTypes:  cfg.TelegramTypes,
 		Worker:         worker,
 		Notifier:       notifier,
@@ -206,7 +238,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		Version:  version,
 		Settings: bot.Settings{
 			Domain: cfg.Domain, TLSMode: cfg.TLSMode, Timezone: cfg.TimezoneName, ChatID: cfg.ChatID,
-			AdminCount: len(cfg.AdminIDs), RetentionDays: cfg.RetentionDays, DeliveryMaxAge: cfg.DeliveryMaxAge,
+			AdminCount: len(cfg.AdminIDs), RetentionDays: cfg.MessageRetentionDays(), DeliveryMaxAge: cfg.DeliveryMaxAge,
 			DedupeWindow: cfg.DedupeWindow, RatePerMin: cfg.SourceRatePerMin, MaxBodyChars: cfg.MaxBodyChars,
 			Filter: bot.FilterSettings{Enabled: cfg.FilterEnabled(), Model: cfg.DeepSeekModel, Types: cfg.FilterTypes,
 				Drop: cfg.FilterDrop, KeepDays: cfg.FilterKeepDays},
@@ -217,7 +249,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 
 	panel := &webpanel.Panel{
 		Store: st, Status: statusSvc, Version: version, ClientIP: api.ClientIP,
-		Settings: webpanel.Settings{Timezone: cfg.TimezoneName, RetentionDays: cfg.RetentionDays,
+		Settings: webpanel.Settings{Timezone: cfg.TimezoneName, AutoDelete: cfg.AutoDelete, RetentionDays: cfg.RetentionDays,
 			BodyRetentionDays: cfg.BodyRetentionDays, CodeRetentionHours: cfg.CodeRetentionHours},
 		Allow: cfg.Web.Allow, NotifyApproval: b.SendWebApproval, NotifySecurity: b.NotifyWebSecurity,
 	}
@@ -278,7 +310,10 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	if cfg.RetentionAliasWarn != "" {
 		log.Warn(cfg.RetentionAliasWarn)
 	}
-	log.Info("nekopost started", "version", version, "tls", cfg.TLSMode, "domain", cfg.Domain,
+	if cfg.AutoDeleteWarn != "" {
+		log.Warn(cfg.AutoDeleteWarn)
+	}
+	log.Info("nekopost started", "version", version, "auto_delete", cfg.AutoDelete, "tls", cfg.TLSMode, "domain", cfg.Domain,
 		"start_count", startInfo.StartCount, "filter", cfg.FilterEnabled())
 
 	var runErr error
@@ -309,11 +344,13 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 // truncation (so purged message bodies do not linger on disk).
 func maintenance(ctx context.Context, st *store.Store, api *httpapi.Server, cfg *config.Config, log *slog.Logger) {
 	run := func() {
-		cutoff := time.Now().Add(-time.Duration(cfg.RetentionDays) * 24 * time.Hour)
-		if n, err := st.PurgeExpired(ctx, cutoff); err != nil {
-			log.Error("retention purge failed", "err", err)
-		} else if n > 0 {
-			log.Info("expired message metadata purged", "count", n)
+		if cfg.AutoDelete {
+			cutoff := time.Now().Add(-time.Duration(cfg.RetentionDays) * 24 * time.Hour)
+			if n, err := st.PurgeExpired(ctx, cutoff); err != nil {
+				log.Error("retention purge failed", "err", err)
+			} else if n > 0 {
+				log.Info("expired message metadata purged", "count", n)
+			}
 		}
 		if n, err := st.ExpireBodies(ctx, time.Now()); err != nil {
 			log.Error("body purge failed", "err", err)

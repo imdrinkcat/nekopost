@@ -186,7 +186,7 @@ func (s *Service) Stats(ctx context.Context, r Range) (StatsResult, error) {
 	if res.Queue, err = s.Store.Queue(ctx); err != nil {
 		return res, err
 	}
-	if retention := time.Duration(s.RetentionDays) * 24 * time.Hour; now.Sub(from) > retention {
+	if retention := time.Duration(s.RetentionDays) * 24 * time.Hour; s.RetentionDays > 0 && now.Sub(from) > retention {
 		res.Note = fmt.Sprintf("仅统计保留期（%d 天）内的记录", s.RetentionDays)
 	}
 	return res, nil
