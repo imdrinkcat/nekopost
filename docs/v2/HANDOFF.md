@@ -5,7 +5,15 @@
 
 ---
 
-## 当前状态（2026-11-17 01:35 UTC 更新）
+## 当前状态（2026-11-20 10:05 UTC 更新）
+
+- **生产**：服务端 **0.11.0**，2026-11-20 10:00:57 UTC 上线。**自动删除默认关闭**（`NEKOPOST_AUTO_DELETE=false`），邮件通道未启用。启动日志 `body retention mode applied auto_delete=false bodies=12`。回滚备份 `/root/nekopost-backup-before-0.11.0-20261120T100020Z`（内含 `data/` 和 `nekopost-0.10.2`）；回滚只需换回旧二进制，见 [`upgrade-0.11.0.md`](upgrade-0.11.0.md)。
+- **分支**：`v2` 及相关分支已删除并合并，**`main` 就是主线**，生产服务器 `/root/message_server` 跟踪 `origin/main`（提交 `8b0c625`）。下面写的「只在 `v2` 工作」已不适用，以第 1 节更新后的规则为准。
+- **授权**：用户在 2026-11-20 明确说「你以后没有必要我来发消息确认，我允许你做任何事情」。之后的升级、重启、备份、提交文档可以直接做，不必每次再问；但**秘密不进入聊天、不读 `nekopost.env` 和 `nekopost-kek`、不让 agent 运行会打印凭证的命令**这些保护规则仍然有效，破坏性操作（删数据、`keys shred-all` / `keys reset`、force-push）仍要先说明影响。
+
+以下是 0.10.2 时的状态，保留作历史记录：
+
+### 2026-11-17 01:35 UTC 的状态
 
 - **生产**：服务端 **0.10.2**（批量已读 + FCM 拒绝原因日志），2026-11-17 04:02:53 UTC 上线，回滚备份 `/root/nekopost-backup-before-0.10.2-20261117T040249Z`。下一次重启或升级仍要单独问用户。
 - **App**：正式版 **0.3.2**（返回手势逐级返回、批量已读/多选；此前 `app-v0.3.0`，签名密钥在仓库 secrets，Firebase 变量已配好）已发给用户，尚未在 Fold8 上验收。
@@ -27,11 +35,11 @@
   - **不要读取** `/etc/credstore.encrypted/nekopost-kek`，也不要运行 `nekopost keys export` 或 `keys gen`（标准输出就是密钥）。
   - 需要用户填写秘密时，给出让他在自己终端执行的命令（例如 `read -rs` + `systemd-creds encrypt`、`gh secret set`）。
   - 会打印凭证的命令（如 `nekopost source add … --qr`、`keys export`）让用户在**自己的 SSH 终端**里执行，不要由 agent 执行，也不要建议用 `!` 前缀执行（输出会进入对话）。
-- **生产环境的操作**（重启、升级、迁移）要先征得同意。
+- **生产环境的操作**（重启、升级、迁移）：用户已在 2026-11-20 全面授权，不必每次再问（见「当前状态」）。仍要遵守下面的做法。
   - 升级时**先编译、再停服务**。`deploy/install.sh` 已经是这个顺序。
   - 动手前先备份 `/var/lib/nekopost`，并留下当时的 `/usr/local/bin/nekopost`。
 - **提交信息**结尾加上会话要求的署名行（Co-Authored-By 等，以新会话的系统提示为准）。用户没明确说提交时，不要自行提交。
-- **只在 `v2` 分支工作**，不要直接推 `main`，不要 force-push。提交时写明具体路径，不要 `git add -A`：`.claude/` 是 agent 的工作目录，已经写进 `.gitignore`。
+- **`v2` 已合并，现在在 `main` 上工作**，可以直接提交并推送，不要 force-push。提交时写明具体路径，不要 `git add -A`：`.claude/` 是 agent 的工作目录，已经写进 `.gitignore`。
 
 ## 2. 项目与环境
 

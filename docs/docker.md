@@ -2,16 +2,19 @@
 
 Nekopost 也提供容器镜像，适合部署到已经在用 Docker 的服务器。功能和 systemd 部署完全一样。内存很小的 VPS 仍然推荐 systemd 部署（见 [deployment.md](deployment.md)），因为 Docker 守护进程本身就要占用几十 MB 内存。
 
+> ⚠️ **只有包含 0.6.0 及之后代码的镜像才有正文加密、Android 配对和网页面板，并且必须提供主密钥才能启动。** 镜像只在 `main` 分支和 `v*` 标签上构建。`v2` 已经合并进 `main`，之后构建的 `latest` 都包含这些功能；但 **`0.5.0` / `0.5` 这类旧版本号标签不含加密，不要拿旧镜像去打开 0.6.0 以后的数据库**，旧版本打不开已经迁移过的库。
+
 | 项目 | 说明 |
 |---|---|
 | 镜像 | `ghcr.io/imdrinkcat/nekopost` |
-| 标签 | `latest`（main 分支最新版）、`0.5.0` / `0.5`（版本号）、`sha-xxxxxxx`（某次提交） |
+| 标签 | `latest`（main 分支最新版）、`<版本号>`（推送 `v*` 标签时生成，如 `0.5.0`）、`sha-xxxxxxx`（某次提交） |
 | 架构 | `linux/amd64`、`linux/arm64` |
 | 基础镜像 | `distroless/static`：没有 shell，以 uid/gid `65532` 运行，镜像约 15 MB |
 | 数据 | 容器内的 `/data`：数据库 `nekopost.db` 和证书目录 `acme/` |
+| 主密钥 | 容器内的 `/run/secrets/nekopost_kek`（Docker secret），**不要放进数据卷** |
 | 端口 | 容器内 `8080`（HTTP）和 `8443`（HTTPS） |
 
-镜像由 GitHub Actions 构建（`.github/workflows/docker.yml`）：推送到 main 分支或推送 `v*` 标签后，先运行全部测试，再启动容器做冒烟测试，通过后才发布。
+镜像由 GitHub Actions 构建（`.github/workflows/docker.yml`）：推送到 main 分支或推送 `v*` 标签后，构建镜像并启动容器做冒烟测试，通过后才发布。冒烟测试包含「没有主密钥必须拒绝启动」这一项。全部单元测试在另一个工作流（`ci.yml`）里，每次推送都会运行，Docker 工作流不再重复运行测试。
 
 ---
 
@@ -35,6 +38,22 @@ Nekopost 也提供容器镜像，适合部署到已经在用 Docker 的服务器
    sudo cp nekopost.env.example nekopost.env && sudo chmod 600 nekopost.env
    sudo nano nekopost.env                          # 填写域名、Bot Token、管理员 ID
    ```
+
+4. 生成主密钥。compose 会把 `secrets/nekopost_kek` 挂到容器的 `/run/secrets/nekopost_kek`：
+
+   ```bash
+   sudo install -d -m 700 secrets
+   docker run --rm ghcr.io/imdrinkcat/nekopost keys gen | sudo tee secrets/nekopost_kek >/dev/null
+   sudo chown 65532:65532 secrets/nekopost_kek && sudo chmod 400 secrets/nekopost_kek
+   ```
+
+   `keys gen` 在标准输出是终端时会拒绝输出，所以必须用管道或重定向。之后马上把主密钥备份到密码管理器（在自己的终端执行，不要贴进聊天）：
+
+   ```bash
+   sudo cat secrets/nekopost_kek | base64 | <密码管理器的写入命令>
+   ```
+
+   备份的内容是 base64 文本，恢复时服务可以直接读取。主密钥不要和数据库备份放在一起，详见 [encryption.md](encryption.md)。
 
    `NEKOPOST_DATA_DIR`、`NEKOPOST_HTTP_ADDR`、`NEKOPOST_HTTPS_ADDR` 已经由 compose 固定，在 `nekopost.env` 里设置也不会生效。
 
@@ -118,7 +137,7 @@ docker compose exec nekopost nekopost check
 docker compose pull && docker compose up -d
 ```
 
-需要固定版本时，把 compose 里的 `:latest` 改成 `:0.5.0` 这样的版本号。回滚时改回旧版本号即可。数据库结构只会向前升级，所以回滚前请先备份。
+需要固定版本时，把 compose 里的 `:latest` 改成某个版本号或 `sha-xxxxxxx`。回滚时改回旧版本号即可。数据库结构只会向前升级，所以回滚前请先备份。
 
 **修改配置**：编辑 `nekopost.env` 后执行 `docker compose up -d`。只执行 `restart` 不会重新读取 env 文件。
 
@@ -130,6 +149,8 @@ docker compose stop
 sudo tar czf nekopost-backup-$(date +%F).tgz data nekopost.env compose*.yaml
 docker compose start
 ```
+
+这份备份**不含** `secrets/nekopost_kek`。主密钥单独保存（见第 1 节第 4 步），不要和数据库备份放在一起。恢复时先把主密钥放回 `secrets/nekopost_kek`，再启动容器。
 
 ---
 
@@ -150,11 +171,25 @@ sudo mv data/nekopost.env . && sudo chmod 600 nekopost.env
 sudo chown -R 65532:65532 data
 ```
 
+**主密钥不在这个压缩包里**，必须单独带过去，否则新容器打不开旧数据库里的正文。在**新服务器自己的终端**里，把旧服务器 `keys export` 备份到密码管理器里的内容粘贴进去（粘贴后按回车，输入不回显）：
+
+```bash
+cd /opt/nekopost
+sudo install -d -m 700 secrets
+read -rs -p '主密钥: ' kek; printf '\n'
+printf '%s\n' "$kek" | sudo tee secrets/nekopost_kek >/dev/null
+unset kek
+sudo chown 65532:65532 secrets/nekopost_kek && sudo chmod 400 secrets/nekopost_kek
+```
+
+`keys export` 输出的是 base64 文本，服务可以直接读取。**不要用 `keys gen` 生成新的**：新密钥打不开旧数据。
+
 然后：
 
 1. 把域名的 DNS 记录改到新服务器的 IP，等待生效。
-2. 在新服务器上执行 `docker compose up -d`，再执行 `docker compose exec nekopost nekopost check`。
-3. 确认正常后，在旧服务器上执行 `sudo systemctl disable nekopost`，防止旧服务器重启后又把 Bot 抢回去。
+2. 先在旧服务器上执行 `sudo systemctl disable --now nekopost`，再在新服务器上执行 `docker compose up -d`（同一个 Bot 只能有一个实例轮询，两个同时运行会互相冲突，也能防止旧服务器重启后又把 Bot 抢回去）。
+3. 执行 `docker compose exec nekopost nekopost check` 和 `docker compose exec nekopost nekopost keys status`，确认主密钥前几位和旧服务器一致。
+4. Google 登录的 Client Secret 和 FCM 服务账号放在 systemd 凭证里，不在压缩包中。需要的话挂载为 `/run/secrets/nekopost_google_client_secret`，或用 `NEKOPOST_FCM_CREDENTIALS_FILE` 指向挂载的文件（见 [web.md](web.md)、[android.md](android.md)）。
 
 迁移期间投递失败的消息会在新实例启动后继续重试。
 
@@ -190,4 +225,4 @@ networks:
 make docker            # 等同于 docker build -t nekopost:<版本> -t nekopost:latest .
 ```
 
-用本地镜像部署时，把 compose 里的 `image:` 改为 `nekopost:latest`。
+用本地镜像部署时，把 compose 里的 `image:` 改为 `nekopost:latest`。这样可以在发布镜像之前先验证当前代码。

@@ -5,7 +5,7 @@
 1. **自动删除默认关闭。** 以前正文默认 7 天（验证码 24 小时）后删除、消息记录 30 天后删除；现在这些都不会自动发生，消息和正文（加密保存）一直保留，只能手动删除。
 2. **新增邮件通道。** 默认不启用，设置了 `NEKOPOST_SMTP_HOST` 才发邮件。见 [../email.md](../email.md)。
 
-这份文档没有在生产上演练过；升级要先征得用户同意。
+这份文档先在生产数据的副本上演练，再升级；升级经用户同意（见文末的生产记录）。
 
 ## 对现有部署的影响
 
@@ -49,3 +49,17 @@ sudo systemctl start nekopost && sudo nekopost check
 - 邮件通道用进程内的假 SMTP 服务器测试：STARTTLS 和隐式 TLS、PLAIN 和 LOGIN 认证、服务器不支持 STARTTLS 时拒绝明文、证书校验失败、认证失败、收件人被拒、临时失败、确认前断线（结果不确定）、头部注入、三档内容级别。
 - 没有用真实的 SMTP 服务商测过。上线后先 `nekopost check --send-test`。
 - Android 的改动（`keptForever`）只有单元测试，没有在本机构建（本机没有 Android SDK），由 CI 验证。
+
+## 生产升级记录（2026-11-20）
+
+2026-11-20 10:00:57 UTC 从 0.10.2 升级到 0.11.0，用户明确同意。提交 `8b0c625`。
+
+1. **只读核对**：生产在 `/root/message_server`，原在已被删除的 `v2` 分支；切到 `main`（`git checkout -B main origin/main`），工作区干净。env 里没有设置任何保留期变量，所以没有「被忽略」的警告。磁盘剩 3.8 GB。
+2. **备份**：`/root/nekopost-backup-before-0.11.0-20261120T100020Z`（17 MB，含 `data/` 和 `nekopost-0.10.2`）。
+3. **先编译**：`CGO_ENABLED=0 go build ... -o bin/nekopost`，旧服务照常运行。
+4. **副本演练**：把数据复制到 `/var/tmp/np-rehearse.*`（属主 `nekopost`、权限 700），用新二进制执行 `check`、`keys status`、`web audit verify`、`source list`，全部通过，之后删除副本。第一次把副本放在 `/root` 下失败（命令以 root 运行时会切换成 `nekopost` 用户，没有权限），换到 `/var/tmp` 才通过。
+5. **升级**：`sudo ./deploy/install.sh`，从开始编译到自检完成共约 7 秒，服务停机约 1 秒。
+6. **验证**：`nekopost version` 为 0.11.0；`healthcheck` ok；公网 `/healthz` 200；`NRestarts=0`；内存约 8.5 MB；启动后没有 WARN 或 ERROR；`keys status` 正常；`check --send-test` 的测试消息已发送到 Telegram。
+7. **行为变化**：启动日志 `body retention mode applied auto_delete=false bodies=12`，12 条现有正文被设为永不过期。
+
+邮件通道未启用，也没有用真实 SMTP 服务商测过。
